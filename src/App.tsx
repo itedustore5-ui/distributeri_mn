@@ -61,6 +61,18 @@ type PageKey =
 
 type Status = "success" | "warning" | "danger" | "neutral" | "info";
 
+type UserRole = "management" | "warehouse" | "driver";
+
+type AppUser = {
+  id: string;
+  initials: string;
+  firstName: string;
+  name: string;
+  role: UserRole;
+  roleLabel: string;
+  facility: string;
+};
+
 type Notice = {
   id: number;
   title: string;
@@ -127,6 +139,18 @@ const navGroups = [
       { key: "audit" as PageKey, label: "Audit trail", icon: FileCheck2 },
     ],
   },
+];
+
+const roleAccess: Record<UserRole, PageKey[]> = {
+  management: ["dashboard", "receipts", "inventory", "orders", "picking", "vehicles", "routes", "deliveries", "haccp", "nc", "tasks", "traceability", "reports", "audit", "settings"],
+  warehouse: ["dashboard", "receipts", "inventory", "picking", "haccp", "tasks"],
+  driver: ["dashboard", "vehicles", "routes", "deliveries", "tasks"],
+};
+
+const appUsers: AppUser[] = [
+  { id: "marko", initials: "MP", firstName: "Marko", name: "Marko Petrović", role: "management", roleLabel: "Odgovorno lice", facility: "Centralni magacin" },
+  { id: "nikola", initials: "NV", firstName: "Nikola", name: "Nikola Vuković", role: "warehouse", roleLabel: "Magacioner", facility: "Centralni magacin" },
+  { id: "petar", initials: "PJ", firstName: "Petar", name: "Petar Janković", role: "driver", roleLabel: "Vozač", facility: "Distribucija · Ruta 091" },
 ];
 
 const noticesSeed: Notice[] = [
@@ -214,8 +238,10 @@ const navTitle: Record<PageKey, string> = {
 
 function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
+  const [currentUser, setCurrentUser] = useState<AppUser>(appUsers[0]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notices, setNotices] = useState(noticesSeed);
   const [receipts, setReceipts] = useState(receiptsSeed);
   const [search, setSearch] = useState("");
@@ -234,6 +260,9 @@ function App() {
   };
 
   const activeLabel = navTitle[page];
+  const visibleNavGroups = navGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => roleAccess[currentUser.role].includes(item.key)) }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <div className="app-shell">
@@ -244,11 +273,11 @@ function App() {
         </div>
         <div className="facility-switcher">
           <div className="facility-icon"><Warehouse size={17} /></div>
-          {sidebarOpen && <div className="facility-copy"><span>Aktivni objekat</span><strong>Centralni magacin</strong></div>}
+          {sidebarOpen && <div className="facility-copy"><span>Aktivni objekat</span><strong>{currentUser.facility}</strong></div>}
           {sidebarOpen && <ChevronDown size={15} className="muted-icon" />}
         </div>
         <nav className="main-nav">
-          {navGroups.map((group) => (
+          {visibleNavGroups.map((group) => (
             <div className="nav-group" key={group.label}>
               {sidebarOpen && <p className="nav-label">{group.label}</p>}
               {group.items.map((item) => {
@@ -265,9 +294,9 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => setPage("settings")} title={!sidebarOpen ? "Podešavanja" : undefined}>
+          {roleAccess[currentUser.role].includes("settings") && <button className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => setPage("settings")} title={!sidebarOpen ? "Podešavanja" : undefined}>
             <Settings2 size={18} /><span>{sidebarOpen && "Podešavanja"}</span>
-          </button>
+          </button>}
           {sidebarOpen && <div className="sidebar-status"><span className="status-dot"></span><span>Sistem operativan</span><span className="status-version">v0.1</span></div>}
         </div>
         <button className="sidebar-toggle" onClick={() => setSidebarOpen((open) => !open)} aria-label="Sakrij meni">
@@ -279,7 +308,7 @@ function App() {
         <header className="topbar">
           <div className="topbar-left">
             <button className="mobile-menu" onClick={() => setSidebarOpen((open) => !open)}><Menu size={20} /></button>
-            <div className="breadcrumb"><span>Centralni magacin</span><ArrowRight size={13} /><strong>{activeLabel}</strong></div>
+            <div className="breadcrumb"><span>{currentUser.facility}</span><ArrowRight size={13} /><strong>{activeLabel}</strong></div>
           </div>
           <div className="topbar-actions">
             <div className="operational-pill"><span className="status-dot"></span><span className="operational-label">Operativni dan</span><strong>19. sep 2026.</strong></div>
@@ -289,15 +318,18 @@ function App() {
               </button>
               {notificationsOpen && <NotificationPanel notices={notices} onClear={clearNotice} />}
             </div>
-            <div className="user-menu">
-              <div className="avatar">MP</div>
-              <div className="user-copy"><strong>Marko Petrović</strong><span>Odgovorno lice</span></div>
-              <ChevronDown size={15} className="muted-icon" />
+            <div className="user-menu-wrap">
+              <button className="user-menu user-menu-button" onClick={() => setUserMenuOpen((open) => !open)}>
+                <div className={`avatar ${currentUser.role}`}>{currentUser.initials}</div>
+                <div className="user-copy"><strong>{currentUser.name}</strong><span>{currentUser.roleLabel}</span></div>
+                <ChevronDown size={15} className={`muted-icon ${userMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {userMenuOpen && <UserSwitcher currentUser={currentUser} users={appUsers} onSelect={(user) => { setCurrentUser(user); setPage("dashboard"); setUserMenuOpen(false); setNotificationsOpen(false); showToast(`Prijavljen pogled: ${user.roleLabel}`); }} />}
             </div>
           </div>
         </header>
         <div className="page-content">
-          {page === "dashboard" && <Dashboard onNavigate={setPage} onAction={handleAction} />}
+          {page === "dashboard" && <Dashboard currentUser={currentUser} onNavigate={setPage} onAction={handleAction} />}
           {page === "receipts" && <ReceiptsPage receipts={receipts} onAction={handleAction} onAccept={(id) => { setReceipts((all) => all.map((receipt) => receipt.id === id ? { ...receipt, status: "Prihvaćen", statusTone: "success" } : receipt)); showToast("Prijem je prihvaćen i evidentiran u audit trail-u"); }} />}
           {page === "inventory" && <InventoryPage search={search} setSearch={setSearch} onAction={handleAction} />}
           {page === "orders" && <OrdersPage onAction={handleAction} />}
@@ -328,11 +360,61 @@ function PageHeader({ eyebrow, title, description, action, actionLabel, onAction
   );
 }
 
-function Dashboard({ onNavigate, onAction }: { onNavigate: (page: PageKey) => void; onAction: (message: string) => void }) {
+function UserSwitcher({ currentUser, users, onSelect }: { currentUser: AppUser; users: AppUser[]; onSelect: (user: AppUser) => void }) {
+  return <div className="user-switcher"><div className="user-switcher-header"><span>Pregled kao</span><strong>{currentUser.facility}</strong></div>{users.map((user) => <button className={`user-switcher-row ${currentUser.id === user.id ? "selected" : ""}`} key={user.id} onClick={() => onSelect(user)}><div className={`avatar small ${user.role}`}>{user.initials}</div><div><strong>{user.name}</strong><span>{user.roleLabel}</span></div>{currentUser.id === user.id && <CheckCircle2 size={16} />}</button>)}<div className="user-switcher-note"><ShieldCheck size={13} />Prikaz menija zavisi od uloge</div></div>;
+}
+
+function Dashboard({ currentUser, onNavigate, onAction }: { currentUser: AppUser; onNavigate: (page: PageKey) => void; onAction: (message: string) => void }) {
+  if (currentUser.role === "warehouse") return <WarehouseDashboard user={currentUser} onNavigate={onNavigate} onAction={onAction} />;
+  if (currentUser.role === "driver") return <DriverDashboard user={currentUser} onNavigate={onNavigate} onAction={onAction} />;
+  return <ManagementDashboard user={currentUser} onNavigate={onNavigate} onAction={onAction} />;
+}
+
+function WarehouseDashboard({ user, onNavigate, onAction }: { user: AppUser; onNavigate: (page: PageKey) => void; onAction: (message: string) => void }) {
+  return <>
+    <PageHeader eyebrow="Magacin · Smjena 1 · Centralni magacin" title={`${user.firstName}, tvoj radni pregled`} description="Prijemi, picking i stanje robe koje danas obrađuješ." />
+    <div className="role-banner warehouse"><div className="role-banner-icon"><Warehouse size={21} /></div><div><strong>Magacionerski režim</strong><span>Prikazani su samo zadaci i operacije za skladište.</span></div><div className="role-banner-meta"><span>Aktivna smjena</span><strong>06:00 – 14:00</strong></div></div>
+    <section className="stats-grid">
+      <StatCard label="Prijemi na rampi" value="2" detail="1 čeka unos stavki" icon={ArrowDownToLine} tone="blue" onClick={() => onNavigate("receipts")} />
+      <StatCard label="Picking nalozi" value="3" detail="1 spreman za početak" icon={PackageOpen} tone="violet" onClick={() => onNavigate("picking")} />
+      <StatCard label="Dostupna zaliha" value="14.280" detail="jedinica na lokacijama" icon={Boxes} tone="green" onClick={() => onNavigate("inventory")} />
+      <StatCard label="LOT-ovi na HOLD" value="4" detail="ne pomerati bez odluke" icon={AlertTriangle} tone="orange" onClick={() => onNavigate("inventory")} />
+    </section>
+    <div className="role-dashboard-grid">
+      <section className="panel role-work-panel"><div className="panel-header"><div><h2>Moji radni nalozi</h2><p>Operacije koje su ti dodeljene danas</p></div><button className="link-button" onClick={() => onNavigate("tasks")}>Svi zadaci <ArrowRight size={15} /></button></div><div className="role-task-list">
+        <button className="role-task" onClick={() => onNavigate("receipts")}><span className="role-task-icon blue"><ArrowDownToLine size={17} /></span><div><strong>Unesi stavke prijema PR-240821-04</strong><span>Frikom d.o.o. · 12 stavki · Rampa 02</span></div><StatusBadge label="U toku" tone="info" /><ArrowRight size={15} /></button>
+        <button className="role-task" onClick={() => onNavigate("picking")}><span className="role-task-icon violet"><PackageOpen size={17} /></span><div><strong>Završi picking PK-260919-008</strong><span>Voli Trade · 8 od 26 stavki potvrđeno</span></div><StatusBadge label="Prioritet" tone="warning" /><ArrowRight size={15} /></button>
+        <button className="role-task" onClick={() => onNavigate("inventory")}><span className="role-task-icon orange"><Archive size={17} /></span><div><strong>Ne pomeraj LOT-2024-0821</strong><span>HOLD · Komora K-02 · čeka odluku kvaliteta</span></div><StatusBadge label="Blokirano" tone="danger" /><ArrowRight size={15} /></button>
+      </div></section>
+      <section className="panel quick-panel"><div className="panel-header"><div><h2>Brze operacije</h2><p>Najčešće akcije u skladištu</p></div></div><div className="quick-action-grid"><button onClick={() => onNavigate("receipts")}><ArrowDownToLine size={18} /><span>Prijem robe</span><small>Unos i kontrola</small></button><button onClick={() => onNavigate("picking")}><PackageOpen size={18} /><span>Pokreni picking</span><small>3 aktivna naloga</small></button><button onClick={() => onNavigate("inventory")}><Boxes size={18} /><span>Pronađi LOT</span><small>Po lokaciji ili SKU</small></button><button onClick={() => onAction("Otvorena je forma za novo merenje temperature")}><Gauge size={18} /><span>Temperatura</span><small>Nova kontrola</small></button></div></section>
+    </div>
+    <section className="panel role-bottom-panel"><div className="panel-header"><div><h2>Stanje smene</h2><p>Pregled rada magacina u realnom vremenu</p></div><StatusBadge label="Sve operacije stabilne" tone="success" /></div><div className="shift-progress"><div><span>Prijemi</span><strong>10 / 12</strong><div className="progress-track"><span style={{ width: "83%" }}></span></div></div><div><span>Picking</span><strong>2 / 3</strong><div className="progress-track"><span style={{ width: "66%" }}></span></div></div><div><span>Kontrole</span><strong>24 / 28</strong><div className="progress-track green-track"><span style={{ width: "86%" }}></span></div></div></div></section>
+  </>;
+}
+
+function DriverDashboard({ user, onNavigate, onAction }: { user: AppUser; onNavigate: (page: PageKey) => void; onAction: (message: string) => void }) {
+  return <>
+    <PageHeader eyebrow="Distribucija · Vozački portal · Subota, 19. septembar 2026." title={`${user.firstName}, spreman za rutu?`} description="Ovde vidiš svoje vozilo, stopove i potvrde isporuke." />
+    <div className="role-banner driver"><div className="role-banner-icon"><Truck size={21} /></div><div><strong>Vozački režim</strong><span>Samo tvoje vozilo, ruta i isporuke su prikazane.</span></div><div className="role-banner-meta"><span>Dodeljeno vozilo</span><strong>PG CG 308</strong></div></div>
+    <section className="stats-grid">
+      <StatCard label="Današnja ruta" value="RUTA-091" detail="8 kupaca · u toku" icon={Map} tone="blue" onClick={() => onNavigate("routes")} />
+      <StatCard label="Preostali stopovi" value="6" detail="od 8 planiranih" icon={Map} tone="violet" onClick={() => onNavigate("routes")} />
+      <StatCard label="Isporučeno" value="2" detail="danas na ovoj ruti" icon={PackageCheck} tone="green" onClick={() => onNavigate("deliveries")} />
+      <StatCard label="Status vozila" value="SPREMNO" detail="kontrola 06:30 · 3.2°C" icon={Truck} tone="orange" onClick={() => onNavigate("vehicles")} />
+    </section>
+    <div className="role-dashboard-grid">
+      <section className="panel route-focus-panel"><div className="panel-header"><div><h2>Moja ruta RUTA-091</h2><p>PG CG 308 · Hladnjača · 0° do 5°C</p></div><StatusBadge label="U toku" tone="info" /></div><div className="route-progress-card"><div className="route-progress-top"><div><span>Napredak rute</span><strong>2 od 8 stopova</strong></div><strong>25%</strong></div><div className="progress-track"><span style={{ width: "25%" }}></span></div><div className="route-progress-meta"><span>Polazak 06:45</span><span>Planirani povratak 13:45</span></div></div><div className="driver-stop-list"><button className="driver-stop done"><span>1</span><div><strong>Restoran Galion</strong><small>Kotor · isporučeno u 09:45</small></div><CheckCircle2 size={17} /></button><button className="driver-stop done"><span>2</span><div><strong>Hotel Splendid</strong><small>Budva · isporučeno u 10:30</small></div><CheckCircle2 size={17} /></button><button className="driver-stop current" onClick={() => onNavigate("deliveries")}><span>3</span><div><strong>Voli Trade</strong><small>Podgorica · 26 stavki · sledeći stop</small></div><ArrowRight size={17} /></button><button className="driver-stop"><span>4</span><div><strong>Aroma market 02</strong><small>Podgorica · planirano 12:00</small></div><Clock3 size={17} /></button></div></section>
+      <section className="panel quick-panel"><div className="panel-header"><div><h2>Akcije vozača</h2><p>Brze potvrde sa terena</p></div></div><div className="quick-action-grid driver-actions"><button onClick={() => onNavigate("deliveries")}><PackageCheck size={18} /><span>Potvrdi isporuku</span><small>Potpis i količina</small></button><button onClick={() => onAction("Otvoren je obrazac za prijavu povrata")}><ArrowDownToLine size={18} /><span>Prijavi povrat</span><small>LOT i razlog</small></button><button onClick={() => onNavigate("vehicles")}><Gauge size={18} /><span>Unesi temperaturu</span><small>Vozilo PG CG 308</small></button><button onClick={() => onAction("Podrška distribucije je obaveštena")}><Bell size={18} /><span>Pozovi dispečera</span><small>Operativna podrška</small></button></div><div className="driver-note"><ShieldCheck size={16} /><span>Vozilo je spremno za nastavak rute. Sledeća obavezna kontrola: po povratku.</span></div></section>
+    </div>
+    <section className="panel role-bottom-panel"><div className="panel-header"><div><h2>Napomena dispečera</h2><p>Poslednja poruka za tvoju rutu</p></div><StatusBadge label="Važno" tone="warning" /></div><div className="dispatcher-note"><div className="avatar small">DM</div><div><strong>Dispečerski centar</strong><span>Kupac Voli Trade je potvrdio prijem između 11:15 i 11:30. Kod odbijanja bilo koje stavke obavezno unesi razlog i fotografiju.</span></div><time>pre 18 min</time></div></section>
+  </>;
+}
+
+function ManagementDashboard({ user, onNavigate, onAction }: { user: AppUser; onNavigate: (page: PageKey) => void; onAction: (message: string) => void }) {
   const [range, setRange] = useState("Danas");
   return (
     <>
-      <PageHeader eyebrow="Subota, 19. septembar 2026. · Smjena 1" title="Dobro jutro, Marko" description="Evo pregleda ključnih operacija i odstupanja za današnji dan." />
+      <PageHeader eyebrow={`Subota, 19. septembar 2026. · Smjena 1 · ${user.roleLabel}`} title={`Dobro jutro, ${user.firstName}`} description="Evo pregleda ključnih operacija i odstupanja za današnji dan." />
       <div className="dashboard-toolbar"><div className="live-indicator"><span className="pulse"></span><strong>Live operativni pregled</strong><span>·</span><span>poslednje osvežavanje pre 2 min</span></div><div className="range-control"><CalendarDays size={15} />{["Danas", "7 dana", "30 dana"].map((label) => <button key={label} className={range === label ? "selected" : ""} onClick={() => setRange(label)}>{label}</button>)}</div></div>
       <section className="critical-strip">
         <div className="section-heading"><div><h2>Zahteva pažnju</h2><span>4 aktivna upozorenja za obradu</span></div><button className="link-button" onClick={() => onNavigate("haccp")}>Pregledaj sve <ArrowRight size={15} /></button></div>
