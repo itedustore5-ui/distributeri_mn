@@ -23,6 +23,8 @@ import {
   History,
   LayoutDashboard,
   ListChecks,
+  LockKeyhole,
+  LogOut,
   Map,
   Menu,
   MoreHorizontal,
@@ -65,6 +67,7 @@ type UserRole = "management" | "warehouse" | "driver";
 
 type AppUser = {
   id: string;
+  username: string;
   initials: string;
   firstName: string;
   name: string;
@@ -148,10 +151,18 @@ const roleAccess: Record<UserRole, PageKey[]> = {
 };
 
 const appUsers: AppUser[] = [
-  { id: "marko", initials: "MP", firstName: "Marko", name: "Marko Petrović", role: "management", roleLabel: "Odgovorno lice", facility: "Centralni magacin" },
-  { id: "nikola", initials: "NV", firstName: "Nikola", name: "Nikola Vuković", role: "warehouse", roleLabel: "Magacioner", facility: "Centralni magacin" },
-  { id: "petar", initials: "PJ", firstName: "Petar", name: "Petar Janković", role: "driver", roleLabel: "Vozač", facility: "Distribucija · Ruta 091" },
+  { id: "marko", username: "marko", initials: "MP", firstName: "Marko", name: "Marko Petrović", role: "management", roleLabel: "Odgovorno lice", facility: "Centralni magacin" },
+  { id: "nikola", username: "nikola", initials: "NV", firstName: "Nikola", name: "Nikola Vuković", role: "warehouse", roleLabel: "Magacioner", facility: "Centralni magacin" },
+  { id: "petar", username: "petar", initials: "PJ", firstName: "Petar", name: "Petar Janković", role: "driver", roleLabel: "Vozač", facility: "Distribucija · Ruta 091" },
 ];
+
+const loginCredentials: Record<string, string> = {
+  marko: "Marko#2026",
+  nikola: "Nikola#2026",
+  petar: "Petar#2026",
+};
+
+const authStorageKey = "pilot-distributeri-active-user";
 
 const noticesSeed: Notice[] = [
   {
@@ -238,7 +249,10 @@ const navTitle: Record<PageKey, string> = {
 
 function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
-  const [currentUser, setCurrentUser] = useState<AppUser>(appUsers[0]);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
+    const storedUserId = window.sessionStorage.getItem(authStorageKey);
+    return appUsers.find((user) => user.id === storedUserId) || null;
+  });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -246,6 +260,10 @@ function App() {
   const [receipts, setReceipts] = useState(receiptsSeed);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState("");
+
+  if (!currentUser) {
+    return <LoginScreen users={appUsers} onLogin={(user) => { window.sessionStorage.setItem(authStorageKey, user.id); setCurrentUser(user); setPage("dashboard"); }} />;
+  }
 
   const unread = notices.length;
   const showToast = (message: string) => {
@@ -324,7 +342,7 @@ function App() {
                 <div className="user-copy"><strong>{currentUser.name}</strong><span>{currentUser.roleLabel}</span></div>
                 <ChevronDown size={15} className={`muted-icon ${userMenuOpen ? "rotate-180" : ""}`} />
               </button>
-              {userMenuOpen && <UserSwitcher currentUser={currentUser} users={appUsers} onSelect={(user) => { setCurrentUser(user); setPage("dashboard"); setUserMenuOpen(false); setNotificationsOpen(false); showToast(`Prijavljen pogled: ${user.roleLabel}`); }} />}
+              {userMenuOpen && <UserAccountMenu currentUser={currentUser} onLogout={() => { window.sessionStorage.removeItem(authStorageKey); setCurrentUser(null); setUserMenuOpen(false); setNotificationsOpen(false); }} />}
             </div>
           </div>
         </header>
@@ -360,8 +378,50 @@ function PageHeader({ eyebrow, title, description, action, actionLabel, onAction
   );
 }
 
-function UserSwitcher({ currentUser, users, onSelect }: { currentUser: AppUser; users: AppUser[]; onSelect: (user: AppUser) => void }) {
-  return <div className="user-switcher"><div className="user-switcher-header"><span>Pregled kao</span><strong>{currentUser.facility}</strong></div>{users.map((user) => <button className={`user-switcher-row ${currentUser.id === user.id ? "selected" : ""}`} key={user.id} onClick={() => onSelect(user)}><div className={`avatar small ${user.role}`}>{user.initials}</div><div><strong>{user.name}</strong><span>{user.roleLabel}</span></div>{currentUser.id === user.id && <CheckCircle2 size={16} />}</button>)}<div className="user-switcher-note"><ShieldCheck size={13} />Prikaz menija zavisi od uloge</div></div>;
+function LoginScreen({ users, onLogin }: { users: AppUser[]; onLogin: (user: AppUser) => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const user = users.find((candidate) => candidate.username === username.trim().toLowerCase());
+    if (!user || loginCredentials[user.username] !== password) {
+      setError("Korisničko ime ili lozinka nisu ispravni.");
+      return;
+    }
+    setError("");
+    onLogin(user);
+  };
+
+  const fillCredentials = (user: AppUser) => {
+    setUsername(user.username);
+    setPassword(loginCredentials[user.username]);
+    setError("");
+  };
+
+  return <div className="auth-shell">
+    <div className="auth-card">
+      <div className="auth-brand"><div className="brand-mark"><span>P</span></div><div className="brand-copy"><strong>PILOT</strong><span>DISTRIBUTERI CG</span></div></div>
+      <div className="auth-heading"><div className="auth-lock"><LockKeyhole size={19} /></div><div><div className="eyebrow">Bezbedan pristup sistemu</div><h1>Prijava u PILOT</h1><p>Unesite svoje kredencijale. Nakon prijave videćete samo radni prostor svoje uloge.</p></div></div>
+      <form className="auth-form" onSubmit={submit}>
+        <label>Korisničko ime<input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="npr. nikola" autoComplete="username" autoFocus /></label>
+        <label>Lozinka<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Unesite lozinku" autoComplete="current-password" /></label>
+        {error && <div className="auth-error"><AlertCircle size={15} />{error}</div>}
+        <button className="primary-button auth-submit" type="submit">Prijavi se <ArrowRight size={16} /></button>
+      </form>
+      <div className="auth-security-note"><ShieldCheck size={15} /><span>Sesija se čuva samo u ovom pregledaču. Odjavite se nakon završetka rada.</span></div>
+    </div>
+    <div className="auth-demo">
+      <div className="eyebrow">Pilot nalozi</div><h2>Izaberite radni profil</h2><p>Za ovaj MVP možete koristiti pripremljene naloge. Svaki nalog otvara zaseban dashboard i meni.</p>
+      <div className="credential-list">{users.map((user) => <button className={`credential-card ${user.role}`} key={user.id} type="button" onClick={() => fillCredentials(user)}><div className={`avatar ${user.role}`}>{user.initials}</div><div><strong>{user.name}</strong><span>{user.roleLabel}</span><small>{user.username} · {loginCredentials[user.username]}</small></div><ArrowRight size={15} /></button>)}</div>
+      <div className="auth-demo-foot"><LockKeyhole size={14} />Demo kredencijali će se zameniti serverskom autentikacijom pre produkcije.</div>
+    </div>
+  </div>;
+}
+
+function UserAccountMenu({ currentUser, onLogout }: { currentUser: AppUser; onLogout: () => void }) {
+  return <div className="user-account-menu"><div className="user-switcher-header"><span>Prijavljen korisnik</span><strong>{currentUser.facility}</strong></div><div className="account-identity"><div className={`avatar small ${currentUser.role}`}>{currentUser.initials}</div><div><strong>{currentUser.name}</strong><span>{currentUser.roleLabel}</span></div></div><button className="logout-button" onClick={onLogout}><LogOut size={15} />Odjavi se</button><div className="user-switcher-note"><ShieldCheck size={13} />Pristup meniju zavisi od uloge</div></div>;
 }
 
 function Dashboard({ currentUser, onNavigate, onAction }: { currentUser: AppUser; onNavigate: (page: PageKey) => void; onAction: (message: string) => void }) {
