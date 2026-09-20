@@ -9,7 +9,7 @@ tablaRuter.use(requireAuth);
 tablaRuter.get(
   "/tabla",
   asyncRuta(async (_request, response) => {
-    const [nc, temp, vozila, lotovi, zadaci, prijemi, isporuke, knjizice, povlacenja] = await Promise.all([
+    const [nc, temp, vozila, lotovi, zadaci, prijemi, isporuke, knjizice, povlacenja, zapisi] = await Promise.all([
       upit(`select ozbiljnost, count(*)::int as broj from neusaglasenost where status not in ('ZATVORENA') group by ozbiljnost`),
       upit(`select count(*)::int as broj from mjerenje_temperature where rezultat = 'FAIL' and izmjereno_at > now() - interval '24 hours'`),
       upit(`select count(*)::int as broj from vozilo where status = 'NIJE_SPREMNO' and aktivan`),
@@ -19,6 +19,7 @@ tablaRuter.get(
       upit(`select count(*)::int as broj from isporuka where datum_isporuke = current_date`),
       upit(`select count(*)::int as broj from v_lica where knjizica_status in ('ISTEKLA', 'USKORO')`),
       upit(`select count(*)::int as broj from povlacenje where status = 'U_TOKU'`),
+      upit(`select count(*)::int as broj from zapis where datum = current_date`),
     ]);
 
     response.json({
@@ -35,6 +36,7 @@ tablaRuter.get(
       operativno: {
         prijemiDanas: prijemi.rows[0]?.broj ?? 0,
         isporukeDanas: isporuke.rows[0]?.broj ?? 0,
+        zapisiDanas: zapisi.rows[0]?.broj ?? 0,
       },
     });
   }),

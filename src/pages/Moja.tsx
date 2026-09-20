@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { KeyRound, BookOpen, Bell, CheckCircle2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { KeyRound, BookOpen, Bell, CheckCircle2, ArrowDownToLine, PackageCheck } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { PageHeader } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
@@ -11,9 +12,12 @@ type Obavjestenje = { id: string; naslov: string; poruka: string | null; ozbiljn
 
 export function Moja() {
   const { korisnik } = useAuth();
+  const navigate = useNavigate();
   const [lice, setLice] = useState<Lice | null>(null);
   const [zadaci, setZadaci] = useState<Zadatak[]>([]);
   const [obavjestenja, setObavjestenja] = useState<Obavjestenje[]>([]);
+  const [brojPrijema, setBrojPrijema] = useState<number | null>(null);
+  const [brojIsporuka, setBrojIsporuka] = useState<number | null>(null);
 
   const ucitaj = () => {
     api<Zadatak[]>("/zadaci?moji=1").then(setZadaci);
@@ -25,31 +29,61 @@ export function Moja() {
     if (korisnik?.lice_id) {
       api<Lice[]>("/lica").then((lica) => setLice(lica.find((l) => l.id === korisnik.lice_id) ?? null));
     }
-  }, [korisnik?.lice_id]);
+    if (korisnik?.uloga === "operater") {
+      api<unknown[]>("/prijem").then((r) => setBrojPrijema(r.length));
+    }
+    if (korisnik?.uloga === "vozac" || korisnik?.uloga === "operater") {
+      api<unknown[]>("/isporuke").then((r) => setBrojIsporuka(r.length));
+    }
+  }, [korisnik?.lice_id, korisnik?.uloga]);
+
+  const terenskaUloga = korisnik?.uloga === "operater" || korisnik?.uloga === "vozac";
 
   return (
     <>
       <PageHeader title="Moja strana" description={korisnik ? `${korisnik.lice_ime ?? korisnik.korisnicko_ime} · ${NAZIV_ULOGE[korisnik.uloga]}` : ""} />
 
-      {lice && (
-        <div className="panel" style={{ marginBottom: 20 }}>
-          <div className="panel-header"><h2>Moji podaci</h2></div>
-          <div className="trace-detail-grid" style={{ padding: "0 20px 20px" }}>
-            <div>
-              <span>Šifra za potpisivanje</span>
-              <strong>{lice.sifra}</strong>
-            </div>
-            {lice.knjizica_status && (
-              <div>
-                <span>Sanitarna knjižica</span>
-                <StatusBadge status={lice.knjizica_status} />
-                <small>{lice.sanitarna_knjizica_rok ?? ""}</small>
-              </div>
-            )}
+      {terenskaUloga && (
+        <>
+          <div className="section-heading">
+            <div><h2>Moj rad</h2></div>
           </div>
-        </div>
+          <div className="stats-grid" style={{ marginBottom: 24 }}>
+            {korisnik?.uloga === "operater" && (
+              <button className="stat-card" style={{ textAlign: "left" }} onClick={() => navigate("/prijem")}>
+                <div className="stat-icon blue"><ArrowDownToLine size={18} /></div>
+                <div className="stat-copy">
+                  <span>Prijemi (posljednji dan)</span>
+                  <strong>{brojPrijema ?? "…"}</strong>
+                  <small>Otvori prijem robe</small>
+                </div>
+              </button>
+            )}
+            {(korisnik?.uloga === "vozac" || korisnik?.uloga === "operater") && (
+              <button className="stat-card" style={{ textAlign: "left" }} onClick={() => navigate("/isporuka")}>
+                <div className="stat-icon green"><PackageCheck size={18} /></div>
+                <div className="stat-copy">
+                  <span>Isporuke (posljednji dan)</span>
+                  <strong>{brojIsporuka ?? "…"}</strong>
+                  <small>Otvori isporuku</small>
+                </div>
+              </button>
+            )}
+            <button className="stat-card" style={{ textAlign: "left" }} onClick={() => navigate("/haccp")}>
+              <div className="stat-icon orange"><CheckCircle2 size={18} /></div>
+              <div className="stat-copy">
+                <span>Dnevni obrasci</span>
+                <strong>P3–P10</strong>
+                <small>Čišćenje, štetočine, higijena, otpad, oprema</small>
+              </div>
+            </button>
+          </div>
+        </>
       )}
 
+      <div className="section-heading">
+        <div><h2>Zadaci i obavještenja</h2></div>
+      </div>
       <div className="dashboard-columns">
         <div className="panel table-panel">
           <div className="panel-header">
@@ -94,7 +128,32 @@ export function Moja() {
         </div>
       </div>
 
-      <div style={{ marginTop: 20 }}>
+      <div className="section-heading" style={{ marginTop: 26 }}>
+        <div><h2>Moji podaci</h2></div>
+      </div>
+      <div className="dashboard-columns">
+        {lice && (
+          <div className="panel" style={{ minHeight: "auto" }}>
+            <div className="panel-header"><h2>Sanitarna knjižica i šifra</h2></div>
+            <div style={{ padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+              {lice.knjizica_status && (
+                <div>
+                  <span className="meta-label">Sanitarna knjižica</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                    <StatusBadge status={lice.knjizica_status} />
+                    <small className="muted-text">{lice.sanitarna_knjizica_rok ?? ""}</small>
+                  </div>
+                </div>
+              )}
+              <div>
+                <span className="meta-label">Šifra (potpis na obrascima i ulazak u provjeru znanja)</span>
+                <div style={{ marginTop: 4 }}>
+                  <code style={{ fontSize: 13 }}>{lice.sifra}</code>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <PromjenaLozinke />
       </div>
     </>
@@ -122,11 +181,11 @@ function PromjenaLozinke() {
   };
 
   return (
-    <div className="panel" style={{ maxWidth: 420 }}>
+    <div className="panel" style={{ minHeight: "auto" }}>
       <div className="panel-header">
         <h2><KeyRound size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />Promjena lozinke</h2>
       </div>
-      <form className="form-grid" style={{ gridTemplateColumns: "1fr" }} onSubmit={posalji}>
+      <form className="form-grid" style={{ gridTemplateColumns: "1fr", padding: "0 20px 20px" }} onSubmit={posalji}>
         {poruka && <div className="auth-security-note"><BookOpen size={13} />{poruka}</div>}
         {greska && <div className="auth-error">{greska}</div>}
         <label>Trenutna lozinka<input type="password" value={stara} onChange={(e) => setStara(e.target.value)} /></label>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall } from "lucide-react";
+import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall, ClipboardList } from "lucide-react";
 import { api } from "../lib/api";
 import { PageHeader } from "../components/Zajednicko";
 
@@ -15,7 +15,7 @@ type TablaPodaci = {
     knjizicIstice: number;
     povlacenjaUToku: number;
   };
-  operativno: { prijemiDanas: number; isporukeDanas: number };
+  operativno: { prijemiDanas: number; isporukeDanas: number; zapisiDanas: number };
 };
 
 export function Tabla() {
@@ -82,6 +82,16 @@ export function Tabla() {
           <div className="stat-copy">
             <span>Isporuke danas</span>
             <strong>{podaci.operativno.isporukeDanas}</strong>
+          </div>
+        </button>
+        <button className="stat-card" onClick={() => navigate("/haccp")} style={{ textAlign: "left" }}>
+          <div className="stat-icon orange">
+            <ClipboardList size={18} />
+          </div>
+          <div className="stat-copy">
+            <span>Dnevni zapisi sa terena danas</span>
+            <strong>{podaci.operativno.zapisiDanas}</strong>
+            <small>P3–P10, svi unosi svih uloga</small>
           </div>
         </button>
       </div>

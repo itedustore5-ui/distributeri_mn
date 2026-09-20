@@ -25,5 +25,23 @@
       { "kljuc": "radna_odjeca", "oznaka": "Radna odjeća i obuća uredni", "tip": "checkbox" },
       { "kljuc": "zdravstveno_stanje", "oznaka": "Bez simptoma koji sprečavaju rad sa hranom", "tip": "checkbox" }
     ]
+  },
+  {
+    "kod": "P9",
+    "naziv": "Kontrola otpada",
+    "uloge": ["operater", "bzr", "izvodjac"],
+    "polja": [
+      { "kljuc": "kante_zatvorene", "oznaka": "Kante za otpad zatvorene i čiste", "tip": "checkbox" },
+      { "kljuc": "izneseno", "oznaka": "Otpad iznesen iz skladišta", "tip": "checkbox" }
+    ]
+  },
+  {
+    "kod": "P10",
+    "naziv": "Kontrola pribora i opreme",
+    "uloge": ["operater", "bzr", "izvodjac"],
+    "polja": [
+      { "kljuc": "pribor_ispravan", "oznaka": "Pribor i alati ispravni i čisti (palete, kolica, nož...)", "tip": "checkbox" },
+      { "kljuc": "termometar_ispravan", "oznaka": "Termometar/vaga ispravni", "tip": "checkbox" }
+    ]
   }
 ]
