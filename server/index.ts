@@ -78,10 +78,27 @@ const verifyPassword = (password: string, encodedHash: string) => {
   return storedBuffer.length === derivedKey.length && crypto.timingSafeEqual(storedBuffer, derivedKey);
 };
 
+const pilotUsers = (password: string): StoredUser[] => [
+  { id: "marko", username: "marko", passwordHash: hashPassword(password), initials: "MP", firstName: "Marko", name: "Marko Petrović", role: "management", roleLabel: "Odgovorno lice", facility: "Centralni magacin" },
+  { id: "nikola", username: "nikola", passwordHash: hashPassword(password), initials: "NV", firstName: "Nikola", name: "Nikola Vuković", role: "warehouse", roleLabel: "Magacioner", facility: "Centralni magacin" },
+  { id: "petar", username: "petar", passwordHash: hashPassword(password), initials: "PJ", firstName: "Petar", name: "Petar Janković", role: "driver", roleLabel: "Vozač", facility: "Distribucija · Ruta 091" },
+];
+
 const seedUsers = (): StoredUser[] => {
   const configuredUsers = process.env.AUTH_USERS_JSON;
   if (configuredUsers) {
-    const parsed = JSON.parse(configuredUsers) as StoredUser[];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(configuredUsers);
+    } catch {
+      if (isProduction && configuredUsers.trim().length >= 8) {
+        return pilotUsers(configuredUsers.trim());
+      }
+      throw new Error("AUTH_USERS_JSON mora biti validan JSON niz korisnika.");
+    }
+    if (typeof parsed === "string" && isProduction && parsed.trim().length >= 8) {
+      return pilotUsers(parsed.trim());
+    }
     if (!Array.isArray(parsed) || parsed.some((user) => !user.passwordHash)) {
       throw new Error("AUTH_USERS_JSON mora biti niz korisnika sa passwordHash vrednostima.");
     }
@@ -90,11 +107,7 @@ const seedUsers = (): StoredUser[] => {
   if (isProduction) {
     throw new Error("U produkciji je potreban AUTH_USERS_JSON sa hashiranim lozinkama.");
   }
-  return [
-    { id: "marko", username: "marko", passwordHash: hashPassword("Marko#2026"), initials: "MP", firstName: "Marko", name: "Marko Petrović", role: "management", roleLabel: "Odgovorno lice", facility: "Centralni magacin" },
-    { id: "nikola", username: "nikola", passwordHash: hashPassword("Nikola#2026"), initials: "NV", firstName: "Nikola", name: "Nikola Vuković", role: "warehouse", roleLabel: "Magacioner", facility: "Centralni magacin" },
-    { id: "petar", username: "petar", passwordHash: hashPassword("Petar#2026"), initials: "PJ", firstName: "Petar", name: "Petar Janković", role: "driver", roleLabel: "Vozač", facility: "Distribucija · Ruta 091" },
-  ];
+  return pilotUsers("Marko#2026");
 };
 
 const users = seedUsers();
