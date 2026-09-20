@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Activity,
   AlertCircle,
@@ -109,6 +109,20 @@ type InventoryRow = {
   statusTone: Status;
 };
 
+type TaskRecord = {
+  id: string;
+  title: string;
+  source: string;
+  originModule: string;
+  createdBy: string;
+  createdAt: string;
+  due: string;
+  priority: string;
+  tone: Status;
+  status: string;
+  statusTone: Status;
+};
+
 const navGroups = [
   {
     label: "Pregled",
@@ -155,14 +169,6 @@ const appUsers: AppUser[] = [
   { id: "nikola", username: "nikola", initials: "NV", firstName: "Nikola", name: "Nikola Vuković", role: "warehouse", roleLabel: "Magacioner", facility: "Centralni magacin" },
   { id: "petar", username: "petar", initials: "PJ", firstName: "Petar", name: "Petar Janković", role: "driver", roleLabel: "Vozač", facility: "Distribucija · Ruta 091" },
 ];
-
-const loginCredentials: Record<string, string> = {
-  marko: "Marko#2026",
-  nikola: "Nikola#2026",
-  petar: "Petar#2026",
-};
-
-const authStorageKey = "pilot-distributeri-active-user";
 
 const noticesSeed: Notice[] = [
   {
@@ -249,10 +255,8 @@ const navTitle: Record<PageKey, string> = {
 
 function App() {
   const [page, setPage] = useState<PageKey>("dashboard");
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
-    const storedUserId = window.sessionStorage.getItem(authStorageKey);
-    return appUsers.find((user) => user.id === storedUserId) || null;
-  });
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -261,8 +265,26 @@ function App() {
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState("");
 
+  useEffect(() => {
+    fetch("/api/auth/me", { credentials: "include" })
+      .then(async (response) => response.ok ? (await response.json()).user as AppUser : null)
+      .then((user) => setCurrentUser(user))
+      .catch(() => setCurrentUser(null))
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  if (authLoading) {
+    return <div className="auth-loading"><div className="brand-mark"><span>P</span></div><span>Provera prijave...</span></div>;
+  }
+
   if (!currentUser) {
-    return <LoginScreen users={appUsers} onLogin={(user) => { window.sessionStorage.setItem(authStorageKey, user.id); setCurrentUser(user); setPage("dashboard"); }} />;
+    return <LoginScreen users={appUsers} onLogin={async (username, password) => {
+      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ username, password }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || "Prijava nije uspela.");
+      setCurrentUser(payload.user as AppUser);
+      setPage("dashboard");
+    }} />;
   }
 
   const unread = notices.length;
@@ -272,6 +294,10 @@ function App() {
   };
 
   const handleAction = (message: string) => showToast(message);
+  const navigateToPage = (nextPage: PageKey) => {
+    setPage(nextPage);
+    if (window.innerWidth <= 760) setSidebarOpen(false);
+  };
   const clearNotice = (id: number) => {
     setNotices((current) => current.filter((notice) => notice.id !== id));
     showToast("Obaveštenje je označeno kao rešeno");
@@ -301,7 +327,7 @@ function App() {
               {group.items.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <button key={item.key} className={`nav-item ${page === item.key ? "active" : ""}`} onClick={() => setPage(item.key)} title={!sidebarOpen ? item.label : undefined}>
+                  <button key={item.key} className={`nav-item ${page === item.key ? "active" : ""}`} onClick={() => navigateToPage(item.key)} title={!sidebarOpen ? item.label : undefined}>
                     <Icon size={18} strokeWidth={page === item.key ? 2.3 : 1.8} />
                     {sidebarOpen && <span>{item.label}</span>}
                     {sidebarOpen && item.count && <span className="nav-count">{item.count}</span>}
@@ -312,7 +338,7 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          {roleAccess[currentUser.role].includes("settings") && <button className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => setPage("settings")} title={!sidebarOpen ? "Podešavanja" : undefined}>
+          {roleAccess[currentUser.role].includes("settings") && <button className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => navigateToPage("settings")} title={!sidebarOpen ? "Podešavanja" : undefined}>
             <Settings2 size={18} /><span>{sidebarOpen && "Podešavanja"}</span>
           </button>}
           {sidebarOpen && <div className="sidebar-status"><span className="status-dot"></span><span>Sistem operativan</span><span className="status-version">v0.1</span></div>}
@@ -321,6 +347,7 @@ function App() {
           {sidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
         </button>
       </aside>
+      {sidebarOpen && <button className="sidebar-backdrop" aria-label="Zatvori meni" onClick={() => setSidebarOpen(false)} />}
 
       <main className="main-content">
         <header className="topbar">
@@ -342,7 +369,7 @@ function App() {
                 <div className="user-copy"><strong>{currentUser.name}</strong><span>{currentUser.roleLabel}</span></div>
                 <ChevronDown size={15} className={`muted-icon ${userMenuOpen ? "rotate-180" : ""}`} />
               </button>
-              {userMenuOpen && <UserAccountMenu currentUser={currentUser} onLogout={() => { window.sessionStorage.removeItem(authStorageKey); setCurrentUser(null); setUserMenuOpen(false); setNotificationsOpen(false); }} />}
+              {userMenuOpen && <UserAccountMenu currentUser={currentUser} onLogout={async () => { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); setCurrentUser(null); setUserMenuOpen(false); setNotificationsOpen(false); }} />}
             </div>
           </div>
         </header>
@@ -357,7 +384,7 @@ function App() {
           {page === "deliveries" && <DeliveriesPage onAction={handleAction} />}
           {page === "haccp" && <HaccpPage onAction={handleAction} />}
           {page === "nc" && <NcPage onAction={handleAction} />}
-          {page === "tasks" && <TasksPage onAction={handleAction} />}
+          {page === "tasks" && <TasksPage user={currentUser} onAction={handleAction} />}
           {page === "traceability" && <TraceabilityPage onAction={handleAction} />}
           {page === "reports" && <ReportsPage onAction={handleAction} />}
           {page === "audit" && <AuditPage />}
@@ -378,25 +405,24 @@ function PageHeader({ eyebrow, title, description, action, actionLabel, onAction
   );
 }
 
-function LoginScreen({ users, onLogin }: { users: AppUser[]; onLogin: (user: AppUser) => void }) {
+function LoginScreen({ users, onLogin }: { users: AppUser[]; onLogin: (username: string, password: string) => Promise<void> }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const user = users.find((candidate) => candidate.username === username.trim().toLowerCase());
-    if (!user || loginCredentials[user.username] !== password) {
-      setError("Korisničko ime ili lozinka nisu ispravni.");
-      return;
+    try {
+      await onLogin(username.trim().toLowerCase(), password);
+      setError("");
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Prijava nije uspela.");
     }
-    setError("");
-    onLogin(user);
   };
 
   const fillCredentials = (user: AppUser) => {
     setUsername(user.username);
-    setPassword(loginCredentials[user.username]);
+    setPassword("");
     setError("");
   };
 
@@ -414,8 +440,8 @@ function LoginScreen({ users, onLogin }: { users: AppUser[]; onLogin: (user: App
     </div>
     <div className="auth-demo">
       <div className="eyebrow">Pilot nalozi</div><h2>Izaberite radni profil</h2><p>Za ovaj MVP možete koristiti pripremljene naloge. Svaki nalog otvara zaseban dashboard i meni.</p>
-      <div className="credential-list">{users.map((user) => <button className={`credential-card ${user.role}`} key={user.id} type="button" onClick={() => fillCredentials(user)}><div className={`avatar ${user.role}`}>{user.initials}</div><div><strong>{user.name}</strong><span>{user.roleLabel}</span><small>{user.username} · {loginCredentials[user.username]}</small></div><ArrowRight size={15} /></button>)}</div>
-      <div className="auth-demo-foot"><LockKeyhole size={14} />Demo kredencijali će se zameniti serverskom autentikacijom pre produkcije.</div>
+      <div className="credential-list">{users.map((user) => <button className={`credential-card ${user.role}`} key={user.id} type="button" onClick={() => fillCredentials(user)}><div className={`avatar ${user.role}`}>{user.initials}</div><div><strong>{user.name}</strong><span>{user.roleLabel}</span><small>Izaberite profil, zatim unesite lozinku</small></div><ArrowRight size={15} /></button>)}</div>
+      <div className="auth-demo-foot"><LockKeyhole size={14} />Lozinke se proveravaju na serveru i nikad se ne vraćaju u browser.</div>
     </div>
   </div>;
 }
@@ -548,8 +574,15 @@ function PickingPage({ onAction }: { onAction: (message: string) => void }) {
 }
 
 function VehiclesPage({ onAction }: { onAction: (message: string) => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [vehicle, setVehicle] = useState("PG CG 308");
   const vehicles = [{ reg: "PG CG 412", type: "Hladnjača", temp: "0° do 5°C", status: "Nije spremno", tone: "danger", check: "Čistoća · NOK", driver: "Nikola Vuković" }, { reg: "PG CG 308", type: "Hladnjača", temp: "0° do 5°C", status: "Spremno", tone: "success", check: "Prošlo u 08:10", driver: "Petar Janković" }, { reg: "PG CG 227", type: "Kombi", temp: "—", status: "Spremno", tone: "success", check: "Prošlo u 07:45", driver: "Miloš Radović" }, { reg: "PG CG 156", type: "Hladnjača", temp: "2° do 8°C", status: "Na ruti", tone: "info", check: "Prošlo u 06:30", driver: "Stefan Ivanović" }];
-  return <><PageHeader eyebrow="Operacije · Flota" title="Vozila" description="Spremnost vozila, temperaturni režimi i kontrole pre utovara." action actionLabel="Nova kontrola" onAction={() => onAction("Otvorena je kontrolna lista vozila")} /><section className="vehicle-grid">{vehicles.map((vehicle) => <div className={`vehicle-card ${vehicle.tone}`} key={vehicle.reg}><div className="vehicle-top"><div className="vehicle-symbol"><Truck size={20} /></div><StatusBadge label={vehicle.status} tone={vehicle.tone} /><button className="icon-button small"><MoreHorizontal size={16} /></button></div><h3>{vehicle.reg}</h3><div className="vehicle-type">{vehicle.type} <span>·</span> {vehicle.temp}</div><div className="vehicle-divider"></div><div className="vehicle-meta"><div><span>Poslednja kontrola</span><strong>{vehicle.check}</strong></div><div><span>Vozač / operater</span><strong>{vehicle.driver}</strong></div></div>{vehicle.tone === "danger" && <button className="secondary-button full-width" onClick={() => onAction("Kontrola vozila PG CG 412 je otvorena")}>Otvori kontrolu <ArrowRight size={14} /></button>}</div>)}</section></>;
+  const createControl = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setShowForm(false);
+    onAction(`Kontrola vozila ${vehicle} je kreirana i evidentirana`);
+  };
+  return <><PageHeader eyebrow="Operacije · Flota" title="Vozila" description="Spremnost vozila, temperaturni režimi i kontrole pre utovara." action actionLabel="Nova kontrola" onAction={() => setShowForm(true)} /><section className="vehicle-grid">{vehicles.map((item) => <div className={`vehicle-card ${item.tone}`} key={item.reg}><div className="vehicle-top"><div className="vehicle-symbol"><Truck size={20} /></div><StatusBadge label={item.status} tone={item.tone} /><button className="icon-button small"><MoreHorizontal size={16} /></button></div><h3>{item.reg}</h3><div className="vehicle-type">{item.type} <span>·</span> {item.temp}</div><div className="vehicle-divider"></div><div className="vehicle-meta"><div><span>Poslednja kontrola</span><strong>{item.check}</strong></div><div><span>Vozač / operater</span><strong>{item.driver}</strong></div></div>{item.tone === "danger" && <button className="secondary-button full-width" onClick={() => { setVehicle(item.reg); setShowForm(true); }}>Otvori kontrolu <ArrowRight size={14} /></button>}</div>)}</section>{showForm && <Modal title="Nova kontrola vozila" onClose={() => setShowForm(false)}><form onSubmit={createControl}><div className="form-grid"><label>Vozilo<select value={vehicle} onChange={(event) => setVehicle(event.target.value)}>{vehicles.map((item) => <option key={item.reg}>{item.reg}</option>)}</select></label><label>Tip kontrole<select><option>Temperatura</option><option>Čistoća</option><option>Dokumentacija</option><option>Pregled pre utovara</option></select></label><label>Izmerena temperatura<input type="text" placeholder="npr. 3.2°C" /></label><label>Rezultat<select><option>U redu</option><option>Zahteva pažnju</option><option>Nije prošlo</option></select></label><label>Napomena<input placeholder="Dodatna napomena za kontrolu" /></label></div><div className="form-origin-note"><FileText size={14} /><span>Izvor obrasca: <strong>Vozila</strong> · kontrola se vezuje za vozilo <strong>{vehicle}</strong> i aktivnu sesiju.</span></div><div className="modal-footer"><button type="button" className="secondary-button" onClick={() => setShowForm(false)}>Otkaži</button><button type="submit" className="primary-button"><Check size={15} />Sačuvaj kontrolu</button></div></form></Modal>}</>;
 }
 
 function RoutesPage({ onAction }: { onAction: (message: string) => void }) {
@@ -572,9 +605,43 @@ function NcPage({ onAction }: { onAction: (message: string) => void }) {
   return <><PageHeader eyebrow="Kvalitet · Upravljanje odstupanjima" title="Neusaglašenosti" description="Od detekcije do istrage, korektivne mere i nezavisne verifikacije." action actionLabel="Nova neusaglašenost" onAction={() => onAction("Otvoren je obrazac za novu neusaglašenost")} /><div className="nc-overview"><div><span>Otvorene</span><strong>3</strong><small>+1 ove nedelje</small></div><div><span>Visok prioritet</span><strong className="text-danger">2</strong><small>Zahteva pažnju danas</small></div><div><span>Čeka verifikaciju</span><strong>1</strong><small>Korektivna mera završena</small></div><div><span>Prosečno vreme rešavanja</span><strong>2,4 <small>dana</small></strong><small className="text-success">−18% u odnosu na prošli mesec</small></div></div><section className="panel full-panel"><div className="panel-header table-toolbar"><div className="filter-tabs"><button className="selected">Sve <b>3</b></button><button>Otvorene <b>2</b></button><button>Čekaju verifikaciju <b>1</b></button></div><div className="table-actions"><div className="search-field"><Search size={16} /><input placeholder="NC broj, opis, izvor..." /></div><button className="secondary-button"><Filter size={15} />Filteri</button></div></div><div className="nc-list">{ncs.map((nc) => <div className="nc-row" key={nc.no}><div className={`severity-bar ${nc.severityTone}`}></div><div className="nc-title"><strong>{nc.no}</strong><h3>{nc.title}</h3><span>{nc.source} · {nc.date}</span></div><div><span className="meta-label">Ozbiljnost</span><StatusBadge label={nc.severity} tone={nc.severityTone} /></div><div><span className="meta-label">Odgovorno lice</span><strong>{nc.owner}</strong></div><StatusBadge label={nc.status} tone={nc.statusTone} /><button className="row-action" onClick={() => onAction(`Otvoren detalj neusaglašenosti ${nc.no}`)}><ArrowRight size={15} /></button></div>)}</div></section></>;
 }
 
-function TasksPage({ onAction }: { onAction: (message: string) => void }) {
-  const tasks = [{ title: "Pregledati LOT-2024-0821", source: "NC-260919-003 · HOLD odluka", due: "Danas, 10:00", priority: "Visok", tone: "danger", status: "Istekao", statusTone: "danger" }, { title: "Dnevna provera komore K-01", source: "HACCP kontrola · Komora K-01", due: "Danas, 11:00", priority: "Srednji", tone: "warning", status: "Dodeljen", statusTone: "info" }, { title: "Verifikovati korektivnu meru", source: "NC-260918-007 · CA-260918-004", due: "Danas, 14:30", priority: "Srednji", tone: "warning", status: "Dodeljen", statusTone: "info" }, { title: "Kalibracija termometra TK-04", source: "Oprema · rok 20. sep", due: "Sutra, 09:00", priority: "Nizak", tone: "neutral", status: "Otvoren", statusTone: "neutral" }];
-  return <><PageHeader eyebrow="Operativa · Moje obaveze" title="Zadaci" description="Zadaci nastali iz poslovnih događaja, kontrola i neusaglašenosti." action actionLabel="Novi zadatak" onAction={() => onAction("Otvoren je obrazac za novi zadatak")} /><section className="panel full-panel"><div className="panel-header table-toolbar"><div className="task-tabs"><button className="selected">Moji zadaci <b>5</b></button><button>Svi zadaci</button><button>Istekom roka <b className="red-text">2</b></button></div><div className="table-actions"><button className="secondary-button"><Filter size={15} />Filteri</button></div></div><div className="task-center-list">{tasks.map((task, index) => <div className="center-task" key={task.title}><button className={`round-check ${task.statusTone === "success" ? "checked" : ""}`} onClick={() => onAction(`Zadatak "${task.title}" je označen kao završen`)}>{index === 2 ? <Check size={13} /> : ""}</button><div className="center-task-copy"><strong>{task.title}</strong><span>{task.source}</span></div><div className="center-task-due"><span>Rok</span><strong className={task.statusTone === "danger" ? "text-danger" : ""}>{task.due}</strong></div><StatusBadge label={task.priority} tone={task.tone} /><StatusBadge label={task.status} tone={task.statusTone} /><button className="row-action"><MoreHorizontal size={15} /></button></div>)}</div></section></>;
+function TasksPage({ user, onAction }: { user: AppUser; onAction: (message: string) => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [tasks, setTasks] = useState<TaskRecord[]>([
+    { id: "TSK-260919-001", title: "Pregledati LOT-2024-0821", source: "NC-260919-003 · HOLD odluka", originModule: "Neusaglašenosti", createdBy: "Jelena Jovanović", createdAt: "19. sep 2026. · 09:30", due: "Danas, 10:00", priority: "Visok", tone: "danger", status: "Istekao", statusTone: "danger" },
+    { id: "TSK-260919-002", title: "Dnevna provera komore K-01", source: "HACCP kontrola · Komora K-01", originModule: "HACCP / DHP", createdBy: "Sistem kontrole", createdAt: "19. sep 2026. · 06:00", due: "Danas, 11:00", priority: "Srednji", tone: "warning", status: "Dodeljen", statusTone: "info" },
+    { id: "TSK-260919-003", title: "Verifikovati korektivnu meru", source: "NC-260918-007 · CA-260918-004", originModule: "Neusaglašenosti", createdBy: "Marko Petrović", createdAt: "18. sep 2026. · 15:20", due: "Danas, 14:30", priority: "Srednji", tone: "warning", status: "Dodeljen", statusTone: "info" },
+    { id: "TSK-260919-004", title: "Kalibracija termometra TK-04", source: "Oprema · rok 20. sep", originModule: "Podešavanja · Oprema", createdBy: "Nikola Vuković", createdAt: "18. sep 2026. · 12:15", due: "Sutra, 09:00", priority: "Nizak", tone: "neutral", status: "Otvoren", statusTone: "neutral" },
+  ]);
+  const [title, setTitle] = useState("");
+  const [originModule, setOriginModule] = useState("Ručni unos");
+  const [sourceReference, setSourceReference] = useState("");
+  const [due, setDue] = useState("2026-09-19");
+  const [priority, setPriority] = useState("Srednji");
+
+  const createTask = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const createdTask: TaskRecord = {
+      id: `TSK-${Date.now()}`,
+      title: title.trim() || "Novi operativni zadatak",
+      source: `${originModule} · ${sourceReference.trim() || "Ručni unos"}`,
+      originModule,
+      createdBy: user.name,
+      createdAt: "19. sep 2026. · upravo sada",
+      due: due === "2026-09-19" ? "Danas, 17:00" : "20. sep 2026. · 09:00",
+      priority,
+      tone: priority === "Visok" ? "danger" : priority === "Srednji" ? "warning" : "neutral",
+      status: "Novo",
+      statusTone: "info",
+    };
+    setTasks((current) => [createdTask, ...current]);
+    setTitle("");
+    setSourceReference("");
+    setShowForm(false);
+    onAction(`Zadatak je kreiran iz modula: ${originModule}`);
+  };
+
+  return <><PageHeader eyebrow="Operativa · Moje obaveze" title="Zadaci" description="Svaki zadatak prikazuje izvor, modul, autora i vreme kreiranja." action actionLabel="Novi zadatak" onAction={() => setShowForm(true)} /><section className="panel full-panel"><div className="panel-header table-toolbar"><div className="task-tabs"><button className="selected">Moji zadaci <b>{tasks.length}</b></button><button>Svi zadaci</button><button>Istekom roka <b className="red-text">2</b></button></div><div className="table-actions"><button className="secondary-button"><Filter size={15} />Filteri</button></div></div><div className="task-center-list">{tasks.map((task, index) => <div className="center-task" key={task.id}><button className={`round-check ${task.statusTone === "success" ? "checked" : ""}`} onClick={() => onAction(`Zadatak "${task.title}" je označen kao završen`)}>{index === 2 ? <Check size={13} /> : ""}</button><div className="center-task-copy"><strong>{task.title}</strong><span>{task.source}</span><small className="task-origin">Kreirano u: {task.originModule} · {task.createdBy} · {task.createdAt}</small></div><div className="center-task-due"><span>Rok</span><strong className={task.statusTone === "danger" ? "text-danger" : ""}>{task.due}</strong></div><StatusBadge label={task.priority} tone={task.tone} /><StatusBadge label={task.status} tone={task.statusTone} /><button className="row-action"><MoreHorizontal size={15} /></button></div>)}</div></section>{showForm && <Modal title="Novi zadatak" onClose={() => setShowForm(false)}><form onSubmit={createTask}><div className="form-grid"><label>Naslov zadatka<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="npr. Proveriti temperaturu vozila" autoFocus /></label><label>Modul koji je kreirao zadatak<select value={originModule} onChange={(event) => setOriginModule(event.target.value)}><option>Ručni unos</option><option>HACCP / DHP</option><option>Vozila</option><option>Isporuke</option><option>Neusaglašenosti</option><option>Prijem robe</option></select></label><label>Izvor / referenca<input value={sourceReference} onChange={(event) => setSourceReference(event.target.value)} placeholder="npr. PG CG 308 · kontrola 06:30" /></label><label>Rok<select value={due} onChange={(event) => setDue(event.target.value)}><option value="2026-09-19">Danas</option><option value="2026-09-20">Sutra</option></select></label><label>Prioritet<select value={priority} onChange={(event) => setPriority(event.target.value)}><option>Visok</option><option>Srednji</option><option>Nizak</option></select></label></div><div className="form-origin-note"><FileText size={14} /><span>Biće zabeleženo: <strong>{originModule}</strong> · kreirao <strong>{user.name}</strong> · upravo sada</span></div><div className="modal-footer"><button type="button" className="secondary-button" onClick={() => setShowForm(false)}>Otkaži</button><button type="submit" className="primary-button"><Check size={15} />Kreiraj zadatak</button></div></form></Modal>}</>;
 }
 
 function TraceabilityPage({ onAction }: { onAction: (message: string) => void }) {
