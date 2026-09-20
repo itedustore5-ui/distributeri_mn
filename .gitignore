@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+
+alati/klijenti.txt
+bekap/
+
+npm-debug.log*
+.DS_Store

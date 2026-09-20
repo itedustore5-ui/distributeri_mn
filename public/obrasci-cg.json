@@ -1,0 +1,29 @@
+[
+  {
+    "kod": "P3",
+    "naziv": "Čišćenje i dezinfekcija",
+    "uloge": ["operater", "bzr", "izvodjac"],
+    "polja": [
+      { "kljuc": "prostorija", "oznaka": "Prostorija/oprema", "tip": "text" },
+      { "kljuc": "sredstvo", "oznaka": "Sredstvo za dezinfekciju", "tip": "text" }
+    ]
+  },
+  {
+    "kod": "P7",
+    "naziv": "Kontrola štetočina",
+    "uloge": ["operater", "bzr", "izvodjac"],
+    "polja": [
+      { "kljuc": "tragovi", "oznaka": "Ima li tragova štetočina?", "tip": "checkbox" },
+      { "kljuc": "mjesto", "oznaka": "Provjerena mjesta", "tip": "text" }
+    ]
+  },
+  {
+    "kod": "P8",
+    "naziv": "Lična higijena i zdravstveno stanje",
+    "uloge": ["operater", "bzr", "izvodjac"],
+    "polja": [
+      { "kljuc": "radna_odjeca", "oznaka": "Radna odjeća i obuća uredni", "tip": "checkbox" },
+      { "kljuc": "zdravstveno_stanje", "oznaka": "Bez simptoma koji sprečavaju rad sa hranom", "tip": "checkbox" }
+    ]
+  }
+]

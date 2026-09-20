@@ -1,219 +1,77 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
+import "dotenv/config";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
+import { greskaHandler } from "./greske.js";
+import { zahtjevAppZaglavlje } from "./auth.js";
 
-type UserRole = "management" | "warehouse" | "driver";
-type PageKey =
-  | "dashboard"
-  | "receipts"
-  | "inventory"
-  | "orders"
-  | "picking"
-  | "vehicles"
-  | "routes"
-  | "deliveries"
-  | "haccp"
-  | "nc"
-  | "tasks"
-  | "traceability"
-  | "reports"
-  | "audit"
-  | "settings";
-
-type PublicUser = {
-  id: string;
-  username: string;
-  initials: string;
-  firstName: string;
-  name: string;
-  role: UserRole;
-  roleLabel: string;
-  facility: string;
-};
-
-type StoredUser = PublicUser & {
-  passwordHash: string;
-};
-
-type Session = {
-  userId: string;
-  expiresAt: number;
-};
-
-type AuthenticatedRequest = Request & {
-  user?: StoredUser;
-};
+import { authRuter } from "./routes/auth.js";
+import { ljudiRuter } from "./routes/ljudi.js";
+import { sifarniciRuter } from "./routes/sifarnici.js";
+import { prijemRuter } from "./routes/prijem.js";
+import { zalihaRuter } from "./routes/zaliha.js";
+import { haccpRuter } from "./routes/haccp.js";
+import { ncRuter } from "./routes/neusaglasenosti.js";
+import { vozilaRuter } from "./routes/vozila.js";
+import { isporukaRuter } from "./routes/isporuka.js";
+import { zadaciRuter } from "./routes/zadaci.js";
+import { sledljivostRuter } from "./routes/sledljivost.js";
+import { izvozRuter } from "./routes/izvoz.js";
+import { auditRuter } from "./routes/audit.js";
+import { tablaRuter } from "./routes/tabla.js";
+import { provjeraZnanjaRuter } from "./routes/provjeraZnanja.js";
+import { firmaRuter } from "./routes/firma.js";
+import { povlacenjeRuter } from "./routes/povlacenje.js";
 
 const port = Number(process.env.PORT || 5000);
 const isProduction = process.env.NODE_ENV === "production";
-const sessionSecret = process.env.SESSION_SECRET || (isProduction ? "" : "development-only-session-secret");
-if (!sessionSecret) {
-  throw new Error("SESSION_SECRET mora biti podešen u produkciji.");
-}
-
-const roleAccess: Record<UserRole, PageKey[]> = {
-  management: ["dashboard", "receipts", "inventory", "orders", "picking", "vehicles", "routes", "deliveries", "haccp", "nc", "tasks", "traceability", "reports", "audit", "settings"],
-  warehouse: ["dashboard", "receipts", "inventory", "picking", "haccp", "tasks"],
-  driver: ["dashboard", "vehicles", "routes", "deliveries", "tasks"],
-};
-
-const publicUserFields = (user: StoredUser): PublicUser => {
-  const { passwordHash: _passwordHash, ...publicUser } = user;
-  return publicUser;
-};
-
-const hashPassword = (password: string, salt = crypto.randomBytes(16).toString("hex")) => {
-  const derivedKey = crypto.scryptSync(password, salt, 64).toString("hex");
-  return `scrypt$${salt}$${derivedKey}`;
-};
-
-const verifyPassword = (password: string, encodedHash: string) => {
-  const [, salt, storedKey] = encodedHash.split("$");
-  if (!salt || !storedKey) return false;
-  const derivedKey = crypto.scryptSync(password, salt, 64);
-  const storedBuffer = Buffer.from(storedKey, "hex");
-  return storedBuffer.length === derivedKey.length && crypto.timingSafeEqual(storedBuffer, derivedKey);
-};
-
-const pilotUsers = (password: string): StoredUser[] => [
-  { id: "marko", username: "marko", passwordHash: hashPassword(password), initials: "MP", firstName: "Marko", name: "Marko Petrović", role: "management", roleLabel: "Odgovorno lice", facility: "Centralni magacin" },
-  { id: "nikola", username: "nikola", passwordHash: hashPassword(password), initials: "NV", firstName: "Nikola", name: "Nikola Vuković", role: "warehouse", roleLabel: "Magacioner", facility: "Centralni magacin" },
-  { id: "petar", username: "petar", passwordHash: hashPassword(password), initials: "PJ", firstName: "Petar", name: "Petar Janković", role: "driver", roleLabel: "Vozač", facility: "Distribucija · Ruta 091" },
-];
-
-const seedUsers = (): StoredUser[] => {
-  const configuredUsers = process.env.AUTH_USERS_JSON;
-  if (configuredUsers) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(configuredUsers);
-    } catch {
-      if (isProduction && configuredUsers.trim().length >= 8) {
-        return pilotUsers(configuredUsers.trim());
-      }
-      throw new Error("AUTH_USERS_JSON mora biti validan JSON niz korisnika.");
-    }
-    if (typeof parsed === "string" && isProduction && parsed.trim().length >= 8) {
-      return pilotUsers(parsed.trim());
-    }
-    if (!Array.isArray(parsed) || parsed.some((user) => !user.passwordHash)) {
-      throw new Error("AUTH_USERS_JSON mora biti niz korisnika sa passwordHash vrednostima.");
-    }
-    return parsed;
-  }
-  if (isProduction) {
-    throw new Error("U produkciji je potreban AUTH_USERS_JSON sa hashiranim lozinkama.");
-  }
-  return pilotUsers("Marko#2026");
-};
-
-const users = seedUsers();
-const sessions = new Map<string, Session>();
-const failedLogins = new Map<string, { attempts: number; resetAt: number }>();
-const sessionCookie = "pilot_session";
-const sessionDurationMs = 8 * 60 * 60 * 1000;
-
-const cookieValue = (request: Request, name: string) => {
-  const header = request.headers.cookie || "";
-  const match = header.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.slice(name.length + 1)) : undefined;
-};
-
-const setSessionCookie = (response: Response, token: string) => {
-  response.setHeader("Set-Cookie", `${sessionCookie}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionDurationMs / 1000}${isProduction ? "; Secure" : ""}`);
-};
-
-const clearSessionCookie = (response: Response) => {
-  response.setHeader("Set-Cookie", `${sessionCookie}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${isProduction ? "; Secure" : ""}`);
-};
-
-const sessionToken = () => crypto.randomBytes(32).toString("base64url");
-
-const getSessionUser = (request: Request) => {
-  const token = cookieValue(request, sessionCookie);
-  if (!token) return undefined;
-  const session = sessions.get(token);
-  if (!session || session.expiresAt <= Date.now()) {
-    if (session) sessions.delete(token);
-    return undefined;
-  }
-  return users.find((user) => user.id === session.userId);
-};
-
-const requireAuth = (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
-  const user = getSessionUser(request);
-  if (!user) {
-    response.status(401).json({ error: "UNAUTHENTICATED", message: "Prijava je potrebna." });
-    return;
-  }
-  request.user = user;
-  next();
-};
-
-const requirePageAccess = (page: PageKey) => (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
-  if (!request.user || !roleAccess[request.user.role].includes(page)) {
-    response.status(403).json({ error: "FORBIDDEN", message: "Ova uloga nema pristup traženom modulu." });
-    return;
-  }
-  next();
-};
+const IZDANJE = "1.0.0";
 
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json({ limit: "100kb" }));
+app.use(express.json({ limit: "200kb" })); // MORA ostati i MORA biti prvo
+
 app.use((_request, response, next) => {
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Frame-Options", "DENY");
+  response.setHeader("Referrer-Policy", "same-origin");
+  if (!_request.path.startsWith("/api")) {
+    next();
+    return;
+  }
   response.setHeader("Cache-Control", "no-store");
   next();
 });
 
-app.post("/api/auth/login", (request, response) => {
-  const username = typeof request.body?.username === "string" ? request.body.username.trim().toLowerCase() : "";
-  const password = typeof request.body?.password === "string" ? request.body.password : "";
-  const clientKey = request.ip || "unknown";
-  const throttle = failedLogins.get(clientKey);
-  if (throttle && throttle.resetAt > Date.now() && throttle.attempts >= 8) {
-    response.status(429).json({ error: "TOO_MANY_ATTEMPTS", message: "Previše neuspešnih pokušaja. Pokušajte ponovo za nekoliko minuta." });
-    return;
-  }
-  const user = users.find((candidate) => candidate.username === username);
-  if (!user || !verifyPassword(password, user.passwordHash)) {
-    const nextThrottle = throttle && throttle.resetAt > Date.now() ? throttle : { attempts: 0, resetAt: Date.now() + 10 * 60 * 1000 };
-    nextThrottle.attempts += 1;
-    failedLogins.set(clientKey, nextThrottle);
-    response.status(401).json({ error: "INVALID_CREDENTIALS", message: "Korisničko ime ili lozinka nisu ispravni." });
-    return;
-  }
-  failedLogins.delete(clientKey);
-  const token = sessionToken();
-  sessions.set(token, { userId: user.id, expiresAt: Date.now() + sessionDurationMs });
-  setSessionCookie(response, token);
-  response.json({ user: publicUserFields(user), permissions: roleAccess[user.role] });
+app.use("/api", zahtjevAppZaglavlje);
+app.use("/api", authRuter);
+app.use("/api", ljudiRuter);
+app.use("/api", sifarniciRuter);
+app.use("/api", prijemRuter);
+app.use("/api", zalihaRuter);
+app.use("/api", haccpRuter);
+app.use("/api", ncRuter);
+app.use("/api", vozilaRuter);
+app.use("/api", isporukaRuter);
+app.use("/api", zadaciRuter);
+app.use("/api", sledljivostRuter);
+app.use("/api", izvozRuter);
+app.use("/api", auditRuter);
+app.use("/api", tablaRuter);
+app.use("/api", provjeraZnanjaRuter);
+app.use("/api", firmaRuter);
+app.use("/api", povlacenjeRuter);
+
+app.get("/api/zdravlje", (_request, response) => {
+  response.json({ ok: true, izdanje: IZDANJE });
 });
 
-app.get("/api/auth/me", requireAuth, (request: AuthenticatedRequest, response) => {
-  response.json({ user: publicUserFields(request.user!), permissions: roleAccess[request.user!.role] });
+app.use("/api", (_request: Request, response: Response, _next: NextFunction) => {
+  response.status(404).json({ error: { code: "RUTA_NE_POSTOJI", message: "Traženi API resurs ne postoji." } });
 });
 
-app.post("/api/auth/logout", (request, response) => {
-  const token = cookieValue(request, sessionCookie);
-  if (token) sessions.delete(token);
-  clearSessionCookie(response);
-  response.status(204).end();
-});
-
-app.get("/api/access/:page", requireAuth, (request: AuthenticatedRequest, response, next) => {
-  const page = request.params.page as PageKey;
-  if (!roleAccess[request.user!.role].includes(page)) {
-    response.status(403).json({ error: "FORBIDDEN", message: "Ova uloga nema pristup traženom modulu." });
-    return;
-  }
-  next();
-}, (request, response) => {
-  response.json({ allowed: true, page: request.params.page });
-});
+app.use(greskaHandler);
 
 const rootDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(rootDirectory, "..");
@@ -240,7 +98,7 @@ const start = async () => {
   }
 
   const server = app.listen(port, "0.0.0.0", () => {
-    console.log(`PILOT server listening on 0.0.0.0:${port} (${isProduction ? "production" : "development"})`);
+    console.log(`PILOT DISTRIBUTERI CG sluša na 0.0.0.0:${port} (${isProduction ? "produkcija" : "razvoj"}, izdanje ${IZDANJE})`);
   });
 
   const shutdown = async () => {
