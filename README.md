@@ -53,12 +53,12 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`15_isporuka_uneo_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`16_bekap_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`) su dodati naknadno namjerno — brojevi fajlova
-prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek tretira posebno
-bez obzira na njegov broj.
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`) su dodati naknadno namjerno —
+brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
+tretira posebno bez obzira na njegov broj.
 
 Redoslijed fajlova nije proizvoljan — svaki sljedeći pretpostavlja da prethodni postoji
 (FK reference, `alter table` na postojeće tabele). Ne mijenjati redoslijed.
@@ -217,6 +217,41 @@ isporuka: transakcija koja umanjuje `zaliha.kolicina`, upisuje red u `kretanje_z
 `OTPIS`, razlog u `napomena`) i ostavlja trag u `dogadjaj`/`audit_log`. Dozvoljeno svima koji rade
 sa robom (`operater`, `bzr`, `izvodjac`) — magacioner prijavljuje šta je zatekao, isto kao kod
 prijema.
+
+### Šifarnici
+
+`/sifarnici` — jedino mjesto gdje se unose kupci, dobavljači i artikli (do sad su postojale samo
+API rute, bez forme; padajuće liste u prijemu/isporuci su samo birale iz onoga što je ovdje
+uneseno). Tri jezička: Kupci (telefon obavezan, čl. 28), Dobavljači, Artikli (temperaturni opseg
+i „Granicu potvrdio klijent" — dok nije potvrđeno, automatska ocjena odstupanja se ne primjenjuje,
+invarijanta #5). Vidljivo samo `bzr`/`izvodjac`.
+
+### Prva prijava — obavezna promjena lozinke
+
+Dok god `korisnik.mora_promijeniti_lozinku` stoji na `true` (postavlja ga bzr/izvodjac pri
+otvaranju naloga), cijela aplikacija je zaključana na jedan ekran — „Postavite svoju lozinku" —
+bez obzira na ulogu i putanju. Provjera je u `Zasticeno` u `src/App.tsx`, prije provjere uloge, pa
+je nema šanse zaobići idući direktno na neku drugu stranicu. Ranije se ovo polje čitalo sa servera
+ali ništa u pregledaču nije reagovalo na njega — privremena lozinka je mogla ostati u trajnoj
+upotrebi.
+
+### Bekap
+
+Kontrolna tabla (`/tabla`, samo `bzr`/`izvodjac`) ima karticu **Bekap**: dugme koje odmah pravi
+snimak svih poslovnih tabela (JSON) i preuzima ga u pregledač, i status poslednjeg bekapa (kad,
+ko/automatski, koliko tabela i redova). Isti proces se pokreće **sam jednom sedmično** —
+`pokreniSedmicniBekap()` u `server/services/bekapService.ts` provjerava pri svakom pokretanju
+servera (i onda jednom dnevno) da li je prošlo 7 dana od poslednjeg bekapa; ako jeste, napravi ga
+i pošalje obavještenje ulozi `bzr`. Provjera je po stvarnom vremenu iz baze, ne po tajmeru koji
+mora neprekidno da radi — zato radi i kad besplatni Render plan uspava server: prvi sledeći
+zahtjev probudi server i provjera se pokrene odmah.
+
+**Važno ograničenje, da se ne pogrešno razumije kao potpuna zaštita:** bekap se čuva u
+`bekap_log` u ISTOJ Supabase bazi (90 dana, pa se briše). To štiti od greške u aplikaciji ili
+čovjeku ("kakvo je stanje bilo prije nedelju dana"), ali NE štiti od gubitka same Supabase baze —
+za to i dalje služi `alati/bekap.ps1` (pg_dump na spoljnu lokaciju), koji ostaje otvorena stavka
+dok se ne zakaže u Task Scheduleru. Preporuka: s vremena na vrijeme preuzeti bekap sa table i
+sačuvati ga van aplikacije.
 
 ### Povlačenje (čl. 28)
 

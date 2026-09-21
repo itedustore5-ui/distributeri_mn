@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall, ClipboardList } from "lucide-react";
-import { api } from "../lib/api";
+import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall, ClipboardList, DatabaseBackup } from "lucide-react";
+import { api, ApiGreska, preuzmiFajl } from "../lib/api";
+import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader } from "../components/Zajednicko";
+import { useAuth } from "../lib/auth";
+
+type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
 
 type TablaPodaci = {
   kriticno: {
@@ -19,12 +23,33 @@ type TablaPodaci = {
 };
 
 export function Tabla() {
+  const { korisnik } = useAuth();
   const [podaci, setPodaci] = useState<TablaPodaci | null>(null);
+  const [bekap, setBekap] = useState<BekapMeta | null | undefined>(undefined);
+  const [bekapUToku, setBekapUToku] = useState(false);
+  const [bekapGreska, setBekapGreska] = useState("");
   const navigate = useNavigate();
+
+  const mozeBekap = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
 
   useEffect(() => {
     api<TablaPodaci>("/tabla").then(setPodaci);
-  }, []);
+    if (mozeBekap) api<BekapMeta | null>("/bekap/poslednji").then(setBekap);
+  }, [mozeBekap]);
+
+  const napraviBekap = async () => {
+    setBekapUToku(true);
+    setBekapGreska("");
+    try {
+      const rezultat = await api<BekapMeta>("/bekap", { method: "POST" });
+      setBekap(rezultat);
+      await preuzmiFajl(`/bekap/${rezultat.id}/preuzmi`, `bekap-cg-${lokalniDatum()}.json`);
+    } catch (e) {
+      setBekapGreska(e instanceof ApiGreska ? e.message : "Bekap nije napravljen.");
+    } finally {
+      setBekapUToku(false);
+    }
+  };
 
   if (!podaci) return null;
   const k = podaci.kriticno;
@@ -95,6 +120,42 @@ export function Tabla() {
           </div>
         </button>
       </div>
+
+      {mozeBekap && (
+        <>
+          <div className="section-heading" style={{ marginTop: 26 }}>
+            <div>
+              <h2>Bekap</h2>
+              <span>U bazi se čuva 90 dana i pravi se sam jednom sedmično — dugme pravi novi odmah i preuzima ga.</span>
+            </div>
+          </div>
+          <div className="panel" style={{ minHeight: "auto" }}>
+            <div style={{ padding: 20, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              <div className="stat-icon blue">
+                <DatabaseBackup size={18} />
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                {bekap === undefined ? (
+                  <span className="muted-text">Učitavanje...</span>
+                ) : bekap === null ? (
+                  <span className="muted-text">Bekap još nije napravljen.</span>
+                ) : (
+                  <>
+                    <strong style={{ display: "block", fontSize: 12 }}>
+                      Poslednji: {new Date(bekap.created_at).toLocaleString("sr-Latn-ME")} ({bekap.tip === "RUCNI" ? "ručni" : "automatski"})
+                    </strong>
+                    <small className="muted-text">{bekap.broj_tabela} tabela · {bekap.broj_redova} redova</small>
+                  </>
+                )}
+                {bekapGreska && <div className="auth-error" style={{ marginTop: 8 }}>{bekapGreska}</div>}
+              </div>
+              <button className="primary-button" onClick={napraviBekap} disabled={bekapUToku}>
+                {bekapUToku ? "Pravim bekap..." : "Preuzmi bekap sada"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

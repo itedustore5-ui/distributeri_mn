@@ -35,6 +35,20 @@ sifarniciRuter.post(
   }),
 );
 
+sifarniciRuter.patch(
+  "/dobavljaci/:id",
+  requireUloga("bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ulaz = tijelo(dobavljacSchema, request.body);
+    await pool.query(
+      `update dobavljac set naziv = $1, pib = $2, adresa = $3, telefon = $4, email = $5 where id = $6`,
+      [ulaz.naziv, ulaz.pib ?? null, ulaz.adresa ?? null, ulaz.telefon ?? null, ulaz.email || null, request.params.id],
+    );
+    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "dobavljac", entitetId: str(request.params.id), noveVrijednosti: ulaz });
+    response.status(204).end();
+  }),
+);
+
 // Kupac bez telefona se ne upisuje (invarijanta #4) — telefon je NOT NULL i u zod šemi i u bazi.
 const kupacSchema = z.object({
   naziv: z.string().min(2),
@@ -58,6 +72,20 @@ sifarniciRuter.post(
     );
     await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "kupac", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
     response.status(201).json({ id: rezultat.rows[0].id });
+  }),
+);
+
+sifarniciRuter.patch(
+  "/kupci/:id",
+  requireUloga("bzr", "izvodjac", "operater"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ulaz = tijelo(kupacSchema, request.body);
+    await pool.query(
+      `update kupac set naziv = $1, adresa = $2, telefon = $3, email = $4 where id = $5`,
+      [ulaz.naziv, ulaz.adresa ?? null, ulaz.telefon, ulaz.email || null, request.params.id],
+    );
+    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "kupac", entitetId: str(request.params.id), noveVrijednosti: ulaz });
+    response.status(204).end();
   }),
 );
 
@@ -99,10 +127,22 @@ sifarniciRuter.patch(
     const ulaz = tijelo(artikalSchema.partial(), request.body);
     await pool.query(
       `update artikal set
-         naziv = coalesce($1, naziv), temp_min = coalesce($2, temp_min), temp_max = coalesce($3, temp_max),
-         granica_potvrdio = coalesce($4, granica_potvrdio), updated_at = now()
-       where id = $5`,
-      [ulaz.naziv ?? null, ulaz.tempMin ?? null, ulaz.tempMax ?? null, ulaz.granicaPotvrdio ?? null, request.params.id],
+         naziv = coalesce($1, naziv), jedinica_mjere = coalesce($2, jedinica_mjere),
+         zahtijeva_lot = coalesce($3, zahtijeva_lot), temp_kontrolisano = coalesce($4, temp_kontrolisano),
+         temp_min = coalesce($5, temp_min), temp_max = coalesce($6, temp_max), rok_trajanja_dana = coalesce($7, rok_trajanja_dana),
+         granica_potvrdio = coalesce($8, granica_potvrdio), updated_at = now()
+       where id = $9`,
+      [
+        ulaz.naziv ?? null,
+        ulaz.jedinicaMjere ?? null,
+        ulaz.zahtijevaLot ?? null,
+        ulaz.tempKontrolisano ?? null,
+        ulaz.tempMin ?? null,
+        ulaz.tempMax ?? null,
+        ulaz.rokTrajanjaDana ?? null,
+        ulaz.granicaPotvrdio ?? null,
+        request.params.id,
+      ],
     );
     await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "artikal", entitetId: str(request.params.id), noveVrijednosti: ulaz });
     response.status(204).end();

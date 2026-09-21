@@ -4,8 +4,10 @@ import { AuthProvider, useAuth, type Uloga } from "./lib/auth";
 import { Layout } from "./components/Layout";
 import { Ucitavanje } from "./components/Zajednicko";
 import { Prijava } from "./pages/Prijava";
+import { PromijeniLozinku } from "./pages/PromijeniLozinku";
 import { Tabla } from "./pages/Tabla";
 import { Ljudi } from "./pages/Ljudi";
+import { Sifarnici } from "./pages/Sifarnici";
 import { Prijem } from "./pages/Prijem";
 import { Zalihe } from "./pages/Zalihe";
 import { Haccp } from "./pages/Haccp";
@@ -24,6 +26,7 @@ function Zasticeno({ uloge, children }: { uloge?: Uloga[]; children: ReactNode }
   const { korisnik, ucitavanje } = useAuth();
   if (ucitavanje) return <Ucitavanje />;
   if (!korisnik) return <Navigate to="/prijava" replace />;
+  if (korisnik.mora_promijeniti_lozinku) return <PromijeniLozinku />;
   if (uloge && !uloge.includes(korisnik.uloga)) return <Navigate to="/moja" replace />;
   return <Layout>{children}</Layout>;
 }
@@ -46,6 +49,7 @@ function Rute() {
       <Route path="/tabla" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><Tabla /></Zasticeno>} />
       <Route path="/moja" element={<Zasticeno><Moja /></Zasticeno>} />
       <Route path="/ljudi" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Ljudi /></Zasticeno>} />
+      <Route path="/sifarnici" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Sifarnici /></Zasticeno>} />
       <Route path="/prijem" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Prijem /></Zasticeno>} />
       <Route path="/zalihe" element={<Zasticeno uloge={["operater", "bzr", "izvodjac", "uprava"]}><Zalihe /></Zasticeno>} />
       <Route path="/haccp" element={<Zasticeno uloge={["operater", "vozac", "bzr", "izvodjac"]}><Haccp /></Zasticeno>} />

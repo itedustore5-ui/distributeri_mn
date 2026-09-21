@@ -23,6 +23,8 @@ import { tablaRuter } from "./routes/tabla.js";
 import { provjeraZnanjaRuter } from "./routes/provjeraZnanja.js";
 import { firmaRuter } from "./routes/firma.js";
 import { povlacenjeRuter } from "./routes/povlacenje.js";
+import { bekapRuter } from "./routes/bekap.js";
+import { pokreniSedmicniBekap } from "./services/bekapService.js";
 
 const port = Number(process.env.PORT || 5000);
 const isProduction = process.env.NODE_ENV === "production";
@@ -62,6 +64,7 @@ app.use("/api", tablaRuter);
 app.use("/api", provjeraZnanjaRuter);
 app.use("/api", firmaRuter);
 app.use("/api", povlacenjeRuter);
+app.use("/api", bekapRuter);
 
 app.get("/api/zdravlje", (_request, response) => {
   response.json({ ok: true, izdanje: IZDANJE });
@@ -100,6 +103,7 @@ const start = async () => {
   const server = app.listen(port, "0.0.0.0", () => {
     console.log(`PILOT DISTRIBUTERI CG sluša na 0.0.0.0:${port} (${isProduction ? "produkcija" : "razvoj"}, izdanje ${IZDANJE})`);
   });
+  pokreniSedmicniBekap();
 
   const shutdown = async () => {
     await vite?.close();
