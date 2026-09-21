@@ -53,11 +53,12 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`14_povlacenje.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` — bezbjedno je
-pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo` (odnosno
-`npm run seed:demo`), i **nikad na bazi pravog klijenta**. `db/14_povlacenje.sql` je dodat
-poslije 13 namjerno — brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner
-demo fajl uvijek tretira posebno bez obzira na njegov broj.
+`15_isporuka_uneo_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
+(odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`) su dodati naknadno namjerno — brojevi fajlova
+prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek tretira posebno
+bez obzira na njegov broj.
 
 Redoslijed fajlova nije proizvoljan — svaki sljedeći pretpostavlja da prethodni postoji
 (FK reference, `alter table` na postojeće tabele). Ne mijenjati redoslijed.
@@ -206,6 +207,16 @@ Ništa se ne briše iz baze kroz aplikaciju. Umjesto toga:
   već umanjena.
 - **Vozila** (`/vozila`): svaka D1 kontrola ostaje trajno u „Evidencija kontrola" ispod spiska
   vozila — ne može se izmijeniti ni obrisati, samo se doda nova.
+
+### Otpis zaliha
+
+`/zalihe` → dugme **"Otpiši"** na lotu koji ima nešto dostupno (oštećeno, isteklo, izgubljeno).
+Jedini drugi način da količina na zalihi ide dolje je isporuka — ručnog unosa novog broja nema
+nigdje, da izvještaj o zalihama ostane dokaz, ne procjena. Otpis ide kroz isti obrazac kao
+isporuka: transakcija koja umanjuje `zaliha.kolicina`, upisuje red u `kretanje_zalihe` (tip
+`OTPIS`, razlog u `napomena`) i ostavlja trag u `dogadjaj`/`audit_log`. Dozvoljeno svima koji rade
+sa robom (`operater`, `bzr`, `izvodjac`) — magacioner prijavljuje šta je zatekao, isto kao kod
+prijema.
 
 ### Povlačenje (čl. 28)
 

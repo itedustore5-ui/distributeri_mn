@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, KeyRound } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
-import { PageHeader, Modal } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 
 type Lice = {
@@ -98,7 +98,7 @@ export function Ljudi() {
                   <th>Radno mjesto</th>
                   <th>Šifra</th>
                   <th>Rukuje hranom</th>
-                  <th>Sanitarna knjižica</th>
+                  <th>Sanitarna knjižica <ZakonskaOznaka clan="sanitarna" /></th>
                   <th>Nalog</th>
                   <th>Status</th>
                   <th></th>
@@ -253,7 +253,7 @@ function NoviLiceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           </select>
         </label>
         <div />
-        <label>Broj sanitarne knjižice<input value={knjizicaBroj} onChange={(e) => setKnjizicaBroj(e.target.value)} /></label>
+        <label>Broj sanitarne knjižice <ZakonskaOznaka clan="sanitarna" /><input value={knjizicaBroj} onChange={(e) => setKnjizicaBroj(e.target.value)} /></label>
         <label>Rok sanitarne knjižice<input type="date" value={knjizicaRok} onChange={(e) => setKnjizicaRok(e.target.value)} /></label>
       </div>
     </Modal>
@@ -294,7 +294,7 @@ function IzmjenaLiceModal({ lice, onClose, onSacuvano }: { lice: Lice; onClose: 
           </select>
         </label>
         <div />
-        <label>Broj sanitarne knjižice<input value={knjizicaBroj} onChange={(e) => setKnjizicaBroj(e.target.value)} /></label>
+        <label>Broj sanitarne knjižice <ZakonskaOznaka clan="sanitarna" /><input value={knjizicaBroj} onChange={(e) => setKnjizicaBroj(e.target.value)} /></label>
         <label>Rok sanitarne knjižice<input type="date" value={knjizicaRok} onChange={(e) => setKnjizicaRok(e.target.value)} /></label>
       </div>
     </Modal>

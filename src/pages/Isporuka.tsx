@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 
 type Kupac = { id: string; naziv: string; telefon: string };
@@ -46,7 +46,7 @@ export function Isporuka() {
     <>
       <PageHeader
         title="Isporuka"
-        description="Isporuka je vezana za konkretan lot — tako sledljivost ostaje do kupca."
+        description={<>Isporuka je vezana za konkretan lot — tako sledljivost ostaje do kupca <ZakonskaOznaka clan="27" />.</>}
         action={
           <button className="primary-button" onClick={() => setModalNova(true)}>
             <Plus size={16} /> Nova isporuka
@@ -197,7 +197,7 @@ function IsporukaFormaModal({
         {redovi.map((red, i) => (
           <div key={i} className="form-grid" style={{ padding: "10px 0", borderTop: "1px solid #edf1f3", gridTemplateColumns: "1fr auto auto" }}>
             <label>
-              Artikal / lot
+              Artikal / lot <ZakonskaOznaka clan="27" />
               <select value={red.lotId} onChange={(e) => azurirajRed(i, { lotId: e.target.value })}>
                 {zaliha.map((z) => <option key={z.lot_id} value={z.lot_id}>{z.artikal_naziv} · {z.broj_lota} (dostupno {z.kolicina})</option>)}
               </select>

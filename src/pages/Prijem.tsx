@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
 
@@ -63,7 +63,7 @@ export function Prijem() {
     <>
       <PageHeader
         title="Prijem robe"
-        description="Bez broja lota nema sledljivosti — svaka stavka mora imati lot."
+        description={<>Bez broja lota nema sledljivosti — svaka stavka mora imati lot <ZakonskaOznaka clan="27" />.</>}
         action={
           <button className="primary-button" onClick={() => setModalNovi(true)}>
             <Plus size={16} /> Novi prijem
@@ -103,7 +103,7 @@ export function Prijem() {
                           <thead>
                             <tr>
                               <th>Artikal</th>
-                              <th>Lot</th>
+                              <th>Lot <ZakonskaOznaka clan="27" /></th>
                               <th>Rok</th>
                               <th>Količina</th>
                               <th>Status</th>
@@ -199,10 +199,10 @@ function IzmjenaStavkeModal({ prijemId, stavka, onClose, onSacuvano }: { prijemI
   return (
     <Modal naslov={`Izmjena — ${stavka.artikal_naziv}`} podnaslov="Dok se ne donese odluka" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!brojLota.trim() || Number(primljenaKolicina) <= 0}>Sačuvaj</button></>}>
       <div className="form-grid">
-        <label>Broj lota<input value={brojLota} onChange={(e) => setBrojLota(e.target.value)} /></label>
+        <label>Broj lota <ZakonskaOznaka clan="27" /><input value={brojLota} onChange={(e) => setBrojLota(e.target.value)} /></label>
         <label>Rok trajanja<input type="date" value={rokTrajanja} onChange={(e) => setRokTrajanja(e.target.value)} /></label>
         <label>Količina<input type="number" value={primljenaKolicina} onChange={(e) => setPrimljenaKolicina(e.target.value)} /></label>
-        <label>Temperatura pri prijemu (°C)<input type="number" step="0.1" value={temperaturaPrijema} onChange={(e) => setTemperaturaPrijema(e.target.value)} /></label>
+        <label>Temperatura pri prijemu (°C) <ZakonskaOznaka clan="36" /><input type="number" step="0.1" value={temperaturaPrijema} onChange={(e) => setTemperaturaPrijema(e.target.value)} /></label>
       </div>
     </Modal>
   );
@@ -266,10 +266,10 @@ function NoviPrijemModal({ dobavljaci, artikli, onClose, onCreated }: { dobavlja
                 {artikli.map((a) => <option key={a.id} value={a.id}>{a.naziv}</option>)}
               </select>
             </label>
-            <label>Broj lota<input value={red.brojLota} onChange={(e) => azurirajRed(i, { brojLota: e.target.value })} placeholder="npr. MLJ-2609-A" /></label>
+            <label>Broj lota <ZakonskaOznaka clan="27" /><input value={red.brojLota} onChange={(e) => azurirajRed(i, { brojLota: e.target.value })} placeholder="npr. MLJ-2609-A" /></label>
             <label>Rok trajanja<input type="date" value={red.rokTrajanja} onChange={(e) => azurirajRed(i, { rokTrajanja: e.target.value })} /></label>
             <label>Količina<input type="number" value={red.primljenaKolicina} onChange={(e) => azurirajRed(i, { primljenaKolicina: e.target.value })} /></label>
-            <label>Temperatura pri prijemu (°C)<input type="number" step="0.1" value={red.temperaturaPrijema} onChange={(e) => azurirajRed(i, { temperaturaPrijema: e.target.value })} /></label>
+            <label>Temperatura pri prijemu (°C) <ZakonskaOznaka clan="36" /><input type="number" step="0.1" value={red.temperaturaPrijema} onChange={(e) => azurirajRed(i, { temperaturaPrijema: e.target.value })} /></label>
           </div>
         ))}
         <button className="link-button" onClick={dodajRed} style={{ marginTop: 8 }}>

@@ -1,9 +1,11 @@
 import { Router } from "express";
+import { z } from "zod";
 import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth } from "../auth.js";
+import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
 import { lanacNaprijedZaLot, vremenskaLinijaZaEntitet } from "../services/sledljivostService.js";
-import { str } from "../validacija.js";
+import { otpisiZalihu } from "../services/otpisService.js";
+import { str, tijelo } from "../validacija.js";
 
 export const zalihaRuter = Router();
 zalihaRuter.use(requireAuth);
@@ -43,5 +45,20 @@ zalihaRuter.get(
     const lanac = await lanacNaprijedZaLot(str(request.params.id));
     const vremenskaLinija = await vremenskaLinijaZaEntitet("lot", str(request.params.id));
     response.json({ ...lot.rows[0], lanac, vremenskaLinija });
+  }),
+);
+
+const otpisSchema = z.object({
+  kolicina: z.number().positive(),
+  razlog: z.string().trim().min(3, "Razlog otpisa mora biti opisan (npr. oštećeno, isteklo, izgubljeno)."),
+});
+
+zalihaRuter.post(
+  "/lotovi/:id/otpis",
+  requireUloga("operater", "bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ulaz = tijelo(otpisSchema, request.body);
+    await otpisiZalihu(str(request.params.id), ulaz, request.korisnik!.id);
+    response.status(204).end();
   }),
 );

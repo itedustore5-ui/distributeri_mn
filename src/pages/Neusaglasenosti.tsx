@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
-import { PageHeader, Modal } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
 
@@ -28,7 +28,7 @@ export function Neusaglasenosti() {
     <>
       <PageHeader
         title="Neusaglašenosti"
-        description="Odstupanje bez zapisane mjere je nalaz protiv firme, ne protiv zaposlenog."
+        description={<>Odstupanje bez zapisane mjere je nalaz protiv firme, ne protiv zaposlenog <ZakonskaOznaka clan="36" />.</>}
         action={
           <button className="primary-button" onClick={() => setModalNova(true)}>
             <Plus size={16} /> Prijavi neusaglašenost
@@ -101,7 +101,7 @@ function NcDetaljModal({ detalj, mozeUpravljati, onClose, onOsvjezi }: { detalj:
       <div style={{ padding: 20 }}>
         <p style={{ fontSize: 12, color: "#556774", marginBottom: 16 }}>{detalj.opis}</p>
 
-        <h3 style={{ fontSize: 12, marginBottom: 8 }}>Korektivne mjere</h3>
+        <h3 style={{ fontSize: 12, marginBottom: 8 }}>Korektivne mjere <ZakonskaOznaka clan="36" /></h3>
         {detalj.korektivneMjere.length === 0 && <p style={{ fontSize: 11, color: "#9aa5ae" }}>Još nema unijete mjere.</p>}
         {detalj.korektivneMjere.map((m) => (
           <div key={m.id} className="next-control" style={{ margin: "0 0 8px" }}>

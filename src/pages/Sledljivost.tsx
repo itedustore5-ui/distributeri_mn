@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Search, Truck, PackageCheck, User, Warehouse, Printer, AlertTriangle } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
-import { PageHeader, Modal } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
 
@@ -285,7 +285,7 @@ function PovlacenjeDetaljModal({ povlacenje, onClose, onOsvjezi }: { povlacenje:
           <thead>
             <tr>
               <th>Kupac</th>
-              <th>Telefon</th>
+              <th>Telefon <ZakonskaOznaka clan="28" /></th>
               <th>Količina</th>
               <th>Kontaktiran</th>
               <th className="no-print"></th>

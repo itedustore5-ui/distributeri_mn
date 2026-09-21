@@ -39,7 +39,7 @@ export function Modal({ naslov, podnaslov, onClose, children, footer, greska }: 
   );
 }
 
-export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {
+export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: ReactNode; action?: ReactNode }) {
   return (
     <div className="page-header">
       <div>
@@ -49,6 +49,26 @@ export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: 
       </div>
       {action}
     </div>
+  );
+}
+
+const ZAKONSKE_OZNAKE = {
+  "27": { prikaz: "čl. 27", opis: "Zakon o bezbjednosti hrane, čl. 27 — sledljivost: sistem za identifikaciju dobavljača i kupaca, označavanje serije." },
+  "28": { prikaz: "čl. 28", opis: "Zakon o bezbjednosti hrane, čl. 28 — povlačenje nebezbjedne hrane i obavještavanje UBH." },
+  "35": { prikaz: "čl. 35", opis: "Zakon o bezbjednosti hrane, čl. 35 — zahtjevi higijene hrane, propisuje ih Vlada (Uredba o higijeni hrane)." },
+  "36": { prikaz: "čl. 36", opis: "Zakon o bezbjednosti hrane, čl. 36 — HACCP: uspostaviti, primjenjivati i kontinuirano održavati postupke." },
+  "47": { prikaz: "čl. 47", opis: "Zakon o bezbjednosti hrane, čl. 47 — vodiči za dobru higijensku praksu i primjenu HACCP-a." },
+  sanitarna: { prikaz: "čl. 31", opis: "Zakon o zaštiti stanovništva od zaraznih bolesti, čl. 31 — sanitarne knjižice lica koja rukuju hranom." },
+} satisfies Record<string, { prikaz: string; opis: string }>;
+
+/** Mala oznaka pored polja koja pokazuje na koji član zakona se taj podatak oslanja —
+ * bez ovoga ostaje samo tvrdnja da je aplikacija "usklađena", bez dokaza gdje. */
+export function ZakonskaOznaka({ clan }: { clan: keyof typeof ZAKONSKE_OZNAKE }) {
+  const info = ZAKONSKE_OZNAKE[clan];
+  return (
+    <span className="zakon-oznaka" title={info.opis}>
+      {info.prikaz}
+    </span>
   );
 }
 

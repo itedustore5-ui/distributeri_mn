@@ -52,9 +52,9 @@ export async function kreirajIsporuku(ulaz: NovaIsporukaUlaz, korisnikId: string
 
     const broj = await sljedeciBrojIsporuke();
     const isporuka = await klijent.query<{ id: string }>(
-      `insert into isporuka (broj, kupac_id, vozilo_id, vozac_korisnik_id, datum_isporuke, status, napomena)
-       values ($1, $2, $3, $4, $5, 'U_PRIPREMI', $6) returning id`,
-      [broj, ulaz.kupacId, ulaz.vozilId ?? null, ulaz.vozacKorisnikId ?? null, ulaz.datumIsporuke, ulaz.napomena ?? null],
+      `insert into isporuka (broj, kupac_id, vozilo_id, vozac_korisnik_id, uneo_korisnik_id, datum_isporuke, status, napomena)
+       values ($1, $2, $3, $4, $5, $6, 'U_PRIPREMI', $7) returning id`,
+      [broj, ulaz.kupacId, ulaz.vozilId ?? null, ulaz.vozacKorisnikId ?? null, korisnikId, ulaz.datumIsporuke, ulaz.napomena ?? null],
     );
     const isporukaId = isporuka.rows[0].id;
 

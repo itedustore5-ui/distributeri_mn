@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Thermometer, ClipboardList } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 
 type KontrolnaTacka = { id: string; sifra: string; naziv: string };
@@ -37,7 +37,12 @@ export function Haccp() {
     <>
       <PageHeader
         title="HACCP / DHP"
-        description="Limiti dolaze iz podešavanja artikla — ne kucaju se ovdje. Odstupanje bez zapisane mjere se ne snima."
+        description={
+          <>
+            Limiti dolaze iz podešavanja artikla — ne kucaju se ovdje. Odstupanje bez zapisane mjere se ne
+            snima <ZakonskaOznaka clan="36" />.
+          </>
+        }
         action={
           <button className="primary-button" onClick={() => setModalMjerenje(true)}>
             <Plus size={16} /> Novo mjerenje
@@ -81,7 +86,7 @@ export function Haccp() {
 
       <div className="section-heading">
         <div>
-          <h2><ClipboardList size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />Dnevni obrasci</h2>
+          <h2><ClipboardList size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />Dnevni obrasci <ZakonskaOznaka clan="35" /> <ZakonskaOznaka clan="47" /></h2>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {obrasci.map((o) => (
@@ -171,7 +176,7 @@ function NovoMjerenjeModal({ tacke, lotovi, onClose, onCreated }: { tacke: Kontr
             {lotovi.map((l) => <option key={l.id} value={l.id}>{l.artikal_naziv} · {l.broj_lota}</option>)}
           </select>
         </label>
-        <label>Vrijednost (°C)<input type="number" step="0.1" value={vrijednost} onChange={(e) => setVrijednost(e.target.value)} /></label>
+        <label>Vrijednost (°C) <ZakonskaOznaka clan="36" /><input type="number" step="0.1" value={vrijednost} onChange={(e) => setVrijednost(e.target.value)} /></label>
         <label>Napomena<input value={napomena} onChange={(e) => setNapomena(e.target.value)} /></label>
       </div>
     </Modal>
@@ -221,7 +226,7 @@ function NoviZapisModal({ obrazac, onClose, onCreated }: { obrazac: Obrazac; onC
         </label>
         {odstupanje && (
           <label>
-            Korektivna mjera
+            Korektivna mjera <ZakonskaOznaka clan="36" />
             <input value={korektivnaMjera} onChange={(e) => setKorektivnaMjera(e.target.value)} placeholder="Odstupanje bez zapisane mjere je nalaz protiv firme." />
           </label>
         )}

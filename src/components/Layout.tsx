@@ -45,7 +45,7 @@ const NASLOVI: Record<string, string> = Object.fromEntries(STAVKE.map((s) => [s.
 
 export function Layout({ children }: { children: ReactNode }) {
   const { korisnik, odjavi } = useAuth();
-  const [sidebarOtvoren, setSidebarOtvoren] = useState(true);
+  const [sidebarOtvoren, setSidebarOtvoren] = useState(() => window.innerWidth > 760);
   const [korisnikMenu, setKorisnikMenu] = useState(false);
   const navigate = useNavigate();
   const lokacija = useLocation();

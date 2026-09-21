@@ -14,7 +14,7 @@ isporukaRuter.get(
   "/isporuke",
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ogranicenje = ogranicenjeDatuma(request.korisnik!.uloga, "i.datum_isporuke");
-    const filterMoje = samoMoje(request.korisnik!.uloga) ? "and i.vozac_korisnik_id = $1" : "";
+    const filterMoje = samoMoje(request.korisnik!.uloga) ? "and i.uneo_korisnik_id = $1" : "";
     const parametri = filterMoje ? [request.korisnik!.id] : [];
     const rezultat = await upit(
       `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj
