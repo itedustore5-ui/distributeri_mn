@@ -1,13 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Printer, FileText } from "lucide-react";
 import { api } from "../lib/api";
-import { PageHeader } from "../components/Zajednicko";
+import { PageHeader, ZakonskaOznaka } from "../components/Zajednicko";
 
 type Firma = { naziv: string; adresa: string | null; grad: string | null; pib: string | null; odgovorno_lice_ime: string | null };
 type PlanStavka = { lice_ime: string; radno_mjesto: string | null; tema: string; planirani_datum: string; stanje: string };
 type Evidencija = { ime: string; radno_mjesto: string | null; posljednja_provjera_at: string | null; posljednji_broj_tacnih: number | null; posljednji_broj_pitanja: number | null };
 
 type Prilog = "resenje" | "prilog13" | "prilog14";
+
+const OPISI: Record<Prilog, ReactNode> = {
+  resenje: "Rješenje o imenovanju nije zakonski obrazac — to je pisani trag ko sprovodi postupke i ko javlja UBH.",
+  prilog13: "Plan sa stanjem (planirano/uskoro/kasni/urađeno) — stavka koja je prošla bez obuke se ne briše, ostaje kao „kasni\".",
+  prilog14: (
+    <>
+      Dokaz da HACCP sistem stvarno radi <ZakonskaOznaka clan="36" /> — nije sertifikat o položenom
+      testu (banka pitanja nije statistički validirana), nego evidencija da se provjera redovno
+      sprovodi. Termini se otvaraju na „Ljudi" → „Provjera znanja".
+    </>
+  ),
+};
 
 export function Prilozi() {
   const [firma, setFirma] = useState<Firma | null>(null);
@@ -24,7 +36,7 @@ export function Prilozi() {
   return (
     <>
       <div className="no-print">
-        <PageHeader title="Prilozi" description="Rješenje o imenovanju nije zakonski obrazac — to je pisani trag ko sprovodi postupke i ko javlja UBH." />
+        <PageHeader title="Prilozi" description={OPISI[prilog]} />
         <div className="filter-tabs" style={{ marginBottom: 20 }}>
           <button className={prilog === "resenje" ? "selected" : ""} onClick={() => setPrilog("resenje")}>Rješenje o imenovanju</button>
           <button className={prilog === "prilog13" ? "selected" : ""} onClick={() => setPrilog("prilog13")}>Prilog 13 — Plan obuke</button>

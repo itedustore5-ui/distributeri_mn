@@ -7,6 +7,20 @@ import { str } from "../validacija.js";
 export const izvozRuter = Router();
 izvozRuter.use(requireAuth, requireUloga("bzr", "izvodjac"));
 
+/** HTTP zaglavlja moraju biti ASCII — "š"/"č"/"ž"/"đ" u nazivu izvještaja (npr.
+ * "Neusaglašenosti", "Povlačenja") su rušili preuzimanje sa ERR_INVALID_CHAR. Fajl dobija
+ * ASCII naziv kao osnovu (filename=) i pravi naziv preko RFC 5987 dodatka (filename*=), pa
+ * savremeni pregledač i dalje snimi fajl sa kvačicama u imenu. */
+function nazivZaZaglavlje(naziv: string, ekstenzija: string) {
+  const osnova = naziv.replaceAll(/\s+/g, "-").toLowerCase();
+  const ascii = osnova
+    .replaceAll(/[šŠ]/g, "s")
+    .replaceAll(/[čćČĆ]/g, "c")
+    .replaceAll(/[žŽ]/g, "z")
+    .replaceAll(/[đĐ]/g, "dj");
+  return `attachment; filename="${ascii}.${ekstenzija}"; filename*=UTF-8''${encodeURIComponent(`${osnova}.${ekstenzija}`)}`;
+}
+
 izvozRuter.get("/izvoz/izvori", (_request, response) => {
   response.json(IZVORI_IZVOZA.map(({ kod, naziv }) => ({ kod, naziv })));
 });
@@ -16,7 +30,7 @@ izvozRuter.get(
   asyncRuta(async (request, response) => {
     const { naziv, csv } = await izvezi(str(request.params.kod));
     response.setHeader("Content-Type", "text/csv; charset=utf-8");
-    response.setHeader("Content-Disposition", `attachment; filename="${naziv.replaceAll(/\s+/g, "-").toLowerCase()}.csv"`);
+    response.setHeader("Content-Disposition", nazivZaZaglavlje(naziv, "csv"));
     response.send(csv);
   }),
 );
