@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
 import { pool, upit } from "../db.js";
-import { asyncRuta } from "../greske.js";
+import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireAuth, type AuthZahtjev } from "../auth.js";
-import { tijelo } from "../validacija.js";
+import { tijelo, str } from "../validacija.js";
 
 export const zadaciRuter = Router();
 zadaciRuter.use(requireAuth);
@@ -27,9 +27,15 @@ const izmjenaSchema = z.object({ status: z.enum(["OTVOREN", "U_TOKU", "ZAVRSEN",
 
 zadaciRuter.patch(
   "/zadaci/:id",
-  asyncRuta(async (request, response) => {
+  asyncRuta(async (request: AuthZahtjev, response) => {
     const { status } = tijelo(izmjenaSchema, request.body);
-    await pool.query(`update zadatak set status = $1, zavrseno_at = case when $1 = 'ZAVRSEN' then now() else zavrseno_at end where id = $2`, [status, request.params.id]);
+    const zadatak = await pool.query<{ dodijeljeno_korisnik_id: string | null }>(`select dodijeljeno_korisnik_id from zadatak where id = $1`, [str(request.params.id)]);
+    if (!zadatak.rows[0]) throw new ApiGreska(404, "ZADATAK_NE_POSTOJI", "Zadatak nije pronađen.");
+    const smijeSvako = request.korisnik!.uloga === "bzr" || request.korisnik!.uloga === "izvodjac";
+    if (!smijeSvako && zadatak.rows[0].dodijeljeno_korisnik_id !== request.korisnik!.id) {
+      throw new ApiGreska(403, "NIJE_VAS_ZADATAK", "Ovaj zadatak nije dodijeljen vama.");
+    }
+    await pool.query(`update zadatak set status = $1, zavrseno_at = case when $1 = 'ZAVRSEN' then now() else zavrseno_at end where id = $2`, [status, str(request.params.id)]);
     response.status(204).end();
   }),
 );
@@ -47,8 +53,9 @@ zadaciRuter.get(
 
 zadaciRuter.patch(
   "/obavjestenja/:id/procitano",
-  asyncRuta(async (request, response) => {
-    await pool.query(`update obavjestenje set procitano_at = now() where id = $1`, [request.params.id]);
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const rezultat = await pool.query(`update obavjestenje set procitano_at = now() where id = $1 and korisnik_id = $2`, [str(request.params.id), request.korisnik!.id]);
+    if (rezultat.rowCount === 0) throw new ApiGreska(404, "OBAVJESTENJE_NE_POSTOJI", "Obavještenje nije pronađeno.");
     response.status(204).end();
   }),
 );

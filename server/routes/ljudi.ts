@@ -152,6 +152,18 @@ ljudiRuter.post(
   }),
 );
 
+/** bzr/izvodjac smiju da diraju samo nalog čija SADAŠNJA uloga smiju i da dodijele —
+ * bez ovoga bi bzr mogao da promijeni ulogu ili deaktivira drugog bzr ili konsultanta
+ * (invarijanta #13: "nikad sebi ravan ni iznad sebe"), jer smijeDodijelitiUlogu sama
+ * po sebi provjerava samo CILJNU ulogu, ne i trenutnu. */
+async function provjeriMozeDaDirneNalog(request: AuthZahtjev, ciljId: string) {
+  const cilj = await pool.query<{ uloga: Uloga }>(`select uloga from korisnik where id = $1`, [ciljId]);
+  if (!cilj.rows[0]) throw new ApiGreska(404, "NALOG_NE_POSTOJI", "Nalog nije pronađen.");
+  if (!smijeDodijelitiUlogu(request.korisnik!.uloga, cilj.rows[0].uloga)) {
+    throw new ApiGreska(403, "NEDOZVOLJEN_NALOG", "Nemate dozvolu da mijenjate ovaj nalog.");
+  }
+}
+
 ljudiRuter.patch(
   "/nalozi/:id/uloga",
   requireUloga("bzr", "izvodjac"),
@@ -160,6 +172,7 @@ ljudiRuter.patch(
     if (!smijeDodijelitiUlogu(request.korisnik!.uloga, ciljUloga)) {
       throw new ApiGreska(403, "NEDOZVOLJENA_ULOGA", "Ne možete dodijeliti tu ulogu.");
     }
+    await provjeriMozeDaDirneNalog(request, str(request.params.id));
     await pool.query(`update korisnik set uloga = $1, updated_at = now() where id = $2`, [ciljUloga, request.params.id]);
     obrisiSveSesijeZaKorisnika(str(request.params.id));
     response.status(204).end();
@@ -170,6 +183,7 @@ ljudiRuter.patch(
   "/nalozi/:id/deaktiviraj",
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
+    await provjeriMozeDaDirneNalog(request, str(request.params.id));
     await pool.query(`update korisnik set aktivan = false, updated_at = now() where id = $1`, [request.params.id]);
     obrisiSveSesijeZaKorisnika(str(request.params.id));
     response.status(204).end();

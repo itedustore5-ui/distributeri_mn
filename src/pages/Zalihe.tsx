@@ -3,6 +3,7 @@ import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
+import { useAuth } from "../lib/auth";
 
 type Lot = {
   id: string;
@@ -23,6 +24,8 @@ const FILTERI = [
 ];
 
 export function Zalihe() {
+  const { korisnik } = useAuth();
+  const mozeOtpisati = korisnik?.uloga === "operater" || korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
   const [lotovi, setLotovi] = useState<Lot[]>([]);
   const [filter, setFilter] = useState("");
   const [otpisLot, setOtpisLot] = useState<Lot | null>(null);
@@ -80,7 +83,7 @@ export function Zalihe() {
                   <td>{l.dostupno}</td>
                   <td><StatusBadge status={l.status} /></td>
                   <td>
-                    {Number(l.dostupno) > 0 && (
+                    {mozeOtpisati && Number(l.dostupno) > 0 && (
                       <button className="small-action" onClick={() => setOtpisLot(l)}>Otpiši</button>
                     )}
                   </td>

@@ -9,9 +9,16 @@ type Nc = { id: string; broj: string; ozbiljnost: string; status: string; opis: 
 type Mjera = { id: string; opis: string; status: string; zavrsio_korisnik_id: string | null; rok: string | null };
 type NcDetalj = Nc & { korektivneMjere: Mjera[]; verifikacije: { id: string; rezultat: string; napomena: string | null }[] };
 
+const NC_FILTERI = [
+  { kod: "aktivne", naziv: "Aktivne" },
+  { kod: "", naziv: "Sve" },
+  { kod: "ZATVORENA", naziv: "Zatvorene" },
+] as const;
+
 export function Neusaglasenosti() {
   const { korisnik } = useAuth();
   const [lista, setLista] = useState<Nc[]>([]);
+  const [filter, setFilter] = useState<(typeof NC_FILTERI)[number]["kod"]>("aktivne");
   const [otvoren, setOtvoren] = useState<NcDetalj | null>(null);
   const [modalNova, setModalNova] = useState(false);
 
@@ -24,6 +31,12 @@ export function Neusaglasenosti() {
 
   const mozeUpravljati = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
 
+  const prikazano = lista.filter((nc) => {
+    if (filter === "aktivne") return nc.status !== "ZATVORENA";
+    if (filter === "") return true;
+    return nc.status === filter;
+  });
+
   return (
     <>
       <PageHeader
@@ -35,9 +48,16 @@ export function Neusaglasenosti() {
           </button>
         }
       />
+      <div className="filter-tabs" style={{ marginBottom: 16 }}>
+        {NC_FILTERI.map((f) => (
+          <button key={f.kod} className={filter === f.kod ? "selected" : ""} onClick={() => setFilter(f.kod)}>
+            {f.naziv}
+          </button>
+        ))}
+      </div>
       <div className="panel full-panel">
         <div className="nc-list">
-          {lista.map((nc) => (
+          {prikazano.map((nc) => (
             <div key={nc.id} className="nc-row" onClick={() => otvoriDetalj(nc.id)} style={{ cursor: "pointer" }}>
               <div className={`severity-bar ${nc.ozbiljnost === "VISOK" ? "danger" : "warning"}`} />
               <div className="nc-title">
@@ -51,7 +71,7 @@ export function Neusaglasenosti() {
               <div />
             </div>
           ))}
-          {lista.length === 0 && <p style={{ padding: 20, color: "#9aa5ae", fontSize: 12 }}>Nema neusaglašenosti.</p>}
+          {prikazano.length === 0 && <p style={{ padding: 20, color: "#9aa5ae", fontSize: 12 }}>Nema neusaglašenosti u ovom prikazu.</p>}
         </div>
       </div>
 

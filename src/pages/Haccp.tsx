@@ -20,6 +20,7 @@ export function Haccp() {
   const [zapisi, setZapisi] = useState<Zapis[]>([]);
   const [modalMjerenje, setModalMjerenje] = useState(false);
   const [modalZapis, setModalZapis] = useState<Obrazac | null>(null);
+  const [filterObrazac, setFilterObrazac] = useState("");
 
   const ucitaj = () => {
     api<Mjerenje[]>("/mjerenja").then(setMjerenja);
@@ -96,6 +97,12 @@ export function Haccp() {
           ))}
         </div>
       </div>
+      <div className="filter-tabs" style={{ marginBottom: 16 }}>
+        <button className={filterObrazac === "" ? "selected" : ""} onClick={() => setFilterObrazac("")}>Svi</button>
+        {obrasci.map((o) => (
+          <button key={o.kod} className={filterObrazac === o.kod ? "selected" : ""} onClick={() => setFilterObrazac(o.kod)}>{o.kod}</button>
+        ))}
+      </div>
       <div className="panel full-panel">
         <div className="data-table-wrap">
           <table className="data-table">
@@ -109,7 +116,7 @@ export function Haccp() {
               </tr>
             </thead>
             <tbody>
-              {zapisi.map((z) => (
+              {zapisi.filter((z) => !filterObrazac || z.obrazac_kod === filterObrazac).map((z) => (
                 <tr key={z.id}>
                   <td>{z.obrazac_kod}</td>
                   <td className="muted-text">{z.datum}</td>
