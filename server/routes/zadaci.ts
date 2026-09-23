@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { pool, upit } from "../db.js";
+import { pool, upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
@@ -75,26 +75,29 @@ zadaciRuter.post(
     const rokAt = ulaz.rok
       ? (await pool.query<{ rok: string }>(`select (($1::date + time '23:59') at time zone 'Europe/Podgorica')::text as rok`, [ulaz.rok])).rows[0].rok
       : null;
-    const id = await kreirajZadatak(pool, {
-      naslov: ulaz.naslov,
-      opis: ulaz.opis || undefined,
-      dodijeljenoKorisnikId: ulaz.dodijeljenoKorisnikId ?? null,
-      prioritet: ulaz.prioritet,
-      rokAt,
-      izvorTip: "rucno",
-      createdBy: korisnik.id,
-    });
-    if (ulaz.dodijeljenoKorisnikId && ulaz.dodijeljenoKorisnikId !== korisnik.id) {
-      await kreirajObavjestenje(pool, {
-        korisnikId: ulaz.dodijeljenoKorisnikId,
-        naslov: `Dodijeljen vam je zadatak: ${ulaz.naslov}`,
-        poruka: [ulaz.opis, ulaz.rok ? `Rok: ${ulaz.rok}.` : ""].filter(Boolean).join(" ") || undefined,
-        ozbiljnost: ulaz.prioritet === "VISOK" ? "VISOK" : "SREDNJI",
-        izvorTip: "zadatak",
-        izvorId: id,
+    const id = await transakcija(async (klijent) => {
+      const id = await kreirajZadatak(klijent, {
+        naslov: ulaz.naslov,
+        opis: ulaz.opis || undefined,
+        dodijeljenoKorisnikId: ulaz.dodijeljenoKorisnikId ?? null,
+        prioritet: ulaz.prioritet,
+        rokAt,
+        izvorTip: "rucno",
+        createdBy: korisnik.id,
       });
-    }
-    await logKreiranje(pool, { korisnikId: korisnik.id, entitetTip: "zadatak", entitetId: id, noveVrijednosti: ulaz });
+      if (ulaz.dodijeljenoKorisnikId && ulaz.dodijeljenoKorisnikId !== korisnik.id) {
+        await kreirajObavjestenje(klijent, {
+          korisnikId: ulaz.dodijeljenoKorisnikId,
+          naslov: `Dodijeljen vam je zadatak: ${ulaz.naslov}`,
+          poruka: [ulaz.opis, ulaz.rok ? `Rok: ${ulaz.rok}.` : ""].filter(Boolean).join(" ") || undefined,
+          ozbiljnost: ulaz.prioritet === "VISOK" ? "VISOK" : "SREDNJI",
+          izvorTip: "zadatak",
+          izvorId: id,
+        });
+      }
+      await logKreiranje(klijent, { korisnikId: korisnik.id, entitetTip: "zadatak", entitetId: id, noveVrijednosti: ulaz });
+      return id;
+    });
     response.status(201).json({ id });
   }),
 );

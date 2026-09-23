@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { pool, upit } from "../db.js";
+import { pool, upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireAuth, requireUloga, ogranicenjeDatuma, izvrsilacZa, samoMoje, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo } from "../validacija.js";
@@ -146,12 +146,15 @@ haccpRuter.post(
       throw new ApiGreska(400, "MJERA_OBAVEZNA", "Odstupanje bez zapisane mjere je nalaz protiv firme, ne protiv zaposlenog — upišite korektivnu mjeru.");
     }
     const izvrsilac = izvrsilacZa(request.korisnik!, ulaz.izvrsilac);
-    const rezultat = await pool.query<{ id: string }>(
-      `insert into zapis (obrazac_kod, datum, podaci, odstupanje, korektivna_mjera, izvrsilac, uneo_korisnik_id, ispravlja_id)
-       values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-      [ulaz.obrazacKod, ulaz.datum, JSON.stringify(ulaz.podaci), ulaz.odstupanje, ulaz.korektivnaMjera ?? null, izvrsilac, request.korisnik!.id, ulaz.ispravljaId ?? null],
-    );
-    await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "zapis", entitetId: rezultat.rows[0].id, noveVrijednosti: { obrazacKod: ulaz.obrazacKod, datum: ulaz.datum } });
+    const rezultat = await transakcija(async (klijent) => {
+      const rezultat = await klijent.query<{ id: string }>(
+        `insert into zapis (obrazac_kod, datum, podaci, odstupanje, korektivna_mjera, izvrsilac, uneo_korisnik_id, ispravlja_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+        [ulaz.obrazacKod, ulaz.datum, JSON.stringify(ulaz.podaci), ulaz.odstupanje, ulaz.korektivnaMjera ?? null, izvrsilac, request.korisnik!.id, ulaz.ispravljaId ?? null],
+      );
+      await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "zapis", entitetId: rezultat.rows[0].id, noveVrijednosti: { obrazacKod: ulaz.obrazacKod, datum: ulaz.datum } });
+      return rezultat;
+    });
     // Ispravka zapisa ne otvara drugu neusaglašenost za isto odstupanje.
     const nc = ulaz.odstupanje && !ulaz.ispravljaId
       ? await neusaglasenostIzZapisa({ zapisId: rezultat.rows[0].id, obrazacKod: ulaz.obrazacKod, datum: ulaz.datum, korektivnaMjera: ulaz.korektivnaMjera!, korisnikId: request.korisnik!.id })

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
-import { upit } from "./db.js";
+import type { PoolClient } from "pg";
+import { pool, upit } from "./db.js";
 import { ApiGreska, posalji } from "./greske.js";
 import { danaUnazad, jeDatumUBuducnosti } from "./vrijeme.js";
 
@@ -46,8 +47,8 @@ export async function obrisiSesiju(token: string) {
 
 /** Promjena uloge i deaktivacija brišu sesije — stara sesija nosi staru ulogu (invarijanta #27).
  * `osimTokena`: promjena lozinke odjavljuje sve DRUGE uređaje, a ne onaj na kom je promijenjena. */
-export async function obrisiSveSesijeZaKorisnika(korisnikId: string, osimTokena?: string) {
-  await upit(`delete from sesija_prijave where korisnik_id = $1 and ($2::text is null or token_hash <> $2)`, [
+export async function obrisiSveSesijeZaKorisnika(korisnikId: string, osimTokena?: string, klijent: Pick<PoolClient, "query"> = pool) {
+  await klijent.query(`delete from sesija_prijave where korisnik_id = $1 and ($2::text is null or token_hash <> $2)`, [
     korisnikId,
     osimTokena ? hesTokena(osimTokena) : null,
   ]);

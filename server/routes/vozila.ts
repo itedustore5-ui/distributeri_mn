@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { pool, upit } from "../db.js";
+import { pool, upit, transakcija } from "../db.js";
 import { asyncRuta } from "../greske.js";
 import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
 import { tijelo } from "../validacija.js";
@@ -27,11 +27,14 @@ vozilaRuter.post(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(novoVoziloSchema, request.body);
-    const rezultat = await pool.query<{ id: string }>(
-      `insert into vozilo (registarski_broj, tip, temp_kontrolisano, temp_min, temp_max) values ($1, $2, $3, $4, $5) returning id`,
-      [ulaz.registarskiBroj, ulaz.tip ?? null, ulaz.tempKontrolisano, ulaz.tempMin ?? null, ulaz.tempMax ?? null],
-    );
-    await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "vozilo", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
+    const rezultat = await transakcija(async (klijent) => {
+      const rezultat = await klijent.query<{ id: string }>(
+        `insert into vozilo (registarski_broj, tip, temp_kontrolisano, temp_min, temp_max) values ($1, $2, $3, $4, $5) returning id`,
+        [ulaz.registarskiBroj, ulaz.tip ?? null, ulaz.tempKontrolisano, ulaz.tempMin ?? null, ulaz.tempMax ?? null],
+      );
+      await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "vozilo", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
+      return rezultat;
+    });
     response.status(201).json({ id: rezultat.rows[0].id });
   }),
 );

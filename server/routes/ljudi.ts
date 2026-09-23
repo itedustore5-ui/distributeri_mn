@@ -107,19 +107,21 @@ ljudiRuter.patch(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(izmjenaLiceSchema, request.body);
-    await pool.query(
-      `update lice set
-         ime = coalesce($1, ime),
-         radno_mjesto = coalesce($2, radno_mjesto),
-         rukuje_hranom = coalesce($3, rukuje_hranom),
-         sanitarna_knjizica_broj = coalesce($4, sanitarna_knjizica_broj),
-         sanitarna_knjizica_rok = coalesce($5, sanitarna_knjizica_rok),
-         aktivan = coalesce($6, aktivan),
-         updated_at = now()
-       where id = $7`,
-      [ulaz.ime ?? null, ulaz.radnoMjesto ?? null, ulaz.rukujeHranom ?? null, ulaz.sanitarnaKnjizicaBroj ?? null, ulaz.sanitarnaKnjizicaRok ?? null, ulaz.aktivan ?? null, request.params.id],
-    );
-    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "lice", entitetId: str(request.params.id), noveVrijednosti: ulaz });
+    await transakcija(async (klijent) => {
+      await klijent.query(
+        `update lice set
+           ime = coalesce($1, ime),
+           radno_mjesto = coalesce($2, radno_mjesto),
+           rukuje_hranom = coalesce($3, rukuje_hranom),
+           sanitarna_knjizica_broj = coalesce($4, sanitarna_knjizica_broj),
+           sanitarna_knjizica_rok = coalesce($5, sanitarna_knjizica_rok),
+           aktivan = coalesce($6, aktivan),
+           updated_at = now()
+         where id = $7`,
+        [ulaz.ime ?? null, ulaz.radnoMjesto ?? null, ulaz.rukujeHranom ?? null, ulaz.sanitarnaKnjizicaBroj ?? null, ulaz.sanitarnaKnjizicaRok ?? null, ulaz.aktivan ?? null, request.params.id],
+      );
+      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "lice", entitetId: str(request.params.id), noveVrijednosti: ulaz });
+    });
     response.status(204).end();
   }),
 );
@@ -158,11 +160,14 @@ ljudiRuter.post(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviPlanSchema, request.body);
-    const rezultat = await pool.query<{ id: string }>(
-      `insert into plan_obuke (lice_id, tema, planirani_datum, napomena) values ($1, $2, $3, $4) returning id`,
-      [ulaz.liceId, ulaz.tema, ulaz.planiraniDatum, ulaz.napomena ?? null],
-    );
-    await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "plan_obuke", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
+    const rezultat = await transakcija(async (klijent) => {
+      const rezultat = await klijent.query<{ id: string }>(
+        `insert into plan_obuke (lice_id, tema, planirani_datum, napomena) values ($1, $2, $3, $4) returning id`,
+        [ulaz.liceId, ulaz.tema, ulaz.planiraniDatum, ulaz.napomena ?? null],
+      );
+      await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "plan_obuke", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
+      return rezultat;
+    });
     response.status(201).json({ id: rezultat.rows[0].id });
   }),
 );
@@ -226,8 +231,10 @@ ljudiRuter.patch(
       throw new ApiGreska(403, "NEDOZVOLJENA_ULOGA", "Ne možete dodijeliti tu ulogu.");
     }
     await provjeriMozeDaDirneNalog(request, str(request.params.id));
-    await pool.query(`update korisnik set uloga = $1, updated_at = now() where id = $2`, [ciljUloga, request.params.id]);
-    await obrisiSveSesijeZaKorisnika(str(request.params.id));
+    await transakcija(async (klijent) => {
+      await klijent.query(`update korisnik set uloga = $1, updated_at = now() where id = $2`, [ciljUloga, request.params.id]);
+      await obrisiSveSesijeZaKorisnika(str(request.params.id), undefined, klijent);
+    });
     response.status(204).end();
   }),
 );
@@ -247,12 +254,14 @@ ljudiRuter.patch(
       throw new ApiGreska(400, "LOZINKA_KRATKA", `Lozinka mora imati najmanje ${MINIMALNA_DUZINA_LOZINKE} znakova.`);
     }
     const privremenaLozinka = zadata || crypto.randomBytes(9).toString("base64url").slice(0, MINIMALNA_DUZINA_LOZINKE + 2);
-    await pool.query(
-      `update korisnik set lozinka_hash = $1, lozinka_stanje = 'privremena', mora_promijeniti_lozinku = true, updated_at = now() where id = $2`,
-      [hashLozinke(privremenaLozinka), ciljId],
-    );
-    await obrisiSveSesijeZaKorisnika(ciljId);
-    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { lozinka: "postavljena nova privremena" } });
+    await transakcija(async (klijent) => {
+      await klijent.query(
+        `update korisnik set lozinka_hash = $1, lozinka_stanje = 'privremena', mora_promijeniti_lozinku = true, updated_at = now() where id = $2`,
+        [hashLozinke(privremenaLozinka), ciljId],
+      );
+      await obrisiSveSesijeZaKorisnika(ciljId, undefined, klijent);
+      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { lozinka: "postavljena nova privremena" } });
+    });
     response.json({ privremenaLozinka });
   }),
 );
@@ -262,8 +271,10 @@ ljudiRuter.patch(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     await provjeriMozeDaDirneNalog(request, str(request.params.id));
-    await pool.query(`update korisnik set aktivan = false, updated_at = now() where id = $1`, [request.params.id]);
-    await obrisiSveSesijeZaKorisnika(str(request.params.id));
+    await transakcija(async (klijent) => {
+      await klijent.query(`update korisnik set aktivan = false, updated_at = now() where id = $1`, [request.params.id]);
+      await obrisiSveSesijeZaKorisnika(str(request.params.id), undefined, klijent);
+    });
     response.status(204).end();
   }),
 );
@@ -284,8 +295,10 @@ ljudiRuter.patch(
       const postoji = await pool.query(`select 1 from skladiste where id = $1 and aktivan`, [skladisteId]);
       if (!postoji.rows[0]) throw new ApiGreska(400, "SKLADISTE_NE_POSTOJI", "Izabrano skladište ne postoji ili više nije aktivno.");
     }
-    await pool.query(`update korisnik set skladiste_id = $1 where id = $2`, [skladisteId, ciljId]);
-    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { skladisteId } });
+    await transakcija(async (klijent) => {
+      await klijent.query(`update korisnik set skladiste_id = $1 where id = $2`, [skladisteId, ciljId]);
+      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { skladisteId } });
+    });
     response.status(204).end();
   }),
 );

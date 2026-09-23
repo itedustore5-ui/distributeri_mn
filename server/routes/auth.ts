@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { upit } from "../db.js";
+import { upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska, posalji } from "../greske.js";
 import {
   kreirajSesiju,
@@ -89,12 +89,14 @@ authRuter.post(
     if (!provjeriLozinku(staraLozinka, rezultat.rows[0].lozinka_hash)) {
       throw new ApiGreska(401, "STARA_LOZINKA_NETACNA", "Trenutna lozinka nije ispravna.");
     }
-    await pool.query(
-      `update korisnik set lozinka_hash = $1, lozinka_stanje = 'svoja', mora_promijeniti_lozinku = false, updated_at = now() where id = $2`,
-      [hashLozinke(novaLozinka), request.korisnik!.id],
-    );
-    // Nova lozinka odjavljuje sve ostale uređaje — ako je stara procurila, stara prijava ne važi.
-    await obrisiSveSesijeZaKorisnika(request.korisnik!.id, tokenIzZahtjeva(request));
+    await transakcija(async (klijent) => {
+      await klijent.query(
+        `update korisnik set lozinka_hash = $1, lozinka_stanje = 'svoja', mora_promijeniti_lozinku = false, updated_at = now() where id = $2`,
+        [hashLozinke(novaLozinka), request.korisnik!.id],
+      );
+      // Nova lozinka odjavljuje sve ostale uređaje — ako je stara procurila, stara prijava ne važi.
+      await obrisiSveSesijeZaKorisnika(request.korisnik!.id, tokenIzZahtjeva(request), klijent);
+    });
     response.status(204).end();
   }),
 );
