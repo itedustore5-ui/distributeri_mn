@@ -26,6 +26,7 @@ import { firmaRuter } from "./routes/firma.js";
 import { povlacenjeRuter } from "./routes/povlacenje.js";
 import { bekapRuter } from "./routes/bekap.js";
 import { pokreniSedmicniBekap } from "./services/bekapService.js";
+import { pripremiSesije } from "./auth.js";
 
 const port = Number(process.env.PORT || 5000);
 const isProduction = process.env.NODE_ENV === "production";
@@ -100,6 +101,13 @@ const start = async () => {
       }
       response.sendFile(path.join(distPath, "index.html"));
     });
+  }
+
+  try {
+    await pripremiSesije();
+  } catch (e) {
+    // Server se ipak diže (da /api/zdravlje javi stanje), ali prijava neće raditi dok baza ne odgovori.
+    console.error("Tabela sesija nije spremna — prijava neće raditi:", e);
   }
 
   const server = app.listen(port, "0.0.0.0", () => {

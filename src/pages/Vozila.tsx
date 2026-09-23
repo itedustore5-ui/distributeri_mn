@@ -4,9 +4,27 @@ import { api, ApiGreska } from "../lib/api";
 import { PageHeader, Modal } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
+import { lokalniDatum } from "../lib/vrijeme";
 
 type Vozilo = { id: string; registarski_broj: string; tip: string | null; status: string; temp_kontrolisano: boolean };
-type Kontrola = { id: string; registarski_broj: string; izvrsio: string | null; izvrseno_at: string; cistoca: boolean; oprema_ok: boolean; vrata_ok: boolean; temperatura: string | null; ukupan_status: string; napomena: string | null };
+type Kontrola = {
+  id: string;
+  vozilo_id: string;
+  registarski_broj: string;
+  izvrsio: string | null;
+  izvrsio_korisnik_id: string | null;
+  izvrseno_at: string;
+  datum: string;
+  cistoca: boolean;
+  oprema_ok: boolean;
+  vrata_ok: boolean;
+  temperatura: string | null;
+  ukupan_status: string;
+  napomena: string | null;
+};
+
+const sat = (iso: string) => new Date(iso).toLocaleTimeString("sr-Latn-ME", { hour: "2-digit", minute: "2-digit" });
+const datumIVrijeme = (iso: string) => `${new Date(iso).toLocaleDateString("sr-Latn-ME")} ${sat(iso)}`;
 
 export function Vozila() {
   const { korisnik } = useAuth();
@@ -14,6 +32,10 @@ export function Vozila() {
   const [kontrole, setKontrole] = useState<Kontrola[]>([]);
   const [modalKontrola, setModalKontrola] = useState<Vozilo | null>(null);
   const [modalNovo, setModalNovo] = useState(false);
+  const [filterVozilo, setFilterVozilo] = useState("");
+  const [filterDatum, setFilterDatum] = useState("");
+  const [filterRezultat, setFilterRezultat] = useState("");
+  const [samoMoje, setSamoMoje] = useState(false);
 
   const ucitaj = () => {
     api<Vozilo[]>("/vozila").then(setVozila);
@@ -22,6 +44,18 @@ export function Vozila() {
   useEffect(() => {
     ucitaj();
   }, []);
+
+  const danas = lokalniDatum();
+  // Lista je sortirana od najnovije — prva kontrola za vozilo je posljednja urađena.
+  const posljednja = (voziloId: string) => kontrole.find((k) => k.vozilo_id === voziloId);
+  const prikazano = kontrole.filter(
+    (k) =>
+      (!filterVozilo || k.vozilo_id === filterVozilo) &&
+      (!filterDatum || k.datum === filterDatum) &&
+      (!filterRezultat || k.ukupan_status === filterRezultat) &&
+      (!samoMoje || k.izvrsio_korisnik_id === korisnik?.id),
+  );
+  const imaFiltera = filterVozilo || filterDatum || filterRezultat || samoMoje;
 
   return (
     <>
@@ -50,6 +84,18 @@ export function Vozila() {
                 <span>Status</span>
                 <strong>{v.status === "SPREMNO" ? "Spremno" : "Nije spremno"}</strong>
               </div>
+              <div>
+                <span>Posljednja kontrola</span>
+                {(() => {
+                  const k = posljednja(v.id);
+                  if (!k) return <strong className="kontrola-nema">nije rađena</strong>;
+                  return (
+                    <strong className={k.datum === danas ? "kontrola-danas" : "kontrola-stara"}>
+                      {k.datum === danas ? `danas u ${sat(k.izvrseno_at)}` : datumIVrijeme(k.izvrseno_at)} · {k.izvrsio ?? "—"}
+                    </strong>
+                  );
+                })()}
+              </div>
             </div>
             <button className="secondary-button full-width" onClick={() => setModalKontrola(v)}>Nova kontrola (D1)</button>
           </div>
@@ -62,7 +108,55 @@ export function Vozila() {
           <span>Svaka kontrola ostaje zapisana — ne može se mijenjati ni brisati.</span>
         </div>
       </div>
-      <div className="panel full-panel">
+      <div className="filter-bar">
+        <label>
+          Vozilo
+          <select value={filterVozilo} onChange={(e) => setFilterVozilo(e.target.value)}>
+            <option value="">Sva vozila</option>
+            {vozila.map((v) => <option key={v.id} value={v.id}>{v.registarski_broj}</option>)}
+          </select>
+        </label>
+        <label>
+          Datum
+          <input type="date" value={filterDatum} onChange={(e) => setFilterDatum(e.target.value)} />
+        </label>
+        <button className={`small-action${filterDatum === danas ? " selected" : ""}`} onClick={() => setFilterDatum(danas)}>Danas</button>
+        <label>
+          Rezultat
+          <select value={filterRezultat} onChange={(e) => setFilterRezultat(e.target.value)}>
+            <option value="">Svi</option>
+            <option value="PROSAO">Prošao</option>
+            <option value="NIJE_PROSAO">Nije prošao</option>
+          </select>
+        </label>
+        <label className="filter-potvrda">
+          <input type="checkbox" checked={samoMoje} onChange={(e) => setSamoMoje(e.target.checked)} /> Samo moje kontrole
+        </label>
+        {imaFiltera && (
+          <button className="link-button" onClick={() => { setFilterVozilo(""); setFilterDatum(""); setFilterRezultat(""); setSamoMoje(false); }}>
+            Poništi filtere
+          </button>
+        )}
+        <span className="filter-broj">{prikazano.length} od {kontrole.length}</span>
+      </div>
+      {/* Na telefonu kartice umjesto tabele od 8 kolona — rezultat mora biti vidljiv bez skrolovanja u stranu. */}
+      <div className="panel kontrole-kartice">
+        {prikazano.length === 0 && <p className="muted-text" style={{ fontSize: 11, padding: 16 }}>{imaFiltera ? "Nema kontrola za izabrane filtere." : "Nema zabilježenih kontrola."}</p>}
+        {prikazano.map((k) => {
+          const pali = [!k.cistoca && "čistoća", !k.oprema_ok && "oprema", !k.vrata_ok && "vrata"].filter(Boolean);
+          return (
+            <div key={k.id} className="danas-red">
+              <div>
+                <strong>{k.registarski_broj} <StatusBadge status={k.ukupan_status} /></strong>
+                <span>{datumIVrijeme(k.izvrseno_at)} · {k.izvrsio ?? "—"}{k.temperatura !== null ? ` · ${Number(k.temperatura)} °C` : ""}</span>
+                {pali.length > 0 && <span className="danas-fali">Nije u redu: {pali.join(", ")}</span>}
+                {k.napomena && <span>{k.napomena}</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="panel full-panel kontrole-tabela">
         <div className="data-table-wrap">
           <table className="data-table">
             <thead>
@@ -78,10 +172,10 @@ export function Vozila() {
               </tr>
             </thead>
             <tbody>
-              {kontrole.map((k) => (
+              {prikazano.map((k) => (
                 <tr key={k.id}>
                   <td>{k.registarski_broj}</td>
-                  <td className="muted-text">{new Date(k.izvrseno_at).toLocaleString("sr-Latn-ME")}</td>
+                  <td className="muted-text">{datumIVrijeme(k.izvrseno_at)}</td>
                   <td>{k.cistoca ? "Da" : "Ne"}</td>
                   <td>{k.oprema_ok ? "Da" : "Ne"}</td>
                   <td>{k.vrata_ok ? "Da" : "Ne"}</td>
@@ -90,9 +184,11 @@ export function Vozila() {
                   <td><StatusBadge status={k.ukupan_status} /></td>
                 </tr>
               ))}
-              {kontrole.length === 0 && (
+              {prikazano.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="muted-text" style={{ textAlign: "center", padding: 20 }}>Nema zabilježenih kontrola.</td>
+                  <td colSpan={8} className="muted-text" style={{ textAlign: "center", padding: 20 }}>
+                    {imaFiltera ? "Nema kontrola za izabrane filtere." : "Nema zabilježenih kontrola."}
+                  </td>
                 </tr>
               )}
             </tbody>

@@ -5,6 +5,7 @@ import { asyncRuta, ApiGreska, posalji } from "../greske.js";
 import {
   kreirajSesiju,
   obrisiSesiju,
+  obrisiSveSesijeZaKorisnika,
   postaviSesijskiKolacic,
   obrisiSesijskiKolacic,
   tokenIzZahtjeva,
@@ -47,7 +48,7 @@ authRuter.post(
     ocistiNeuspjelePokusaje(kljucKlijenta);
     await pool.query(`update korisnik set poslednja_prijava_at = now() where id = $1`, [korisnik.id]);
 
-    const token = kreirajSesiju(korisnik.id);
+    const token = await kreirajSesiju(korisnik.id);
     postaviSesijskiKolacic(response, token);
     response.json({ moraPromijenitiLozinku: korisnik.mora_promijeniti_lozinku, uloga: korisnik.uloga });
   }),
@@ -61,12 +62,15 @@ authRuter.get(
   }),
 );
 
-authRuter.post("/auth/odjava", (request, response) => {
-  const token = tokenIzZahtjeva(request);
-  if (token) obrisiSesiju(token);
-  obrisiSesijskiKolacic(response);
-  response.status(204).end();
-});
+authRuter.post(
+  "/auth/odjava",
+  asyncRuta(async (request, response) => {
+    const token = tokenIzZahtjeva(request);
+    if (token) await obrisiSesiju(token);
+    obrisiSesijskiKolacic(response);
+    response.status(204).end();
+  }),
+);
 
 const promjenaLozinkeSchema = z.object({
   staraLozinka: z.string().min(1),
@@ -89,6 +93,8 @@ authRuter.post(
       `update korisnik set lozinka_hash = $1, lozinka_stanje = 'svoja', mora_promijeniti_lozinku = false, updated_at = now() where id = $2`,
       [hashLozinke(novaLozinka), request.korisnik!.id],
     );
+    // Nova lozinka odjavljuje sve ostale uređaje — ako je stara procurila, stara prijava ne važi.
+    await obrisiSveSesijeZaKorisnika(request.korisnik!.id, tokenIzZahtjeva(request));
     response.status(204).end();
   }),
 );

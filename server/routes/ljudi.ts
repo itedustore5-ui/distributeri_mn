@@ -189,7 +189,7 @@ ljudiRuter.patch(
     }
     await provjeriMozeDaDirneNalog(request, str(request.params.id));
     await pool.query(`update korisnik set uloga = $1, updated_at = now() where id = $2`, [ciljUloga, request.params.id]);
-    obrisiSveSesijeZaKorisnika(str(request.params.id));
+    await obrisiSveSesijeZaKorisnika(str(request.params.id));
     response.status(204).end();
   }),
 );
@@ -200,7 +200,7 @@ ljudiRuter.patch(
   asyncRuta(async (request: AuthZahtjev, response) => {
     await provjeriMozeDaDirneNalog(request, str(request.params.id));
     await pool.query(`update korisnik set aktivan = false, updated_at = now() where id = $1`, [request.params.id]);
-    obrisiSveSesijeZaKorisnika(str(request.params.id));
+    await obrisiSveSesijeZaKorisnika(str(request.params.id));
     response.status(204).end();
   }),
 );

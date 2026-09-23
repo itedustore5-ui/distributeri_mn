@@ -44,10 +44,12 @@ vozilaRuter.get(
   asyncRuta(async (request, response) => {
     const voziloId = typeof request.query.voziloId === "string" ? request.query.voziloId : undefined;
     const rezultat = await upit(
-      `select kv.*, v.registarski_broj, k.korisnicko_ime as izvrsio
+      `select kv.*, v.registarski_broj, coalesce(l.ime, k.korisnicko_ime) as izvrsio,
+              to_char(kv.izvrseno_at at time zone 'Europe/Podgorica', 'YYYY-MM-DD') as datum
        from kontrola_vozila kv
        join vozilo v on v.id = kv.vozilo_id
        left join korisnik k on k.id = kv.izvrsio_korisnik_id
+       left join lice l on l.id = k.lice_id
        where ($1::uuid is null or kv.vozilo_id = $1) order by kv.izvrseno_at desc limit 100`,
       [voziloId ?? null],
     );

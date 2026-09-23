@@ -22,27 +22,50 @@ const SESIJA_KOLACIC = "pilot_sesija";
 const TRAJANJE_SESIJE_MS = 8 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === "production";
 
-type Sesija = { korisnikId: string; expiresAt: number };
-const sesije = new Map<string, Sesija>();
 const neuspjeliPokusaji = new Map<string, { pokusaji: number; resetAt: number }>();
 
 export const noviToken = () => crypto.randomBytes(32).toString("base64url");
 
-export function kreirajSesiju(korisnikId: string): string {
+// Sesije su u bazi (sesija_prijave), ne u memoriji — deploy i restart više ne odjavljuju ljude.
+// U bazi je samo heš tokena: ko pročita tabelu, ne može se njome prijaviti.
+const hesTokena = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
+
+export async function kreirajSesiju(korisnikId: string): Promise<string> {
   const token = noviToken();
-  sesije.set(token, { korisnikId, expiresAt: Date.now() + TRAJANJE_SESIJE_MS });
+  await upit(`insert into sesija_prijave (token_hash, korisnik_id, istice_at) values ($1, $2, now() + $3 * interval '1 millisecond')`, [
+    hesTokena(token),
+    korisnikId,
+    TRAJANJE_SESIJE_MS,
+  ]);
   return token;
 }
 
-export function obrisiSesiju(token: string) {
-  sesije.delete(token);
+export async function obrisiSesiju(token: string) {
+  await upit(`delete from sesija_prijave where token_hash = $1`, [hesTokena(token)]);
 }
 
-/** Promjena uloge briše sesiju — stara sesija nosi staru ulogu (invarijanta #27). */
-export function obrisiSveSesijeZaKorisnika(korisnikId: string) {
-  for (const [token, sesija] of sesije) {
-    if (sesija.korisnikId === korisnikId) sesije.delete(token);
-  }
+/** Promjena uloge i deaktivacija brišu sesije — stara sesija nosi staru ulogu (invarijanta #27).
+ * `osimTokena`: promjena lozinke odjavljuje sve DRUGE uređaje, a ne onaj na kom je promijenjena. */
+export async function obrisiSveSesijeZaKorisnika(korisnikId: string, osimTokena?: string) {
+  await upit(`delete from sesija_prijave where korisnik_id = $1 and ($2::text is null or token_hash <> $2)`, [
+    korisnikId,
+    osimTokena ? hesTokena(osimTokena) : null,
+  ]);
+}
+
+/** Pri pokretanju: tabela sesija mora postojati i prije nego što se pokrene dopuna 20 — inače
+ * deploy prije dopune zaključa SVE korisnike van aplikacije. Isti DDL kao db/20_sesije_prijave_cg.sql.
+ * Istekle sesije se čiste jednom na sat. */
+export async function pripremiSesije() {
+  await upit(`create table if not exists sesija_prijave (
+    token_hash text primary key,
+    korisnik_id uuid not null references korisnik (id),
+    istice_at timestamptz not null,
+    created_at timestamptz not null default now()
+  )`);
+  const ocisti = () => upit(`delete from sesija_prijave where istice_at < now()`).catch((e) => console.error("Čišćenje sesija nije uspjelo:", e));
+  await ocisti();
+  setInterval(ocisti, 60 * 60 * 1000).unref();
 }
 
 const vrijednostKolacica = (request: Request, naziv: string) => {
@@ -68,17 +91,14 @@ export function tokenIzZahtjeva(request: Request) {
 
 export async function ucitajKorisnikaPoSesiji(token: string | undefined): Promise<SesijskiKorisnik | undefined> {
   if (!token) return undefined;
-  const sesija = sesije.get(token);
-  if (!sesija || sesija.expiresAt <= Date.now()) {
-    if (sesija) sesije.delete(token);
-    return undefined;
-  }
   const rezultat = await upit<SesijskiKorisnik & { aktivan: boolean }>(
     `select k.id, k.korisnicko_ime, k.uloga, k.lice_id, k.mora_promijeniti_lozinku, k.lozinka_stanje,
             k.aktivan, l.ime as lice_ime
-     from korisnik k left join lice l on l.id = k.lice_id
-     where k.id = $1`,
-    [sesija.korisnikId],
+     from sesija_prijave s
+     join korisnik k on k.id = s.korisnik_id
+     left join lice l on l.id = k.lice_id
+     where s.token_hash = $1 and s.istice_at > now()`,
+    [hesTokena(token)],
   );
   const red = rezultat.rows[0];
   if (!red || !red.aktivan) return undefined;
@@ -149,7 +169,9 @@ export const NA_TERENU: Uloga[] = ["operater", "vozac"];
 /** Kolona se prosljeđuje kao argument — pogledi imaju različita imena (datum, datum_prijema...). */
 export function ogranicenjeDatuma(uloga: Uloga, kolona: string) {
   const dani = PROZOR[uloga];
-  return `${kolona} >= current_date - interval '${dani} days'`;
+  // Dan po podgoričkom vremenu (invarijanta #11) — current_date u bazi je UTC, pa bi između ponoći
+  // i 1–2h jutarnji unos od juče ispao iz prozora operatera.
+  return `${kolona} >= (now() at time zone 'Europe/Podgorica')::date - ${dani}`;
 }
 
 const KO_UNOSI_STARIJE: Partial<Record<Uloga, string>> = {
