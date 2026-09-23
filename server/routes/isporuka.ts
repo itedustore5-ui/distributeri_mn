@@ -17,7 +17,8 @@ isporukaRuter.get(
     const filterMoje = samoMoje(request.korisnik!.uloga) ? "and (i.uneo_korisnik_id = $1 or i.vozac_korisnik_id = $1)" : "";
     const parametri = filterMoje ? [request.korisnik!.id] : [];
     const rezultat = await upit(
-      `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj
+      `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj,
+              ((i.created_at at time zone 'Europe/Podgorica')::date - i.datum_isporuke) as naknadno_dana
        from isporuka i join kupac k on k.id = i.kupac_id left join vozilo v on v.id = i.vozilo_id
        where ${ogranicenje} ${filterMoje}
        order by i.datum_isporuke desc, i.created_at desc`,

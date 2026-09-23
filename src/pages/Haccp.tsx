@@ -2,17 +2,19 @@ import { useEffect, useState } from "react";
 import { Plus, Thermometer, ClipboardList } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
+import { useAuth } from "../lib/auth";
 
 type KontrolnaTacka = { id: string; sifra: string; naziv: string };
 type Mjerenje = { id: string; kontrolna_tacka_naziv: string; broj_lota: string | null; vrijednost: string; izmjereno_at: string; rezultat: string; izmjerio: string | null };
 type Lot = { id: string; artikal_naziv: string; broj_lota: string };
 type ObrazacPolje = { kljuc: string; oznaka: string; tip: "text" | "number" | "checkbox" };
 type Obrazac = { kod: string; naziv: string; uloge: string[]; polja: ObrazacPolje[] };
-type Zapis = { id: string; obrazac_kod: string; datum: string; izvrsilac: string; odstupanje: boolean; korektivna_mjera: string | null; podaci: Record<string, unknown> };
+type Zapis = { id: string; obrazac_kod: string; datum: string; izvrsilac: string; odstupanje: boolean; korektivna_mjera: string | null; podaci: Record<string, unknown>; naknadno_dana: number };
 
 export function Haccp() {
+  const { korisnik } = useAuth();
   const [tacke, setTacke] = useState<KontrolnaTacka[]>([]);
   const [mjerenja, setMjerenja] = useState<Mjerenje[]>([]);
   const [lotovi, setLotovi] = useState<Lot[]>([]);
@@ -30,7 +32,10 @@ export function Haccp() {
   useEffect(() => {
     api<KontrolnaTacka[]>("/kontrolne-tacke").then(setTacke);
     api<Lot[]>("/lotovi?status=PRIHVACEN").then(setLotovi);
-    fetch("/obrasci-cg.json").then((r) => r.json()).then(setObrasci);
+    // Invarijanta #25: obrazac nosi `uloge` — svako vidi samo obrasce svoje uloge.
+    fetch("/obrasci-cg.json")
+      .then((r) => r.json())
+      .then((svi: Obrazac[]) => setObrasci(svi.filter((o) => !korisnik || o.uloge.includes(korisnik.uloga))));
     ucitaj();
   }, []);
 
@@ -119,7 +124,7 @@ export function Haccp() {
               {zapisi.filter((z) => !filterObrazac || z.obrazac_kod === filterObrazac).map((z) => (
                 <tr key={z.id}>
                   <td>{z.obrazac_kod}</td>
-                  <td className="muted-text">{z.datum}</td>
+                  <td className="muted-text">{z.datum}<NaknadnoOznaka dana={z.naknadno_dana} /></td>
                   <td>{z.izvrsilac}</td>
                   <td>{z.odstupanje ? <StatusBadge status="OTVORENA" tekst="Da" /> : <span className="muted-text">Ne</span>}</td>
                   <td className="muted-text">{z.korektivna_mjera ?? "—"}</td>

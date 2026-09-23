@@ -53,10 +53,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`16_bekap_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`17_naknadno_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 

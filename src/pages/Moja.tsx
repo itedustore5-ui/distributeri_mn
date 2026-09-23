@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { KeyRound, BookOpen, Bell, CheckCircle2, ArrowDownToLine, PackageCheck } from "lucide-react";
+import { KeyRound, BookOpen, Bell, CheckCircle2, ArrowDownToLine, PackageCheck, Truck } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { PageHeader } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
@@ -69,14 +69,25 @@ export function Moja() {
                 </div>
               </button>
             )}
-            <button className="stat-card" style={{ textAlign: "left" }} onClick={() => navigate("/haccp")}>
-              <div className="stat-icon orange"><CheckCircle2 size={18} /></div>
-              <div className="stat-copy">
-                <span>Dnevni obrasci</span>
-                <strong>P3–P10</strong>
-                <small>Čišćenje, štetočine, higijena, otpad, oprema</small>
-              </div>
-            </button>
+            {korisnik?.uloga === "operater" ? (
+              <button className="stat-card" style={{ textAlign: "left" }} onClick={() => navigate("/haccp")}>
+                <div className="stat-icon orange"><CheckCircle2 size={18} /></div>
+                <div className="stat-copy">
+                  <span>Dnevni obrasci</span>
+                  <strong>P3–P10</strong>
+                  <small>Čišćenje, štetočine, higijena, otpad, oprema</small>
+                </div>
+              </button>
+            ) : (
+              <button className="stat-card" style={{ textAlign: "left" }} onClick={() => navigate("/vozila")}>
+                <div className="stat-icon orange"><Truck size={18} /></div>
+                <div className="stat-copy">
+                  <span>Kontrola vozila</span>
+                  <strong>D1</strong>
+                  <small>Prije svakog utovara — nespremno vozilo ne smije na isporuku</small>
+                </div>
+              </button>
+            )}
           </div>
         </>
       )}

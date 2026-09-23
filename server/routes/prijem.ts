@@ -15,7 +15,8 @@ prijemRuter.get(
     const ogranicenje = ogranicenjeDatuma(request.korisnik!.uloga, "p.datum_prijema");
     const rezultat = await upit(
       `select p.*, d.naziv as dobavljac_naziv,
-              (select count(*) from lot l where l.prijem_id = p.id) as broj_stavki
+              (select count(*) from lot l where l.prijem_id = p.id) as broj_stavki,
+              ((p.created_at at time zone 'Europe/Podgorica')::date - p.datum_prijema) as naknadno_dana
        from prijem p join dobavljac d on d.id = p.dobavljac_id
        where ${ogranicenje}
        order by p.datum_prijema desc, p.created_at desc`,

@@ -2,13 +2,13 @@ import { Fragment, useEffect, useState } from "react";
 import { Plus, ChevronDown, ChevronUp } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
 
 type Dobavljac = { id: string; naziv: string };
 type Artikal = { id: string; naziv: string; temp_kontrolisano: boolean };
-type PrijemRed = { id: string; dobavljac_naziv: string; datum_prijema: string; broj_dokumenta: string | null; status: string; broj_stavki: number };
+type PrijemRed = { id: string; dobavljac_naziv: string; datum_prijema: string; broj_dokumenta: string | null; status: string; broj_stavki: number; naknadno_dana: number };
 type Stavka = { id: string; lot_id: string; artikal_naziv: string; broj_lota: string; lot_status: string; primljena_kolicina: string; rok_trajanja: string | null; temperatura_prijema: string | null };
 
 export function Prijem() {
@@ -91,7 +91,7 @@ export function Prijem() {
                   <tr style={{ cursor: "pointer" }} onClick={() => prosiri(p.id)}>
                     <td>{otvoren === p.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</td>
                     <td>{p.dobavljac_naziv}</td>
-                    <td className="muted-text">{p.datum_prijema}</td>
+                    <td className="muted-text">{p.datum_prijema}<NaknadnoOznaka dana={p.naknadno_dana} /></td>
                     <td className="muted-text">{p.broj_dokumenta ?? "—"}</td>
                     <td>{p.broj_stavki}</td>
                     <td><StatusBadge status={p.status} /></td>

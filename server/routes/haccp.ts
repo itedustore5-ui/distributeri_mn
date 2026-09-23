@@ -89,7 +89,7 @@ const novoMjerenjeSchema = z.object({
 
 haccpRuter.post(
   "/mjerenja",
-  requireUloga("operater", "vozac", "bzr", "izvodjac"),
+  requireUloga("operater", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(novoMjerenjeSchema, request.body);
     const pravilo = await upit<{ id: string; min_vrijednost: string | null; max_vrijednost: string | null }>(
@@ -114,7 +114,8 @@ haccpRuter.get(
     const filterMoje = samoMoje(request.korisnik!.uloga) ? "and z.uneo_korisnik_id = $2" : "";
     const parametri = filterMoje ? [obrazacKod ?? null, request.korisnik!.id] : [obrazacKod ?? null];
     const rezultat = await upit(
-      `select z.*, not exists(select 1 from zapis n where n.ispravlja_id = z.id) as vazeci
+      `select z.*, not exists(select 1 from zapis n where n.ispravlja_id = z.id) as vazeci,
+              ((z.created_at at time zone 'Europe/Podgorica')::date - z.datum) as naknadno_dana
        from zapis z
        where ${ogranicenje} and ($1::text is null or z.obrazac_kod = $1) ${filterMoje}
        order by z.datum desc, z.created_at desc limit 300`,
@@ -136,7 +137,7 @@ const noviZapisSchema = z.object({
 
 haccpRuter.post(
   "/zapisi",
-  requireUloga("operater", "vozac", "bzr", "izvodjac"),
+  requireUloga("operater", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviZapisSchema, request.body);
     provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datum);

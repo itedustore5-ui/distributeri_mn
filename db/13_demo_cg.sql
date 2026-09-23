@@ -114,3 +114,12 @@ insert into pitanje (tema, tekst, ponudjeni_odgovori, tacan_indeks) values
   ('Temperatura', 'U kom opsegu se drži rashlađena roba osjetljiva na kvarenje?', '["0-5°C", "8-12°C", "-5-0°C", "Sobna temperatura"]', 0),
   ('Sledljivost', 'Šta se upisuje pri prijemu robe da bi se obezbijedila sledljivost?', '["Samo naziv proizvoda", "Broj lota/serije", "Samo cijena", "Ništa, dovoljan je račun"]', 1),
   ('Neusaglašenost', 'Šta se radi kada se izmjeri temperatura van dozvoljenog opsega?', '["Ignoriše se ako je jednom", "Zapiše se odstupanje i korektivna mjera", "Roba se odmah baci bez zapisa", "Prijavi se poslije mjesec dana"]', 1);
+
+-- Demo se učitava u jednom trenutku, a datumi su unazad — bez ovoga bi svaki demo prijem/zapis
+-- nosio oznaku "naknadno +N" (invarijanta #10) i na prodajnom sastanku izgledao kao da se kasni.
+update prijem set created_at = (datum_prijema + time '08:00') at time zone 'Europe/Podgorica'
+  where (created_at at time zone 'Europe/Podgorica')::date > datum_prijema;
+update isporuka set created_at = (datum_isporuke + time '07:30') at time zone 'Europe/Podgorica'
+  where (created_at at time zone 'Europe/Podgorica')::date > datum_isporuke;
+update zapis set created_at = (datum + time '16:00') at time zone 'Europe/Podgorica'
+  where (created_at at time zone 'Europe/Podgorica')::date > datum;

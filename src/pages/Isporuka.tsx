@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
 
@@ -10,7 +10,7 @@ type Kupac = { id: string; naziv: string; telefon: string };
 type Vozilo = { id: string; registarski_broj: string; status: string };
 type Vozac = { id: string; ime: string };
 type LotDostupan = { lot_id: string; artikal_naziv: string; broj_lota: string; kolicina: string };
-type IsporukaRed = { id: string; broj: string; kupac_naziv: string; datum_isporuke: string; status: string; registarski_broj: string | null; vozac_korisnik_id: string | null };
+type IsporukaRed = { id: string; broj: string; kupac_naziv: string; datum_isporuke: string; status: string; registarski_broj: string | null; vozac_korisnik_id: string | null; naknadno_dana: number };
 type StavkaIsporuke = { id: string; artikal_naziv: string; broj_lota: string; planirana_kolicina: string; isporucena_kolicina: string };
 
 export function Isporuka() {
@@ -80,7 +80,7 @@ export function Isporuka() {
                   <td>{i.kupac_naziv}</td>
                   <td className="muted-text">{i.registarski_broj ?? "—"}</td>
                   <td className="muted-text">{imeVozaca(i.vozac_korisnik_id)}</td>
-                  <td className="muted-text">{i.datum_isporuke}</td>
+                  <td className="muted-text">{i.datum_isporuke}<NaknadnoOznaka dana={i.naknadno_dana} /></td>
                   <td><StatusBadge status={i.status} /></td>
                   <td>
                     {i.status === "U_PRIPREMI" && (

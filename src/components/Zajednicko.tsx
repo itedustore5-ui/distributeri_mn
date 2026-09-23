@@ -72,6 +72,16 @@ export function ZakonskaOznaka({ clan }: { clan: keyof typeof ZAKONSKE_OZNAKE })
   );
 }
 
+/** Invarijanta #10: zapis unesen kasnije se smije, ali ne smije izgledati kao da je unesen istog dana. */
+export function NaknadnoOznaka({ dana }: { dana: number | null | undefined }) {
+  if (!dana || dana <= 0) return null;
+  return (
+    <span className="naknadno-oznaka" title={`Unijeto ${dana} ${dana === 1 ? "dan" : "dana"} poslije datuma na koji se zapis odnosi.`}>
+      naknadno +{dana}
+    </span>
+  );
+}
+
 export function PrazanPrikaz({ poruka }: { poruka: string }) {
   return (
     <div className="empty-notices">

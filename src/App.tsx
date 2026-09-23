@@ -52,7 +52,7 @@ function Rute() {
       <Route path="/sifarnici" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Sifarnici /></Zasticeno>} />
       <Route path="/prijem" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Prijem /></Zasticeno>} />
       <Route path="/zalihe" element={<Zasticeno uloge={["operater", "bzr", "izvodjac", "uprava"]}><Zalihe /></Zasticeno>} />
-      <Route path="/haccp" element={<Zasticeno uloge={["operater", "vozac", "bzr", "izvodjac"]}><Haccp /></Zasticeno>} />
+      <Route path="/haccp" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Haccp /></Zasticeno>} />
       <Route path="/neusaglasenosti" element={<Zasticeno uloge={["operater", "vozac", "bzr", "izvodjac"]}><Neusaglasenosti /></Zasticeno>} />
       <Route path="/vozila" element={<Zasticeno uloge={["vozac", "bzr", "izvodjac"]}><Vozila /></Zasticeno>} />
       <Route path="/isporuka" element={<Zasticeno uloge={["vozac", "operater", "bzr", "izvodjac"]}><Isporuka /></Zasticeno>} />
