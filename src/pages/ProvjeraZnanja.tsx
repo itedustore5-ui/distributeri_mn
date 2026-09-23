@@ -1,11 +1,13 @@
 import { useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { ShieldCheck, AlertCircle, CheckCircle2 } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 
 type Pitanje = { id: string; tema: string; tekst: string; ponudjeni_odgovori: string[] };
 
 export function ProvjeraZnanja() {
-  const [sifra, setSifra] = useState("");
+  const sifraSaMoje = (useLocation().state as { sifra?: string } | null)?.sifra ?? "";
+  const [sifra, setSifra] = useState(sifraSaMoje);
   const [ucesnikId, setUcesnikId] = useState<string | null>(null);
   const [ime, setIme] = useState<string | null>(null);
   const [pitanja, setPitanja] = useState<Pitanje[]>([]);
@@ -97,6 +99,9 @@ export function ProvjeraZnanja() {
         <button className="primary-button auth-submit" onClick={uci} disabled={!sifra.trim() || ucitavanje} style={{ marginTop: 14 }}>
           {ucitavanje ? "Provjera..." : "Uđi"}
         </button>
+        <Link to="/prijava" className="muted-text" style={{ display: "block", textAlign: "center", marginTop: 16, fontSize: 11 }}>
+          ← Prijava u aplikaciju (korisničko ime i lozinka)
+        </Link>
       </div>
     </div>
   );

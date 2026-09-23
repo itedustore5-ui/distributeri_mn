@@ -3,13 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall, ClipboardList, DatabaseBackup } from "lucide-react";
 import { api, ApiGreska, preuzmiFajl } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader } from "../components/Zajednicko";
+import { PageHeader, Modal } from "../components/Zajednicko";
+import { StatusBadge } from "../components/StatusBadge";
 import { ListaZadataka } from "../components/Zadaci";
 import { AktivnostUzivo } from "../components/Aktivnost";
 import { mozeNa } from "../components/Layout";
 import { useAuth } from "../lib/auth";
 
 type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
+
+type Detalj = { naslov: string; prazno: string; kolone: { kljuc: string; naziv: string; vrsta?: "status" }[]; redovi: Record<string, string | null>[] };
 
 type TablaPodaci = {
   kriticno: {
@@ -32,6 +35,7 @@ export function Tabla() {
   const [bekap, setBekap] = useState<BekapMeta | null | undefined>(undefined);
   const [bekapUToku, setBekapUToku] = useState(false);
   const [bekapGreska, setBekapGreska] = useState("");
+  const [detalj, setDetalj] = useState<Detalj | null>(null);
   const navigate = useNavigate();
 
   const mozeBekap = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
@@ -62,16 +66,19 @@ export function Tabla() {
 
   const kriticneKartice = [
     { naslov: "Povlačenja u toku", vrijednost: k.povlacenjaUToku, ikonica: <PhoneCall size={18} />, putanja: "/sledljivost", tona: "danger" },
-    { naslov: "Otvorene neusaglašenosti", vrijednost: k.neusaglasenostiOtvorene, ikonica: <AlertTriangle size={18} />, putanja: "/neusaglasenosti", tona: k.neusaglasenostiVisoke > 0 ? "danger" : "warning" },
-    { naslov: "Temperature van opsega (24h)", vrijednost: k.temperatureVanOpsega, ikonica: <Thermometer size={18} />, putanja: "/haccp", tona: k.temperatureVanOpsega > 0 ? "danger" : "warning" },
-    { naslov: "Vozila nisu spremna", vrijednost: k.vozilaNijeSpremno, ikonica: <Truck size={18} />, putanja: "/vozila", tona: k.vozilaNijeSpremno > 0 ? "danger" : "warning" },
-    { naslov: "Lotovi na HOLD-u", vrijednost: k.lotoviNaHoldu, ikonica: <PackageX size={18} />, putanja: "/zalihe", tona: k.lotoviNaHoldu > 0 ? "danger" : "warning" },
+    { naslov: "Otvorene neusaglašenosti", vrijednost: k.neusaglasenostiOtvorene, ikonica: <AlertTriangle size={18} />, putanja: "/neusaglasenosti", detalj: "neusaglasenosti", tona: k.neusaglasenostiVisoke > 0 ? "danger" : "warning" },
+    { naslov: "Temperature van opsega (24h)", vrijednost: k.temperatureVanOpsega, ikonica: <Thermometer size={18} />, putanja: "/haccp", detalj: "temperature", tona: k.temperatureVanOpsega > 0 ? "danger" : "warning" },
+    { naslov: "Vozila nisu spremna", vrijednost: k.vozilaNijeSpremno, ikonica: <Truck size={18} />, putanja: "/vozila", detalj: "vozila", tona: k.vozilaNijeSpremno > 0 ? "danger" : "warning" },
+    { naslov: "Lotovi na HOLD-u", vrijednost: k.lotoviNaHoldu, ikonica: <PackageX size={18} />, putanja: "/zalihe", stanje: { status: "HOLD" }, tona: k.lotoviNaHoldu > 0 ? "danger" : "warning" },
     { naslov: "Zakašnjeli zadaci", vrijednost: k.zadaciZakasnili, ikonica: <Clock3 size={18} />, putanja: "#zadaci", tona: k.zadaciZakasnili > 0 ? "danger" : "warning" },
-    { naslov: "Knjižice ističu/istekle", vrijednost: k.knjizicIstice, ikonica: <BookOpen size={18} />, putanja: "/ljudi", tona: k.knjizicIstice > 0 ? "danger" : "warning" },
+    { naslov: "Knjižice ističu/istekle", vrijednost: k.knjizicIstice, ikonica: <BookOpen size={18} />, putanja: "/ljudi", detalj: "knjizice", tona: k.knjizicIstice > 0 ? "danger" : "warning" },
   ].filter((kartica) => !(jeUprava && kartica.putanja === "#zadaci"));
-  const otvori = (putanja: string) => {
+  // Ko smije na stranu — ide na nju. Uprava ne ulazi na operativne strane, pa dobija listu iza
+  // broja, samo za čitanje (ranije je klik kod direktora radio ništa).
+  const otvori = (putanja: string, kartica?: string, stanje?: unknown) => {
     if (putanja.startsWith("#")) document.getElementById(putanja.slice(1))?.scrollIntoView({ behavior: "smooth" });
-    else if (korisnik && mozeNa(korisnik.uloga, putanja)) navigate(putanja);
+    else if (korisnik && mozeNa(korisnik.uloga, putanja)) navigate(putanja, stanje ? { state: stanje } : undefined);
+    else if (kartica) api<Detalj>(`/tabla/detalj/${kartica}`).then(setDetalj);
   };
 
   return (
@@ -85,7 +92,7 @@ export function Tabla() {
       </div>
       <div className="alert-grid">
         {kriticneKartice.map((kartica) => (
-          <button key={kartica.naslov} className={`alert-card ${kartica.vrijednost > 0 ? kartica.tona : "neutral"}`} onClick={() => otvori(kartica.putanja)} style={korisnik && !kartica.putanja.startsWith("#") && !mozeNa(korisnik.uloga, kartica.putanja) ? { cursor: "default" } : undefined}>
+          <button key={kartica.naslov} className={`alert-card ${kartica.vrijednost > 0 ? kartica.tona : "neutral"}`} onClick={() => otvori(kartica.putanja, kartica.detalj, kartica.stanje)}>
             <div className="alert-card-icon">{kartica.ikonica}</div>
             <div className="alert-card-content">
               <b>{kartica.vrijednost}</b>
@@ -101,7 +108,7 @@ export function Tabla() {
         </div>
       </div>
       <div className="stats-grid">
-        <button className="stat-card" onClick={() => otvori("/prijem")} style={{ textAlign: "left" }}>
+        <button className="stat-card" onClick={() => otvori("/prijem", "prijemi")} style={{ textAlign: "left" }}>
           <div className="stat-icon blue">
             <ArrowDownToLine size={18} />
           </div>
@@ -110,7 +117,7 @@ export function Tabla() {
             <strong>{podaci.operativno.prijemiDanas}</strong>
           </div>
         </button>
-        <button className="stat-card" onClick={() => otvori("/isporuka")} style={{ textAlign: "left" }}>
+        <button className="stat-card" onClick={() => otvori("/isporuka", "isporuke")} style={{ textAlign: "left" }}>
           <div className="stat-icon green">
             <PackageCheck size={18} />
           </div>
@@ -119,7 +126,7 @@ export function Tabla() {
             <strong>{podaci.operativno.isporukeDanas}</strong>
           </div>
         </button>
-        <button className="stat-card" onClick={() => otvori("/haccp")} style={{ textAlign: "left" }}>
+        <button className="stat-card" onClick={() => otvori("/haccp", "zapisi")} style={{ textAlign: "left" }}>
           <div className="stat-icon orange">
             <ClipboardList size={18} />
           </div>
@@ -138,6 +145,29 @@ export function Tabla() {
         </div>
       </div>
       <AktivnostUzivo />
+
+      {detalj && (
+        <Modal naslov={detalj.naslov} podnaslov="Pregled — samo za čitanje" onClose={() => setDetalj(null)}>
+          {detalj.redovi.length === 0 ? (
+            <p className="muted-text">{detalj.prazno}</p>
+          ) : (
+            <div className="data-table-wrap" style={{ maxHeight: "60vh", overflow: "auto" }}>
+              <table className="data-table">
+                <thead><tr>{detalj.kolone.map((kol) => <th key={kol.kljuc}>{kol.naziv}</th>)}</tr></thead>
+                <tbody>
+                  {detalj.redovi.map((red, i) => (
+                    <tr key={i}>
+                      {detalj.kolone.map((kol) => (
+                        <td key={kol.kljuc}>{kol.vrsta === "status" && red[kol.kljuc] ? <StatusBadge status={red[kol.kljuc]!} /> : red[kol.kljuc] ?? "—"}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Modal>
+      )}
 
       {!jeUprava && (
       <>

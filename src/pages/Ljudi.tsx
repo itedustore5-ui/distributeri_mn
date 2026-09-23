@@ -65,7 +65,8 @@ export function Ljudi() {
   const [verzijaZnanja, setVerzijaZnanja] = useState(0);
   const [modalNoviLice, setModalNoviLice] = useState(false);
   const [modalIzmjenaLice, setModalIzmjenaLice] = useState<Lice | null>(null);
-  const [modalNoviNalog, setModalNoviNalog] = useState(false);
+  const [modalNoviNalog, setModalNoviNalog] = useState<Lice | true | null>(null);
+  const [modalLozinka, setModalLozinka] = useState<Nalog | null>(null);
   const [modalPlan, setModalPlan] = useState(false);
   const [modalNovaSesija, setModalNovaSesija] = useState(false);
 
@@ -136,7 +137,17 @@ export function Ljudi() {
                     </td>
                     <td>{l.rukuje_hranom ? "Da" : "Ne"}</td>
                     <td>{l.knjizica_status ? <StatusBadge status={l.knjizica_status} /> : <span className="muted-text">—</span>}</td>
-                    <td>{l.ima_nalog ? <StatusBadge status="VAZI" tekst="Ima nalog" /> : <span className="muted-text">Bez naloga</span>}</td>
+                    <td>
+                      {l.ima_nalog ? (
+                        <StatusBadge status="VAZI" tekst="Ima nalog" />
+                      ) : l.aktivan ? (
+                        <button className="small-action" onClick={() => setModalNoviNalog(l)}>
+                          <KeyRound size={12} /> Otvori nalog
+                        </button>
+                      ) : (
+                        <span className="muted-text">Bez naloga</span>
+                      )}
+                    </td>
                     <td>{l.aktivan ? <StatusBadge status="VAZI" tekst="Aktivan" /> : <StatusBadge status="ISTEKLA" tekst="Uklonjen" />}</td>
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
@@ -244,10 +255,15 @@ export function Ljudi() {
                     </td>
                     <td>{n.aktivan ? <StatusBadge status="VAZI" tekst="Aktivan" /> : <StatusBadge status="ISTEKLA" tekst="Deaktiviran" />}</td>
                     <td>
-                      {n.aktivan && smijeDirnutiNalog(n.uloga) && (
-                        <button className="small-action" onClick={() => api(`/nalozi/${n.id}/deaktiviraj`, { method: "PATCH", telo: {} }).then(ucitaj)}>
-                          Deaktiviraj
-                        </button>
+                      {n.aktivan && smijeDirnutiNalog(n.uloga) && n.id !== korisnik?.id && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="small-action" onClick={() => setModalLozinka(n)}>
+                            <KeyRound size={12} /> Nova lozinka
+                          </button>
+                          <button className="small-action" onClick={() => { if (window.confirm(`Deaktivirati nalog ${n.korisnicko_ime}? Više se neće moći prijaviti.`)) api(`/nalozi/${n.id}/deaktiviraj`, { method: "PATCH", telo: {} }).then(ucitaj); }}>
+                            Deaktiviraj
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -259,38 +275,50 @@ export function Ljudi() {
         </>
       )}
 
-      {modalNoviLice && <NoviLiceModal onClose={() => setModalNoviLice(false)} onCreated={ucitaj} />}
+      {modalNoviLice && <NoviLiceModal mozeNalog={smijeDirnutiNalog("operater")} onClose={() => setModalNoviLice(false)} onCreated={ucitaj} />}
       {modalIzmjenaLice && <IzmjenaLiceModal lice={modalIzmjenaLice} onClose={() => setModalIzmjenaLice(null)} onSacuvano={ucitaj} />}
       {modalPlan && <NoviPlanModal lica={lica} onClose={() => setModalPlan(false)} onCreated={ucitaj} />}
-      {modalNoviNalog && <NoviNalogModal lica={lica} onClose={() => setModalNoviNalog(false)} onCreated={ucitaj} />}
+      {modalNoviNalog && <NoviNalogModal lica={lica} pocetnoLice={modalNoviNalog === true ? null : modalNoviNalog} onClose={() => setModalNoviNalog(null)} onCreated={ucitaj} />}
+      {modalLozinka && <NovaLozinkaModal nalog={modalLozinka} onClose={() => setModalLozinka(null)} onSacuvano={ucitaj} />}
       {modalNovaSesija && <NovaSesijaModal onClose={() => setModalNovaSesija(false)} onCreated={() => setVerzijaZnanja((v) => v + 1)} />}
     </>
   );
 }
 
-function NoviLiceModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function NoviLiceModal({ mozeNalog, onClose, onCreated }: { mozeNalog: boolean; onClose: () => void; onCreated: () => void }) {
   const [ime, setIme] = useState("");
   const [radnoMjesto, setRadnoMjesto] = useState("");
   const [rukujeHranom, setRukujeHranom] = useState(true);
   const [knjizicaBroj, setKnjizicaBroj] = useState("");
   const [knjizicaRok, setKnjizicaRok] = useState("");
+  const [saNalogom, setSaNalogom] = useState(false);
+  const nalog = useNalogPolja(ime, radnoMjesto);
+  const [pristup, setPristup] = useState<Pristup | null>(null);
   const [greska, setGreska] = useState("");
 
   const posalji = async () => {
     try {
-      await api("/lica", { telo: { ime, radnoMjesto, rukujeHranom, sanitarnaKnjizicaBroj: knjizicaBroj || undefined, sanitarnaKnjizicaRok: knjizicaRok || undefined } });
+      const rezultat = await api<{ sifra: string; nalog: { korisnickoIme: string; privremenaLozinka: string } | null }>("/lica", {
+        telo: {
+          ime, radnoMjesto, rukujeHranom, sanitarnaKnjizicaBroj: knjizicaBroj || undefined, sanitarnaKnjizicaRok: knjizicaRok || undefined,
+          nalog: saNalogom ? { korisnickoIme: nalog.korisnickoIme, uloga: nalog.uloga, lozinka: nalog.lozinka } : undefined,
+        },
+      });
       onCreated();
-      onClose();
+      if (rezultat.nalog) setPristup({ ime, sifra: rezultat.sifra, ...rezultat.nalog });
+      else onClose();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Lice nije sačuvano.");
     }
   };
 
+  if (pristup) return <PristupModal pristup={pristup} onClose={onClose} />;
+
   return (
-    <Modal naslov="Novo lice" podnaslov="Spisak zaposlenih" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!ime}>Sačuvaj</button></>}>
+    <Modal naslov="Novo lice" podnaslov="Spisak zaposlenih" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!ime || (saNalogom && !nalog.ispravno)}>Sačuvaj</button></>}>
       <div className="form-grid">
         <label>Ime i prezime<input value={ime} onChange={(e) => setIme(e.target.value)} /></label>
-        <label>Radno mjesto<input value={radnoMjesto} onChange={(e) => setRadnoMjesto(e.target.value)} /></label>
+        <label>Radno mjesto<input value={radnoMjesto} onChange={(e) => setRadnoMjesto(e.target.value)} placeholder="npr. magacioner, vozač" /></label>
         <label>
           Rukuje hranom
           <select value={rukujeHranom ? "da" : "ne"} onChange={(e) => setRukujeHranom(e.target.value === "da")}>
@@ -301,6 +329,15 @@ function NoviLiceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         <div />
         <label>Broj sanitarne knjižice <ZakonskaOznaka clan="sanitarna" /><input value={knjizicaBroj} onChange={(e) => setKnjizicaBroj(e.target.value)} /></label>
         <label>Rok sanitarne knjižice<input type="date" value={knjizicaRok} onChange={(e) => setKnjizicaRok(e.target.value)} /></label>
+        {mozeNalog && (
+          <div style={{ gridColumn: "1 / -1", border: "1px solid var(--linija, #dfe6ec)", borderRadius: 8, padding: 12 }}>
+            <label style={{ flexDirection: "row", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={saNalogom} onChange={(e) => setSaNalogom(e.target.checked)} style={{ width: "auto", height: "auto" }} />
+              <span style={{ fontSize: 12 }}><b>Otvori i nalog za prijavu</b> — za magacionera i vozača koji rade u aplikaciji</span>
+            </label>
+            {saNalogom && <NalogPolja polja={nalog} />}
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -381,59 +418,176 @@ function NoviPlanModal({ lica, onClose, onCreated }: { lica: Lice[]; onClose: ()
   );
 }
 
-function NoviNalogModal({ lica, onClose, onCreated }: { lica: Lice[]; onClose: () => void; onCreated: () => void }) {
-  const [liceId, setLiceId] = useState("");
-  const [korisnickoIme, setKorisnickoIme] = useState("");
-  const [uloga, setUloga] = useState("operater");
-  const [lozinka, setLozinka] = useState<string | null>(null);
+function NoviNalogModal({ lica, pocetnoLice, onClose, onCreated }: { lica: Lice[]; pocetnoLice: Lice | null; onClose: () => void; onCreated: () => void }) {
+  const bezNaloga = lica.filter((l) => l.aktivan && !l.ima_nalog);
+  const [liceId, setLiceId] = useState(pocetnoLice?.id ?? "");
+  const lice = lica.find((l) => l.id === liceId) ?? null;
+  const nalog = useNalogPolja(lice?.ime ?? "", lice?.radno_mjesto ?? "");
+  const [pristup, setPristup] = useState<Pristup | null>(null);
   const [greska, setGreska] = useState("");
 
   const posalji = async () => {
     try {
-      const rezultat = await api<{ privremenaLozinka: string }>("/nalozi", { telo: { liceId: liceId || undefined, korisnickoIme, uloga } });
-      setLozinka(rezultat.privremenaLozinka);
+      const rezultat = await api<{ korisnickoIme: string; privremenaLozinka: string }>("/nalozi", {
+        telo: { liceId: liceId || undefined, korisnickoIme: nalog.korisnickoIme, uloga: nalog.uloga, lozinka: nalog.lozinka },
+      });
+      setPristup({ ime: lice?.ime ?? null, sifra: lice?.sifra ?? null, ...rezultat });
       onCreated();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Nalog nije kreiran.");
     }
   };
 
-  if (lozinka) {
-    return (
-      <Modal naslov="Nalog je kreiran" podnaslov="Zapišite odmah — ovo se više neće prikazati" onClose={onClose} footer={<button className="primary-button" onClick={onClose}>Zatvori</button>}>
-        <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-          <div className="next-control">
-            <div className="next-control-icon"><KeyRound size={16} /></div>
-            <div>
-              <span>Privremena lozinka</span>
-              <strong style={{ fontSize: 15 }}>{lozinka}</strong>
-            </div>
-          </div>
-        </div>
-      </Modal>
-    );
-  }
+  if (pristup) return <PristupModal pristup={pristup} onClose={onClose} />;
 
   return (
-    <Modal naslov="Novi nalog za prijavu" podnaslov="Otvara se samo ulozi operater ili vozač" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!korisnickoIme}>Kreiraj</button></>}>
+    <Modal naslov="Novi nalog za prijavu" podnaslov="Magacioner ili vozač — nalog se veže za lice sa spiska" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!nalog.ispravno}>Kreiraj</button></>}>
       <div className="form-grid">
-        <label>
-          Poveži sa licem (opciono)
+        <label style={{ gridColumn: "1 / -1" }}>
+          Zaposleni
           <select value={liceId} onChange={(e) => setLiceId(e.target.value)}>
-            <option value="">— bez veze —</option>
-            {lica.map((l) => (
-              <option key={l.id} value={l.id}>{l.ime}</option>
+            <option value="">— bez veze sa spiskom —</option>
+            {bezNaloga.map((l) => (
+              <option key={l.id} value={l.id}>{l.ime}{l.radno_mjesto ? ` · ${l.radno_mjesto}` : ""} ({l.sifra})</option>
             ))}
           </select>
         </label>
-        <label>
-          Uloga
-          <select value={uloga} onChange={(e) => setUloga(e.target.value)}>
-            <option value="operater">Magacioner</option>
-            <option value="vozac">Vozač</option>
-          </select>
-        </label>
-        <label style={{ gridColumn: "1 / -1" }}>Korisničko ime<input value={korisnickoIme} onChange={(e) => setKorisnickoIme(e.target.value.toLowerCase())} /></label>
+      </div>
+      <NalogPolja polja={nalog} />
+    </Modal>
+  );
+}
+
+function NovaLozinkaModal({ nalog, onClose, onSacuvano }: { nalog: Nalog; onClose: () => void; onSacuvano: () => void }) {
+  const [lozinka, setLozinka] = useState(predloziLozinku);
+  const [pristup, setPristup] = useState<Pristup | null>(null);
+  const [greska, setGreska] = useState("");
+
+  const posalji = async () => {
+    try {
+      const rezultat = await api<{ privremenaLozinka: string }>(`/nalozi/${nalog.id}/lozinka`, { method: "PATCH", telo: { lozinka } });
+      setPristup({ ime: nalog.lice_ime, sifra: null, korisnickoIme: nalog.korisnicko_ime, privremenaLozinka: rezultat.privremenaLozinka });
+      onSacuvano();
+    } catch (e) {
+      setGreska(e instanceof ApiGreska ? e.message : "Lozinka nije postavljena.");
+    }
+  };
+
+  if (pristup) return <PristupModal pristup={pristup} onClose={onClose} />;
+
+  return (
+    <Modal naslov={`Nova lozinka — ${nalog.lice_ime ?? nalog.korisnicko_ime}`} podnaslov="Za zaboravljenu lozinku. Stara prestaje da važi, a prijava na svim uređajima se prekida." onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={lozinka.length < MIN_LOZINKA}>Postavi lozinku</button></>}>
+      <div className="form-grid">
+        <LozinkaPolje lozinka={lozinka} setLozinka={setLozinka} />
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Nalog: prijedlozi, polja, jednokratan prikaz ─────────────────────────────────────────────
+// Lozinku odgovorno lice vidi SAMO ovdje, pri postavljanju — poslije toga niko (invarijanta #28).
+// Uvijek je privremena: pri prvoj prijavi se mora promijeniti.
+
+const MIN_LOZINKA = 10;
+const RIJECI = ["Lovcen", "Durmitor", "Tara", "Moraca", "Bojana", "Orjen", "Sinjajevina", "Komovi", "Prokletije", "Biogradska", "Zeta", "Piva"];
+
+function predloziLozinku() {
+  const n = new Uint32Array(2);
+  crypto.getRandomValues(n);
+  return `${RIJECI[n[0] % RIJECI.length]}-${String(1000 + (n[1] % 9000))}`;
+}
+
+const bezKvacica = (s: string) =>
+  s.toLowerCase().replace(/[čć]/g, "c").replace(/[šś]/g, "s").replace(/ž/g, "z").replace(/đ/g, "dj").replace(/[^a-z]/g, "");
+
+/** "Marko Vuković" → "marko.v" */
+function predloziKorisnickoIme(ime: string) {
+  const [prvo, ...ostalo] = ime.trim().split(/\s+/);
+  const prezime = ostalo[ostalo.length - 1] ?? "";
+  return prvo ? `${bezKvacica(prvo)}${prezime ? `.${bezKvacica(prezime).slice(0, 1)}` : ""}` : "";
+}
+
+/** Radno mjesto nije uloga (invarijanta #27) — samo predlog, koji se može promijeniti. */
+const predloziUlogu = (radnoMjesto: string) => (/voza[čc]|vozi|dostav/i.test(radnoMjesto) ? "vozac" : "operater");
+
+type Pristup = { ime: string | null; sifra: string | null; korisnickoIme: string; privremenaLozinka: string };
+
+function useNalogPolja(ime: string, radnoMjesto: string) {
+  const [korisnickoImeRucno, setKorisnickoIme] = useState<string | null>(null);
+  const [ulogaRucno, setUloga] = useState<string | null>(null);
+  const [lozinka, setLozinka] = useState(predloziLozinku);
+  const korisnickoIme = korisnickoImeRucno ?? predloziKorisnickoIme(ime);
+  const uloga = ulogaRucno ?? predloziUlogu(radnoMjesto);
+  return {
+    korisnickoIme, setKorisnickoIme, uloga, setUloga, lozinka, setLozinka,
+    ispravno: korisnickoIme.length >= 3 && lozinka.length >= MIN_LOZINKA,
+  };
+}
+
+function NalogPolja({ polja }: { polja: ReturnType<typeof useNalogPolja> }) {
+  return (
+    <div className="form-grid" style={{ marginTop: 10 }}>
+      <label>
+        Uloga
+        <select value={polja.uloga} onChange={(e) => polja.setUloga(e.target.value)}>
+          <option value="operater">Magacioner</option>
+          <option value="vozac">Vozač</option>
+        </select>
+      </label>
+      <label>
+        Korisničko ime
+        <input value={polja.korisnickoIme} onChange={(e) => polja.setKorisnickoIme(e.target.value.toLowerCase().replace(/\s/g, ""))} placeholder="npr. marko.v" />
+      </label>
+      <LozinkaPolje lozinka={polja.lozinka} setLozinka={polja.setLozinka} />
+    </div>
+  );
+}
+
+function LozinkaPolje({ lozinka, setLozinka }: { lozinka: string; setLozinka: (l: string) => void }) {
+  return (
+    <label style={{ gridColumn: "1 / -1" }}>
+      Početna lozinka (privremena)
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={lozinka} onChange={(e) => setLozinka(e.target.value)} style={{ flex: 1, fontFamily: "monospace" }} autoComplete="off" />
+        <button type="button" className="secondary-button" onClick={() => setLozinka(predloziLozinku())}>Predloži drugu</button>
+      </div>
+      <small className={lozinka.length < MIN_LOZINKA ? "danas-fali" : "muted-text"} style={{ fontWeight: 400 }}>
+        Najmanje {MIN_LOZINKA} znakova ({lozinka.length}). Pri prvoj prijavi zaposleni je mora promijeniti u svoju — vi je poslije ne vidite nigdje.
+      </small>
+    </label>
+  );
+}
+
+function PristupModal({ pristup, onClose }: { pristup: Pristup; onClose: () => void }) {
+  const adresa = window.location.origin;
+  const stampaj = () => {
+    const prozor = window.open("", "_blank", "width=420,height=520");
+    if (!prozor) return;
+    const red = (naziv: string, vrijednost: string) =>
+      `<tr><td style="padding:6px 12px 6px 0;color:#555">${naziv}</td><td style="padding:6px 0;font:600 15px monospace">${vrijednost.replace(/</g, "&lt;")}</td></tr>`;
+    prozor.document.write(`<html><head><title>Pristup aplikaciji</title></head><body style="font-family:sans-serif;padding:24px">
+      <h3 style="margin:0 0 4px">Pristup aplikaciji</h3><div style="color:#555;margin-bottom:14px">${(pristup.ime ?? "").replace(/</g, "&lt;")}</div>
+      <table>${red("Adresa", adresa)}${red("Korisničko ime", pristup.korisnickoIme)}${red("Početna lozinka", pristup.privremenaLozinka)}${pristup.sifra ? red("Šifra (potpis, provjera znanja)", pristup.sifra) : ""}</table>
+      <p style="font-size:12px;color:#555;margin-top:18px">Pri prvoj prijavi aplikacija traži da postavite svoju lozinku (najmanje 10 znakova). Ovu ceduljicu zatim uništite.</p>
+      </body></html>`);
+    prozor.document.close();
+    prozor.focus();
+    prozor.print();
+  };
+  return (
+    <Modal naslov="Nalog je spreman" podnaslov="Zapišite ili odštampajte odmah — lozinka se više neće prikazati" onClose={onClose}
+      footer={<><button className="secondary-button" onClick={stampaj}><Printer size={14} /> Štampaj ceduljicu</button><button className="primary-button" onClick={onClose}>Zatvori</button></>}>
+      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+        {pristup.ime && <div><span className="meta-label">Zaposleni</span><div>{pristup.ime}{pristup.sifra ? ` · šifra ${pristup.sifra}` : ""}</div></div>}
+        <div><span className="meta-label">Korisničko ime</span><div><code style={{ fontSize: 15 }}>{pristup.korisnickoIme}</code></div></div>
+        <div className="next-control">
+          <div className="next-control-icon"><KeyRound size={16} /></div>
+          <div>
+            <span>Početna lozinka</span>
+            <strong style={{ fontSize: 15, fontFamily: "monospace" }}>{pristup.privremenaLozinka}</strong>
+          </div>
+        </div>
+        <small className="muted-text">Prijava na {adresa}. Pri prvoj prijavi mora postaviti svoju lozinku.</small>
       </div>
     </Modal>
   );

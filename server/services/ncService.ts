@@ -2,14 +2,8 @@ import { transakcija, upit } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import { emituj } from "./dogadjajService.js";
 import { logIzmjena, logPromjenaStatusa } from "./auditService.js";
-import { danasCG } from "../vrijeme.js";
+import { sljedeciBrojNc } from "./brojeviService.js";
 import { zatvoriZadatkeIzvora, kreirajObavjestenje, kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
-
-export async function sljedeciBrojNeusaglasenosti() {
-  const danas = danasCG().replaceAll("-", "").slice(2);
-  const rezultat = await upit<{ broj: number }>(`select count(*)::int as broj from neusaglasenost where broj like $1`, [`NC-${danas}-%`]);
-  return `NC-${danas}-${String((rezultat.rows[0]?.broj ?? 0) + 1).padStart(3, "0")}`;
-}
 
 /** Prijava sa terena (ručno ili sa isporuke). Isto kao automatska NC: nedodijeljen zadatak i
  * obavještenje odgovornom licu — ranije ručna prijava nije javljala nikome, pa je magacioner
@@ -29,8 +23,8 @@ export async function kreirajRucnuNeusaglasenost(
     izvorOpis = ` (isporuka ${isp.rows[0].broj}, ${isp.rows[0].kupac})`;
   }
   const ozbiljnost = ulaz.ozbiljnost ?? "SREDNJI";
-  const broj = await sljedeciBrojNeusaglasenosti();
   return transakcija(async (klijent) => {
+    const broj = await sljedeciBrojNc(klijent);
     const nc = await klijent.query<{ id: string }>(
       `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
        values ($1, $2, 'OTVORENA', $3, $4, $5, $6) returning id`,
@@ -138,19 +132,29 @@ export async function verifikuj(
   korisnikId: string,
 ) {
   return transakcija(async (klijent) => {
-    if (ulaz.korektivnaMjeraId) {
-      const mjera = await klijent.query<{ zavrsio_korisnik_id: string | null }>(
-        `select zavrsio_korisnik_id from korektivna_mjera where id = $1`,
-        [ulaz.korektivnaMjeraId],
-      );
-      if (mjera.rows[0]?.zavrsio_korisnik_id === korisnikId) {
-        throw new ApiGreska(409, "VERIFIKACIJA_NIJE_NEZAVISNA", "Ko je završio korektivnu mjeru ne može istu i verifikovati.");
-      }
+    // Provjerava se samo ono što je urađeno (nalaz H2): neusaglašenost mora čekati provjeru, a
+    // mjeru koju provjeravamo bira SERVER — posljednju završenu — ne pregledač. Ranije se mogla
+    // zatvoriti i otvorena neusaglašenost bez ijedne mjere, a "četiri oka" su se zaobilazila
+    // time što se id mjere jednostavno ne pošalje.
+    const nc = await klijent.query<{ status: string }>(`select status from neusaglasenost where id = $1 for update`, [neusaglasenostId]);
+    if (!nc.rows[0]) throw new ApiGreska(404, "NC_NE_POSTOJI", "Neusaglašenost nije pronađena.");
+    if (nc.rows[0].status !== "CEKA_VERIFIKACIJU") {
+      throw new ApiGreska(409, "NIJE_SPREMNO_ZA_PROVJERU", "Provjerava se tek kad je korektivna mjera urađena — neusaglašenost se ne zatvara bez nje.");
+    }
+    const mjera = await klijent.query<{ id: string; zavrsio_korisnik_id: string | null }>(
+      `select id, zavrsio_korisnik_id from korektivna_mjera
+       where neusaglasenost_id = $1 and status = 'ZAVRSENA' order by zavrseno_at desc limit 1`,
+      [neusaglasenostId],
+    );
+    const zavrsena = mjera.rows[0];
+    if (!zavrsena) throw new ApiGreska(409, "NEMA_URADJENE_MJERE", "Nema urađene korektivne mjere — neusaglašenost se ne zatvara bez nje.");
+    if (zavrsena.zavrsio_korisnik_id === korisnikId) {
+      throw new ApiGreska(409, "VERIFIKACIJA_NIJE_NEZAVISNA", "Ko je završio korektivnu mjeru ne može istu i verifikovati.");
     }
     await klijent.query(
       `insert into verifikacija (neusaglasenost_id, korektivna_mjera_id, verifikovao_korisnik_id, rezultat, napomena)
        values ($1, $2, $3, $4, $5)`,
-      [neusaglasenostId, ulaz.korektivnaMjeraId ?? null, korisnikId, ulaz.rezultat, ulaz.napomena ?? null],
+      [neusaglasenostId, zavrsena.id, korisnikId, ulaz.rezultat, ulaz.napomena ?? null],
     );
 
     const noviStatus = ulaz.rezultat === "POTVRDJENO" ? "ZATVORENA" : "PONOVO_OTVORENA";
@@ -192,5 +196,44 @@ export async function verifikuj(
     }
 
     return { status: noviStatus };
+  });
+}
+
+/** Odstupanje upisano u dnevni obrazac (nalaz H3) ulazi u isti tok kao svaka neusaglašenost.
+ * Radnik je hitnu mjeru već upisao u obrazac (bez nje se zapis ni ne snima — invarijanta #2), pa
+ * neusaglašenost odmah čeka provjeru: mjera je "urađena" od strane onoga ko je upisao zapis, a
+ * provjerava je DRUGO lice (četiri oka). Ranije je odstupanje ostajalo samo u listi zapisa. */
+export async function neusaglasenostIzZapisa(ulaz: { zapisId: string; obrazacKod: string; datum: string; korektivnaMjera: string; korisnikId: string }) {
+  return transakcija(async (klijent) => {
+    const broj = await sljedeciBrojNc(klijent);
+    const opis = `Odstupanje u obrascu ${ulaz.obrazacKod} (${ulaz.datum})`;
+    const nc = await klijent.query<{ id: string }>(
+      `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
+       values ($1, 'SREDNJI', 'CEKA_VERIFIKACIJU', 'zapis', $2, $3, $4) returning id`,
+      [broj, ulaz.zapisId, opis, ulaz.korisnikId],
+    );
+    const id = nc.rows[0].id;
+    await klijent.query(
+      `insert into korektivna_mjera (neusaglasenost_id, opis, dodijeljeno_korisnik_id, status, zavrseno_at, zavrsio_korisnik_id, rezultat)
+       values ($1, $2, $3, 'ZAVRSENA', now(), $3, $2)`,
+      [id, ulaz.korektivnaMjera.trim(), ulaz.korisnikId],
+    );
+    const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-007", entitetTip: "neusaglasenost", entitetId: id, korisnikId: ulaz.korisnikId, podaci: { izvor: "zapis", obrazac: ulaz.obrazacKod } });
+    await logIzmjena(klijent, { dogadjajId, korisnikId: ulaz.korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj, zapisId: ulaz.zapisId } });
+    await kreirajZadatak(klijent, {
+      naslov: `Provjeri odstupanje ${broj} (obrazac ${ulaz.obrazacKod})`,
+      opis: `Preduzeto: ${ulaz.korektivnaMjera.trim()}`,
+      prioritet: "SREDNJI",
+      izvorTip: "neusaglasenost",
+      izvorId: id,
+    });
+    await obavijestiUlogu(klijent, "bzr", {
+      naslov: `Odstupanje u obrascu ${ulaz.obrazacKod} — čeka vašu provjeru`,
+      poruka: `${ulaz.datum}. Preduzeto: ${ulaz.korektivnaMjera.trim()}`,
+      ozbiljnost: "SREDNJI",
+      izvorTip: "neusaglasenost",
+      izvorId: id,
+    });
+    return { id, broj };
   });
 }

@@ -6,6 +6,7 @@ import { requireAuth, requireUloga, ogranicenjeDatuma, izvrsilacZa, samoMoje, pr
 import { tijelo } from "../validacija.js";
 import { zabiljeziMjerenje } from "../services/haccpService.js";
 import { logKreiranje } from "../services/auditService.js";
+import { neusaglasenostIzZapisa } from "../services/ncService.js";
 
 export const haccpRuter = Router();
 haccpRuter.use(requireAuth);
@@ -151,6 +152,10 @@ haccpRuter.post(
       [ulaz.obrazacKod, ulaz.datum, JSON.stringify(ulaz.podaci), ulaz.odstupanje, ulaz.korektivnaMjera ?? null, izvrsilac, request.korisnik!.id, ulaz.ispravljaId ?? null],
     );
     await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "zapis", entitetId: rezultat.rows[0].id, noveVrijednosti: { obrazacKod: ulaz.obrazacKod, datum: ulaz.datum } });
-    response.status(201).json({ id: rezultat.rows[0].id });
+    // Ispravka zapisa ne otvara drugu neusaglašenost za isto odstupanje.
+    const nc = ulaz.odstupanje && !ulaz.ispravljaId
+      ? await neusaglasenostIzZapisa({ zapisId: rezultat.rows[0].id, obrazacKod: ulaz.obrazacKod, datum: ulaz.datum, korektivnaMjera: ulaz.korektivnaMjera!, korisnikId: request.korisnik!.id })
+      : null;
+    response.status(201).json({ id: rezultat.rows[0].id, neusaglasenost: nc?.broj ?? null });
   }),
 );

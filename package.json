@@ -13,7 +13,8 @@
     "seed:demo": "tsx db/migriraj.ts --demo",
     "prvi-korisnik": "tsx alati/prvi-korisnik.ts",
     "dnevni-pregled": "tsx alati/dnevni-pregled.ts",
-    "test:e2e": "node testovi/pokreni.mjs"
+    "test:e2e": "node testovi/pokreni.mjs",
+    "bekap": "tsx alati/bekap.ts"
   },
   "dependencies": {
     "@types/express": "^5.0.6",

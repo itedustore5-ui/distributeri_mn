@@ -135,13 +135,26 @@ Demo baza (za prodajne sastanke) se pravi na isti način, ali sa `npm run seed:d
 | `npm run prvi-korisnik -- --firma "..." --ime "..." --korisnik ...` | Prvi nalog (`bzr`) poslije instalacije kod klijenta. |
 | `npm run dnevni-pregled` | Stanje SVIH klijenata iz `alati/klijenti.txt` u jednom ispisu (poslednji unos, otvorene neusaglašenosti). Izlazni kod `1` ako je neko u zastoju (>2 dana bez unosa) — pogodno za Task Scheduler + mejl na grešku. |
 | `node alati/napravi-licencu.ts "Naziv klijenta"` | Administrativni licencni ključ za ugovor (aplikacija ga ne provjerava — to je papirni trag, ne tehnička brava). |
-| `powershell -File alati/bekap.ps1` | `pg_dump` po klijentu u `bekap/`, briše starije od 90 dana. Zahtijeva `pg_dump` u PATH-u. |
+| `npm run bekap` | `pg_dump` svake baze iz `alati/klijenti.txt` (ili, bez tog fajla, baze iz `DATABASE_URL`) u `bekap/<klijent>/`. Samo šema `public`, bez podataka sesija prijave. Svaki fajl se odmah provjeri (`pg_restore --list`); stariji od 90 dana se brišu; ishod u `bekap/POSLJEDNJI-BEKAP.txt`; izlazni kod `1` ako ijedan klijent padne. Traži PostgreSQL alate iste ili novije verzije od servera (uzima najnoviji iz `C:\Program Files\PostgreSQL`, ili `PG_DUMP=` / `PG_RESTORE=`). |
 
 `alati/klijenti.txt` (format `Naziv = postgresql://...`, po jedan red) sadrži lozinke baza — u
 `.gitignore` je i mora tu i ostati.
 
-**Bekap se ne radi sam** — `bekap.ps1` mora biti u Windows Task Scheduler-u (ili ekvivalentu) da
-bi se izvršavao periodično. Dok nije podešeno, bekapa nema.
+**Bekap van baze** pravi `npm run bekap`, ali **ne pokreće se sam** dok nije dodat u Task
+Scheduler (računar mora biti uključen u to vrijeme). Dnevno u 2:00, na primjer:
+
+```bat
+schtasks /Create /SC DAILY /ST 02:00 /TN "PILOT bekap" /TR "cmd /c cd /d C:\masaze\distributeri_mn && npm run bekap"
+```
+
+**Vraćanje** — uvijek u NOVU, praznu bazu, nikad preko žive:
+
+```bash
+pg_restore --no-owner --no-privileges --dbname "<adresa nove baze>" bekap/<klijent>/<fajl>.dump
+```
+
+Pa `npm run migriraj` na toj bazi (preskače već primijenjeno) i provjera jednog lota na
+`/sledljivost`. Vraćanje probati bar jednom prije nego što zatreba.
 
 ---
 
@@ -189,8 +202,15 @@ Dozvole se provjeravaju **na serveru** (`server/auth.ts` → `requireUloga`, `og
 Dobavljač → Prijem → LOT (obavezan broj lota) → odluka (PRIHVATI / HOLD / ODBIJI)
   → Zaliha (FEFO) → Isporuka (vezana za LOT, kupac mora imati telefon) → Kupac
 
+LOT na HOLD-u (karantin) → bzr: PUSTI (razlog obavezan) → zaliha, ili ODBIJ → otpis
+  (ne pušta se dok je povlačenje u toku)
+
 HACCP mjerenje → evaluacija protiv pravila iz baze (PASS/WARNING/FAIL)
   → FAIL: Neusaglašenost + Zadatak + Obavještenje bzr-u + LOT na HOLD
+  → artikal sa NEPOTVRĐENOM granicom: samo WARNING i obavještenje bzr-u, bez HOLD-a
+
+Odstupanje u dnevnom obrascu → Neusaglašenost „čeka provjeru" + Zadatak + Obavještenje bzr-u
+Neusaglašenost se zatvara samo uz urađenu mjeru i samo tuđom provjerom
 
 Svaka kritična odluka piše i u dogadjaj (events) i u audit_log — oba imutabilna.
 ```
@@ -254,9 +274,7 @@ zahtjev probudi server i provjera se pokrene odmah.
 **Važno ograničenje, da se ne pogrešno razumije kao potpuna zaštita:** bekap se čuva u
 `bekap_log` u ISTOJ Supabase bazi (90 dana, pa se briše). To štiti od greške u aplikaciji ili
 čovjeku ("kakvo je stanje bilo prije nedelju dana"), ali NE štiti od gubitka same Supabase baze —
-za to i dalje služi `alati/bekap.ps1` (pg_dump na spoljnu lokaciju), koji ostaje otvorena stavka
-dok se ne zakaže u Task Scheduleru. Preporuka: s vremena na vrijeme preuzeti bekap sa table i
-sačuvati ga van aplikacije.
+za to je `npm run bekap` (vidi Alati).
 
 ### Povlačenje (čl. 28)
 
@@ -266,7 +284,8 @@ količina — ručno se ništa ne kuca, da se niko ne izostavi). **Lot odmah ide
 tog lota u karantin** — sporna serija se više ne nudi za isporuku. Otvara i neusaglašenost visoke
 ozbiljnosti i zadatak. Sekcija „Povlačenja" na istoj strani prati ko je već zvan
 („Označi zvano" po kupcu) i ne dozvoljava zatvaranje dok svi nisu kontaktirani. Spisak se štampa
-dugmetom „Štampaj spisak" (`db/14_povlacenje.sql`).
+dugmetom „Štampaj spisak" (`db/14_povlacenje.sql`). Zadržan lot se ne može pustiti dok je
+povlačenje u toku; odbiti (otpisati) se može.
 
 ### Obavještenja i zadaci — ko šta dobija
 
@@ -428,7 +447,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 npm run typecheck
 npm run build
 npm run dev          # u drugom prozoru — testovi rade protiv servera koji radi
-npm run test:e2e     # 159 provjera kroz svih pet uloga; izlazni kod 1 ako išta padne
+npm run test:e2e     # 192 provjere kroz svih pet uloga; izlazni kod 1 ako išta padne
 ```
 
 `npm run test:e2e` (fajlovi u `testovi/`) radi **samo na demo bazi** — prije prvog koraka provjeri
@@ -480,7 +499,7 @@ koji magacioner stvarno koristi, ne enterprise WMS.
 
 ## Otvoreno
 
-- Bekap se ne radi sam dok `alati/bekap.ps1` nije u Task Scheduleru.
+- `npm run bekap` postoji, ali nije u Task Scheduleru — dok ga niko ne doda, ne radi sam.
 - Obavještenje o „tišini" klijenta (`dnevni-pregled`) je alat koji se pokreće ručno, ne mejl —
   pravi mejl traži SMTP nalog (poslovna odluka, ne kod).
 - Ugovor i cjenovnik nijesu dio ovog repozitorijuma (vidi `.gitignore` — `prezentacija/` i

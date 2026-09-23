@@ -197,53 +197,92 @@ async function obavijestiPrimaoca(
 
 export async function donesiOdlukuOLotu(lotId: string, odluka: Odluka, kolicina: number, napomena: string | undefined, korisnikId: string) {
   return transakcija(async (klijent) => {
-    const lotRed = await klijent.query<{ id: string; artikal_id: string; prijem_id: string; status: string }>(
-      `select id, artikal_id, prijem_id, status from lot where id = $1 for update`,
+    const lotRed = await klijent.query<{ id: string; artikal_id: string; prijem_id: string; status: string; prihvacena_kolicina: string | null }>(
+      `select id, artikal_id, prijem_id, status, prihvacena_kolicina from lot where id = $1 for update`,
       [lotId],
     );
     const lot = lotRed.rows[0];
     if (!lot) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Lot nije pronađen.");
-    if (lot.status !== "PRIMLJEN") {
+    // Lot na HOLD-u NIJE kraj puta (nalaz H1): pušta se ili odbija — ranije je roba zadržana zbog
+    // temperature, povlačenja ili odluke "HOLD" ostajala u karantinu zauvijek.
+    const odHolda = lot.status === "HOLD";
+    if (odHolda && odluka === "HOLD") throw new ApiGreska(409, "VEC_NA_HOLDU", "Lot je već zadržan — pustite ga ili odbijte.");
+    if (!odHolda && lot.status !== "PRIMLJEN") {
       throw new ApiGreska(409, "ODLUKA_VEC_DONESENA", "Odluka o ovom lotu je već donesena.");
     }
     if (odluka === "ODBIJI" && (!napomena || napomena.trim() === "")) {
       throw new ApiGreska(400, "RAZLOG_OBAVEZAN", "Odbijanje robe mora imati zapisan razlog.");
     }
+    if (odHolda && odluka === "PRIHVATI") {
+      if (!napomena || napomena.trim().length < 3) {
+        throw new ApiGreska(400, "RAZLOG_OBAVEZAN", "Upišite zašto se zadržana roba pušta (npr. ponovljeno mjerenje 3,8 °C, nalaz laboratorije).");
+      }
+      const povlacenje = await klijent.query(`select 1 from povlacenje where lot_id = $1 and status = 'U_TOKU'`, [lotId]);
+      if (povlacenje.rows[0]) {
+        throw new ApiGreska(409, "LOT_POD_POVLACENJEM", "Lot je pod povlačenjem u toku — ne pušta se dok se povlačenje ne zatvori.");
+      }
+    }
+
+    // Koliko je robe već u karantinu (HOLD poslije prijema) — 0 kad je lot zadržan odmah pri
+    // prijemu (temperatura na KKT 1), pa zaliha još nije ni nastala.
+    const karantinRed = await klijent.query<{ kolicina: string }>(
+      `select kolicina from zaliha where lot_id = $1 and status = 'KARANTIN' for update`,
+      [lotId],
+    );
+    const uKarantinu = Number(karantinRed.rows[0]?.kolicina ?? 0);
+    const kolicinaOdluke = odHolda && uKarantinu > 0 ? uKarantinu : kolicina;
+    const razlogKretanja = napomena?.trim() || null;
 
     const noviStatus = odluka === "PRIHVATI" ? "PRIHVACEN" : odluka === "HOLD" ? "HOLD" : "ODBIJEN";
+    // Već prihvaćen lot koji je kasnije zadržan zadržava svoju prihvaćenu količinu.
+    const vecPrihvaceno = Number(lot.prihvacena_kolicina ?? 0);
+    const prihvaceno = odluka === "PRIHVATI" ? (vecPrihvaceno > 0 ? vecPrihvaceno : kolicinaOdluke) : odHolda ? vecPrihvaceno : 0;
+    const odbijeno = odluka === "ODBIJI" ? kolicinaOdluke : 0;
     await klijent.query(`update lot set status = $1, prihvacena_kolicina = $2, odbijena_kolicina = $3, updated_at = now() where id = $4`, [
       noviStatus,
-      odluka === "PRIHVATI" ? kolicina : 0,
-      odluka === "ODBIJI" ? kolicina : 0,
+      prihvaceno,
+      odbijeno,
       lotId,
     ]);
     await klijent.query(
       `update prijem_stavka set prihvacena_kolicina = $1, odbijena_kolicina = $2, napomena = coalesce($3, napomena) where lot_id = $4`,
-      [odluka === "PRIHVATI" ? kolicina : 0, odluka === "ODBIJI" ? kolicina : 0, napomena ?? null, lotId],
+      [prihvaceno, odbijeno, napomena ?? null, lotId],
     );
 
-    if (odluka === "PRIHVATI") {
-      await klijent.query(
-        `insert into zaliha (lot_id, artikal_id, kolicina, status) values ($1, $2, $3, 'DOSTUPNO')
+    const kretanje = (delta: number, tip: string, opis: string | null) =>
+      klijent.query(
+        `insert into kretanje_zalihe (lot_id, artikal_id, kolicina_delta, tip, referenca_tip, referenca_id, izvrsio_korisnik_id, napomena)
+         values ($1, $2, $3, $4, 'prijem', $5, $6, $7)`,
+        [lotId, lot.artikal_id, delta, tip, lot.prijem_id, korisnikId, opis],
+      );
+    const uZalihu = (status: string, kol: number) =>
+      klijent.query(
+        `insert into zaliha (lot_id, artikal_id, kolicina, status) values ($1, $2, $3, $4)
          on conflict (lot_id, status) do update set kolicina = zaliha.kolicina + excluded.kolicina, updated_at = now()`,
-        [lotId, lot.artikal_id, kolicina],
+        [lotId, lot.artikal_id, kol, status],
       );
-      await klijent.query(
-        `insert into kretanje_zalihe (lot_id, artikal_id, kolicina_delta, tip, referenca_tip, referenca_id, izvrsio_korisnik_id)
-         values ($1, $2, $3, 'PRIJEM', 'prijem', $4, $5)`,
-        [lotId, lot.artikal_id, kolicina, lot.prijem_id, korisnikId],
-      );
+
+    if (odluka === "PRIHVATI" && odHolda && uKarantinu > 0) {
+      // Iz karantina u slobodnu zalihu — ukupna količina se ne mijenja, samo status.
+      await klijent.query(`update zaliha set kolicina = 0, updated_at = now() where lot_id = $1 and status = 'KARANTIN'`, [lotId]);
+      await uZalihu("DOSTUPNO", uKarantinu);
+      await kretanje(0, "RELEASE", `Pušteno iz karantina: ${razlogKretanja}`);
+    } else if (odluka === "PRIHVATI") {
+      await uZalihu("DOSTUPNO", kolicinaOdluke);
+      await kretanje(kolicinaOdluke, "PRIJEM", odHolda ? `Pušteno poslije zadržavanja pri prijemu: ${razlogKretanja}` : razlogKretanja);
     } else if (odluka === "HOLD") {
-      await klijent.query(
-        `insert into zaliha (lot_id, artikal_id, kolicina, status) values ($1, $2, $3, 'KARANTIN')
-         on conflict (lot_id, status) do update set kolicina = zaliha.kolicina + excluded.kolicina, updated_at = now()`,
-        [lotId, lot.artikal_id, kolicina],
-      );
+      // Roba ulazi u magacin (karantin) — to je PRIJEM u dnevniku kretanja, ranije se nije upisivao.
+      await uZalihu("KARANTIN", kolicinaOdluke);
+      await kretanje(kolicinaOdluke, "PRIJEM", `Primljeno u karantin (HOLD)${razlogKretanja ? `: ${razlogKretanja}` : ""}`);
+    } else if (odHolda && uKarantinu > 0) {
+      // Odbijeno iz karantina: roba izlazi (povrat dobavljaču ili uništenje).
+      await klijent.query(`update zaliha set kolicina = 0, updated_at = now() where lot_id = $1 and status = 'KARANTIN'`, [lotId]);
+      await kretanje(-uKarantinu, "OTPIS", `Odbijeno iz karantina: ${razlogKretanja}`);
     }
 
     const dogadjajTip = odluka === "PRIHVATI" ? "EVT-014" : odluka === "HOLD" ? "EVT-015" : "EVT-016";
-    const dogadjajId = await emituj(klijent, { tipDogadjaja: dogadjajTip, entitetTip: "lot", entitetId: lotId, korisnikId, podaci: { odluka, kolicina, napomena } });
-    await logOdluka(klijent, { dogadjajId, korisnikId, entitetTip: "lot", entitetId: lotId, noveVrijednosti: { status: noviStatus, kolicina, napomena } });
+    const dogadjajId = await emituj(klijent, { tipDogadjaja: dogadjajTip, entitetTip: "lot", entitetId: lotId, korisnikId, podaci: { odluka, kolicina: kolicinaOdluke, napomena, izHolda: odHolda } });
+    await logOdluka(klijent, { dogadjajId, korisnikId, entitetTip: "lot", entitetId: lotId, noveVrijednosti: { status: noviStatus, kolicina: kolicinaOdluke, napomena, izHolda: odHolda } });
 
     const preostaliRed = await klijent.query<{ status: string }>(`select status from lot where prijem_id = $1`, [lot.prijem_id]);
     const statusi = preostaliRed.rows.map((r) => r.status);

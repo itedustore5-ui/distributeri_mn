@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Printer, Download, Search } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
@@ -16,6 +17,9 @@ type Lot = {
   rok_trajanja: string | null;
   status: string;
   dostupno: string;
+  karantin: string;
+  prijem_id: string;
+  primljena_kolicina: string;
   skladiste_id: string | null;
   skladiste_naziv: string | null;
 };
@@ -43,6 +47,8 @@ const PORECI = [
 
 const DAN_MS = 86_400_000;
 const danaDo = (rok: string | null, danas: string) => (rok ? Math.round((Date.parse(rok) - Date.parse(danas)) / DAN_MS) : null);
+/** 1 lot · 2 lota · 5 lotova · 21 lot */
+const lotaPadez = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? "lot" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "lota" : "lotova");
 
 export function Zalihe() {
   const { korisnik } = useAuth();
@@ -50,8 +56,11 @@ export function Zalihe() {
   const skladista = useSkladista();
   const [lotovi, setLotovi] = useState<Lot[]>([]);
   const [otpisLot, setOtpisLot] = useState<Lot | null>(null);
+  const [holdOdluka, setHoldOdluka] = useState<{ lot: Lot; odluka: "PRIHVATI" | "ODBIJI" } | null>(null);
+  const odlucuje = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
 
-  const [status, setStatus] = useState("PRIHVACEN");
+  // Sa Kontrolnog centra ("Lotovi na HOLD-u") stiže sa već izabranim statusom.
+  const [status, setStatus] = useState((useLocation().state as { status?: string } | null)?.status ?? "PRIHVACEN");
   const [pretraga, setPretraga] = useState("");
   const [rok, setRok] = useState("");
   const [dobavljac, setDobavljac] = useState("");
@@ -79,7 +88,7 @@ export function Zalihe() {
       (!dobavljac || l.dobavljac_naziv === dobavljac) &&
       (!artikal || l.artikal_naziv === artikal) &&
       (!magacin || l.skladiste_id === magacin) &&
-      (!samoNaStanju || Number(l.dostupno) > 0)
+      (!samoNaStanju || Number(l.dostupno) + Number(l.karantin) > 0 || l.status === "HOLD")
     );
   });
   const brojPoStatusu = (kod: string) => bezStatusa.filter((l) => !kod || l.status === kod).length;
@@ -208,7 +217,7 @@ export function Zalihe() {
         </label>
         {imaFiltera && <button className="link-button" onClick={ponisti}>Poništi filtere</button>}
         <span className="filter-broj">
-          {prikazano.length} lotova{uskoro > 0 && <> · <b className="danas-fali">{uskoro} ističe za 7 dana</b></>}
+          {prikazano.length} {lotaPadez(prikazano.length)}{uskoro > 0 && <> · <b className="danas-fali">{uskoro} ističe za 7 dana</b></>}
           {istekli > 0 && <> · <b className="danas-fali">{istekli} isteklo</b></>}
         </span>
       </div>
@@ -245,12 +254,23 @@ export function Zalihe() {
                       {d !== null && d < 0 && <span className="rok-oznaka istekao">isteklo</span>}
                       {d !== null && d >= 0 && d <= 7 && <span className="rok-oznaka">još {d} {d === 1 ? "dan" : "dana"}</span>}
                     </td>
-                    <td>{Number(l.dostupno)}</td>
+                    <td>
+                      {Number(l.dostupno)}
+                      {Number(l.karantin) > 0 && <span className="rok-oznaka istekao">karantin {Number(l.karantin)}</span>}
+                    </td>
                     <td><StatusBadge status={l.status} /></td>
                     <td className="no-print">
-                      {mozeOtpisati && Number(l.dostupno) > 0 && (
-                        <button className="small-action" onClick={() => setOtpisLot(l)}>Otpiši</button>
-                      )}
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {mozeOtpisati && Number(l.dostupno) > 0 && (
+                          <button className="small-action" onClick={() => setOtpisLot(l)}>Otpiši</button>
+                        )}
+                        {odlucuje && l.status === "HOLD" && (
+                          <>
+                            <button className="small-action" onClick={() => setHoldOdluka({ lot: l, odluka: "PRIHVATI" })}>Pusti</button>
+                            <button className="small-action odstupanje-dugme" onClick={() => setHoldOdluka({ lot: l, odluka: "ODBIJI" })}>Odbij</button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -260,6 +280,17 @@ export function Zalihe() {
         </div>
       </div>
 
+      {holdOdluka && (
+        <HoldOdlukaModal
+          lot={holdOdluka.lot}
+          odluka={holdOdluka.odluka}
+          onClose={() => setHoldOdluka(null)}
+          onSacuvano={() => {
+            setHoldOdluka(null);
+            ucitaj();
+          }}
+        />
+      )}
       {otpisLot && (
         <OtpisModal
           lot={otpisLot}
@@ -306,6 +337,46 @@ function OtpisModal({ lot, onClose, onSacuvano }: { lot: Lot; onClose: () => voi
         <label style={{ gridColumn: "1 / -1" }}>
           Razlog <ZakonskaOznaka clan="27" />
           <input value={razlog} onChange={(e) => setRazlog(e.target.value)} placeholder="npr. oštećeno u transportu, isteklo, izgubljeno" />
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+/** Lot na HOLD-u se pušta ili odbija (nalaz H1) — uvijek sa razlogom, jer to čita inspektor.
+ * Pod povlačenjem u toku server ne dozvoljava puštanje. */
+function HoldOdlukaModal({ lot, odluka, onClose, onSacuvano }: { lot: Lot; odluka: "PRIHVATI" | "ODBIJI"; onClose: () => void; onSacuvano: () => void }) {
+  const [razlog, setRazlog] = useState("");
+  const [greska, setGreska] = useState("");
+  const kolicina = Number(lot.karantin) > 0 ? Number(lot.karantin) : Number(lot.primljena_kolicina);
+  const pusti = odluka === "PRIHVATI";
+
+  const posalji = async () => {
+    try {
+      await api(`/prijem/${lot.prijem_id}/lot/${lot.id}/odluka`, { method: "PATCH", telo: { odluka, kolicina, napomena: razlog.trim() } });
+      onSacuvano();
+    } catch (e) {
+      setGreska(e instanceof ApiGreska ? e.message : "Odluka nije sačuvana.");
+    }
+  };
+
+  return (
+    <Modal
+      naslov={pusti ? `Pusti lot ${lot.broj_lota}` : `Odbij lot ${lot.broj_lota}`}
+      podnaslov={`${lot.artikal_naziv} · ${kolicina} u karantinu`}
+      onClose={onClose}
+      greska={greska}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={razlog.trim().length < 3}>{pusti ? "Pusti u prodaju" : "Odbij robu"}</button></>}
+    >
+      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+        <p className="muted-text" style={{ fontSize: 11, margin: 0 }}>
+          {pusti
+            ? "Roba prelazi iz karantina u slobodnu zalihu i može u isporuku. Upišite na osnovu čega — ponovljeno mjerenje, nalaz laboratorije, izjava dobavljača."
+            : "Roba izlazi iz magacina (povrat dobavljaču ili uništenje) i upisuje se u dnevnik kretanja zalihe."}
+        </p>
+        <label>
+          Razlog <ZakonskaOznaka clan="36" />
+          <textarea rows={3} value={razlog} onChange={(e) => setRazlog(e.target.value)} placeholder={pusti ? "npr. ponovljeno mjerenje 3,8 °C, roba ispravna" : "npr. povrat dobavljaču — prekid hladnog lanca"} />
         </label>
       </div>
     </Modal>

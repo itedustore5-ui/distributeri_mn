@@ -3,10 +3,10 @@ import { transakcija, upit, pool } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
-import { danasCG } from "../vrijeme.js";
 import { kreirajObavjestenje } from "./zadaciService.js";
 import { zabiljeziMjerenje } from "./haccpService.js";
 import { odrediSkladiste } from "./skladisteService.js";
+import { sljedeciBroj, danasKratko } from "./brojeviService.js";
 
 export type StavkaIsporukeUlaz = { lotId: string; planiranaKolicina: number };
 export type NovaIsporukaUlaz = {
@@ -69,12 +69,6 @@ async function provjeriLotZaIsporuku(klijent: PoolClient, stavka: StavkaIsporuke
   }
 }
 
-async function sljedeciBrojIsporuke() {
-  const danas = danasCG().replaceAll("-", "").slice(2);
-  const rezultat = await upit<{ broj: number }>(`select count(*)::int as broj from isporuka where broj like $1`, [`ISP-${danas}-%`]);
-  return `ISP-${danas}-${String((rezultat.rows[0]?.broj ?? 0) + 1).padStart(3, "0")}`;
-}
-
 export async function kreirajIsporuku(ulaz: NovaIsporukaUlaz, korisnikId: string) {
   if (ulaz.stavke.length === 0) {
     throw new ApiGreska(400, "ISPORUKA_BEZ_STAVKI", "Isporuka mora imati najmanje jednu stavku.");
@@ -92,7 +86,7 @@ export async function kreirajIsporuku(ulaz: NovaIsporukaUlaz, korisnikId: string
   return transakcija(async (klijent) => {
     for (const stavka of ulaz.stavke) await provjeriLotZaIsporuku(klijent, stavka, skladisteId);
 
-    const broj = await sljedeciBrojIsporuke();
+    const broj = await sljedeciBroj(klijent, "isporuka", `ISP-${danasKratko()}`);
     const isporuka = await klijent.query<{ id: string }>(
       `insert into isporuka (broj, kupac_id, vozilo_id, vozac_korisnik_id, uneo_korisnik_id, datum_isporuke, status, napomena, skladiste_id)
        values ($1, $2, $3, $4, $5, $6, 'U_PRIPREMI', $7, $8) returning id`,

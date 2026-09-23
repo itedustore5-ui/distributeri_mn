@@ -1,13 +1,15 @@
 import { Router } from "express";
 import { z } from "zod";
-import { pool, upit } from "../db.js";
+import type { PoolClient } from "pg";
+import { pool, upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireAuth, requireUloga, smijeDodijelitiUlogu, obrisiSveSesijeZaKorisnika, type AuthZahtjev, type Uloga } from "../auth.js";
-import { hashLozinke, MINIMALNA_DUZINA_LOZINKE } from "../lozinke.js";
+import { hashLozinke, lozinkaJeDovoljnoDugacka, MINIMALNA_DUZINA_LOZINKE } from "../lozinke.js";
 import { tijelo, str } from "../validacija.js";
 import { logKreiranje, logIzmjena } from "../services/auditService.js";
 import crypto from "node:crypto";
 import { danasCG } from "../vrijeme.js";
+import { sljedeciBroj } from "../services/brojeviService.js";
 
 export const ljudiRuter = Router();
 ljudiRuter.use(requireAuth);
@@ -20,32 +22,81 @@ ljudiRuter.get(
   }),
 );
 
+const ULOGE = ["bzr", "operater", "vozac", "uprava", "izvodjac"] as const;
+const lozinkaPolje = z.string().optional();
+
+const noviNalogPodaci = z.object({
+  korisnickoIme: z.string().trim().min(3, "Korisničko ime mora imati bar 3 znaka."),
+  uloga: z.enum(ULOGE),
+  // Lozinku može da zada odgovorno lice (da je izgovori čovjeku); prazno = sistem je predloži.
+  // Svakako je privremena: pri prvoj prijavi se mora promijeniti.
+  lozinka: lozinkaPolje,
+});
+
 const noviLiceSchema = z.object({
   ime: z.string().min(2),
   radnoMjesto: z.string().optional(),
   rukujeHranom: z.boolean().default(true),
   sanitarnaKnjizicaBroj: z.string().optional(),
   sanitarnaKnjizicaRok: z.string().optional(),
+  nalog: noviNalogPodaci.optional(),
 });
 
-async function sljedecaSifra() {
-  const rezultat = await upit<{ broj: number }>(`select count(*)::int as broj from lice`);
-  return `M-${String((rezultat.rows[0]?.broj ?? 0) + 1).padStart(2, "0")}`;
+const JEDINSTVEN = "23505";
+
+/** Otvaranje naloga — jedno mjesto za "Novi nalog" i za "Novo lice + nalog". Radi u transakciji
+ * pozivaoca, pa lice bez naloga (ili nalog bez lica) ne ostaje ako drugi korak padne. */
+async function otvoriNalog(
+  klijent: PoolClient,
+  request: AuthZahtjev,
+  ulaz: { liceId?: string | null; korisnickoIme: string; uloga: Uloga; lozinka?: string },
+) {
+  if (!smijeDodijelitiUlogu(request.korisnik!.uloga, ulaz.uloga)) {
+    throw new ApiGreska(403, "NEDOZVOLJENA_ULOGA", "Ne možete otvoriti nalog sa tom ulogom.");
+  }
+  const zadata = ulaz.lozinka?.trim();
+  if (zadata && !lozinkaJeDovoljnoDugacka(zadata)) {
+    throw new ApiGreska(400, "LOZINKA_KRATKA", `Lozinka mora imati najmanje ${MINIMALNA_DUZINA_LOZINKE} znakova.`);
+  }
+  const korisnickoIme = ulaz.korisnickoIme.trim().toLowerCase();
+  const zauzeto = await klijent.query(`select 1 from korisnik where korisnicko_ime = $1`, [korisnickoIme]);
+  if (zauzeto.rows[0]) throw new ApiGreska(409, "KORISNICKO_IME_ZAUZETO", `Korisničko ime "${korisnickoIme}" je zauzeto — dodajte broj ili još jedno slovo prezimena.`);
+  if (ulaz.liceId) {
+    const vecIma = await klijent.query(`select korisnicko_ime from korisnik where lice_id = $1 and aktivan`, [ulaz.liceId]);
+    if (vecIma.rows[0]) throw new ApiGreska(409, "LICE_IMA_NALOG", `Ovo lice već ima nalog (${vecIma.rows[0].korisnicko_ime}). Ako je zaboravio lozinku — "Nova lozinka" na kartici Nalozi.`);
+  }
+  const privremenaLozinka = zadata || crypto.randomBytes(9).toString("base64url").slice(0, MINIMALNA_DUZINA_LOZINKE + 2);
+  try {
+    const rezultat = await klijent.query<{ id: string }>(
+      `insert into korisnik (korisnicko_ime, lozinka_hash, uloga, lice_id) values ($1, $2, $3, $4) returning id`,
+      [korisnickoIme, hashLozinke(privremenaLozinka), ulaz.uloga, ulaz.liceId ?? null],
+    );
+    await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: rezultat.rows[0].id, noveVrijednosti: { uloga: ulaz.uloga, liceId: ulaz.liceId ?? null } });
+    return { id: rezultat.rows[0].id, korisnickoIme, privremenaLozinka };
+  } catch (e) {
+    if ((e as { code?: string }).code === JEDINSTVEN) throw new ApiGreska(409, "KORISNICKO_IME_ZAUZETO", `Korisničko ime "${korisnickoIme}" je zauzeto.`);
+    throw e;
+  }
 }
 
 ljudiRuter.post(
   "/lica",
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
-    const ulaz = tijelo(noviLiceSchema, request.body);
-    const sifra = await sljedecaSifra();
-    const rezultat = await pool.query<{ id: string }>(
-      `insert into lice (ime, radno_mjesto, rukuje_hranom, sifra, sanitarna_knjizica_broj, sanitarna_knjizica_rok)
-       values ($1, $2, $3, $4, $5, $6) returning id`,
-      [ulaz.ime, ulaz.radnoMjesto ?? null, ulaz.rukujeHranom, sifra, ulaz.sanitarnaKnjizicaBroj ?? null, ulaz.sanitarnaKnjizicaRok ?? null],
-    );
-    await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "lice", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
-    response.status(201).json({ id: rezultat.rows[0].id, sifra });
+    const { nalog, ...ulaz } = tijelo(noviLiceSchema, request.body);
+    const rezultat = await transakcija(async (klijent) => {
+      const sifra = await sljedeciBroj(klijent, "lice", "M", 2);
+      const lice = await klijent.query<{ id: string }>(
+        `insert into lice (ime, radno_mjesto, rukuje_hranom, sifra, sanitarna_knjizica_broj, sanitarna_knjizica_rok)
+         values ($1, $2, $3, $4, $5, $6) returning id`,
+        [ulaz.ime, ulaz.radnoMjesto ?? null, ulaz.rukujeHranom, sifra, ulaz.sanitarnaKnjizicaBroj ?? null, ulaz.sanitarnaKnjizicaRok ?? null],
+      );
+      await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "lice", entitetId: lice.rows[0].id, noveVrijednosti: ulaz });
+      const otvoren = nalog ? await otvoriNalog(klijent, request, { ...nalog, liceId: lice.rows[0].id }) : null;
+      return { id: lice.rows[0].id, sifra, nalog: otvoren && { korisnickoIme: otvoren.korisnickoIme, privremenaLozinka: otvoren.privremenaLozinka } };
+    });
+    // Lozinka se prikazuje TAČNO OVDJE, jednom (invarijanta #28).
+    response.status(201).json(rezultat);
   }),
 );
 
@@ -141,29 +192,16 @@ ljudiRuter.get(
   }),
 );
 
-const noviNalogSchema = z.object({
-  liceId: z.string().uuid().optional(),
-  korisnickoIme: z.string().min(3),
-  uloga: z.enum(["bzr", "operater", "vozac", "uprava", "izvodjac"]),
-});
+const noviNalogSchema = noviNalogPodaci.extend({ liceId: z.string().uuid().optional() });
 
 ljudiRuter.post(
   "/nalozi",
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviNalogSchema, request.body);
-    const ciljUloga = ulaz.uloga as Uloga;
-    if (!smijeDodijelitiUlogu(request.korisnik!.uloga, ciljUloga)) {
-      throw new ApiGreska(403, "NEDOZVOLJENA_ULOGA", "Ne možete otvoriti nalog sa tom ulogom.");
-    }
-    const privremenaLozinka = crypto.randomBytes(9).toString("base64url").slice(0, MINIMALNA_DUZINA_LOZINKE + 2);
-    const rezultat = await pool.query<{ id: string }>(
-      `insert into korisnik (korisnicko_ime, lozinka_hash, uloga, lice_id) values ($1, $2, $3, $4) returning id`,
-      [ulaz.korisnickoIme.trim().toLowerCase(), hashLozinke(privremenaLozinka), ciljUloga, ulaz.liceId ?? null],
-    );
-    await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: rezultat.rows[0].id, noveVrijednosti: { uloga: ciljUloga } });
+    const rezultat = await transakcija((klijent) => otvoriNalog(klijent, request, ulaz));
     // Lozinka se prikazuje TAČNO OVDJE, jednom, pri postavljanju (invarijanta #28).
-    response.status(201).json({ id: rezultat.rows[0].id, privremenaLozinka });
+    response.status(201).json(rezultat);
   }),
 );
 
@@ -191,6 +229,31 @@ ljudiRuter.patch(
     await pool.query(`update korisnik set uloga = $1, updated_at = now() where id = $2`, [ciljUloga, request.params.id]);
     await obrisiSveSesijeZaKorisnika(str(request.params.id));
     response.status(204).end();
+  }),
+);
+
+// Zaboravljena lozinka: odgovorno lice postavlja NOVU privremenu — staru ne vidi niko, ni ono
+// (invarijanta #28). Sve prijave tog naloga se prekidaju, a pri sljedećoj se lozinka mora promijeniti.
+ljudiRuter.patch(
+  "/nalozi/:id/lozinka",
+  requireUloga("bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ciljId = str(request.params.id);
+    if (ciljId === request.korisnik!.id) throw new ApiGreska(409, "SVOJA_LOZINKA", "Svoju lozinku mijenjate na svojoj strani (Moja strana → Promjena lozinke).");
+    await provjeriMozeDaDirneNalog(request, ciljId);
+    const { lozinka } = tijelo(z.object({ lozinka: lozinkaPolje }), request.body ?? {});
+    const zadata = lozinka?.trim();
+    if (zadata && !lozinkaJeDovoljnoDugacka(zadata)) {
+      throw new ApiGreska(400, "LOZINKA_KRATKA", `Lozinka mora imati najmanje ${MINIMALNA_DUZINA_LOZINKE} znakova.`);
+    }
+    const privremenaLozinka = zadata || crypto.randomBytes(9).toString("base64url").slice(0, MINIMALNA_DUZINA_LOZINKE + 2);
+    await pool.query(
+      `update korisnik set lozinka_hash = $1, lozinka_stanje = 'privremena', mora_promijeniti_lozinku = true, updated_at = now() where id = $2`,
+      [hashLozinke(privremenaLozinka), ciljId],
+    );
+    await obrisiSveSesijeZaKorisnika(ciljId);
+    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { lozinka: "postavljena nova privremena" } });
+    response.json({ privremenaLozinka });
   }),
 );
 

@@ -67,11 +67,39 @@ export function ProvjeraZnanjaKartica({ verzija, onOsvjezi }: { verzija: number;
 
   const prikazaniRezultati = rezultati.filter((r) => !filterSesija || r.sesija_id === filterSesija);
   const aktivnaPitanja = pitanja.filter((p) => p.aktivno).length;
+  const otvoreni = sesije.filter((s) => s.otvoren);
+  const adresaProvjere = `${window.location.origin}/provjera-znanja`;
+  const [kopirano, setKopirano] = useState(false);
 
   return (
     <>
+      <div className="panel no-print" style={{ minHeight: "auto", marginBottom: 14 }}>
+        <div style={{ padding: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <span className="meta-label">Kako zaposleni ulazi</span>
+            <p style={{ fontSize: 12, margin: "4px 0 0" }}>
+              Na strani za prijavu dugme <b>„Provjera znanja — ulaz šifrom"</b>, ili direktno na adresi{" "}
+              <a href={adresaProvjere} target="_blank" rel="noreferrer"><code>{adresaProvjere}</code></a>. Upisuje svoju šifru sa
+              spiska „Svi zaposleni" (npr. <code>M-03</code>) — bez korisničkog imena i lozinke. Ko ima nalog, ima i dugme na svojoj strani.
+            </p>
+            <p style={{ fontSize: 12, margin: "6px 0 0" }}>
+              {otvoreni.length > 0 ? (
+                <>Otvoren termin: <b>{otvoreni.map((s) => s.naziv).join(", ")}</b> — šifre sada rade.</>
+              ) : (
+                <b className="danas-fali">Nema otvorenog termina — dok ga ne otvorite (dugme „Otvori termin" gore desno), šifra neće pustiti nikoga.</b>
+              )}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="secondary-button" onClick={() => navigator.clipboard?.writeText(adresaProvjere).then(() => setKopirano(true))}>
+              {kopirano ? "Kopirano ✓" : "Kopiraj adresu"}
+            </button>
+            <a className="secondary-button" href={adresaProvjere} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Otvori</a>
+          </div>
+        </div>
+      </div>
       <p className="muted-text no-print" style={{ fontSize: 11, marginBottom: 14, maxWidth: 720 }}>
-        Zaposleni ulazi na <code>/provjera-znanja</code> svojom šifrom sa spiska (ista šifra kao za potpis). Pitanja dolaze iz dva izvora:
+        Šifra je ista kao za potpis na obrascima. Pitanja dolaze iz dva izvora:
         <b> pitanja firme</b> unosite vi, o vašim procedurama; <b>pitanja konsultanta</b> ostaju skrivena i vama — ko zna pitanja unaprijed, provjera
         prestaje da mjeri znanje. Rezultati su dokaz da se provjera redovno sprovodi <ZakonskaOznaka clan="36" />, ne sertifikat.
       </p>

@@ -2,7 +2,7 @@ import { transakcija } from "../db.js";
 import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
-import { danasCG } from "../vrijeme.js";
+import { sljedeciBrojNc } from "./brojeviService.js";
 
 export type NovaKontrolaVozilaUlaz = {
   vozilId: string;
@@ -12,11 +12,6 @@ export type NovaKontrolaVozilaUlaz = {
   vrataOk: boolean;
   napomena?: string;
 };
-
-async function sljedeciBrojNc() {
-  const danas = danasCG().replaceAll("-", "").slice(2);
-  return `NC-${danas}-V${Math.floor(Math.random() * 900 + 100)}`;
-}
 
 export async function zabiljeziKontroluVozila(ulaz: NovaKontrolaVozilaUlaz, korisnikId: string) {
   const prosao = ulaz.cistoca && ulaz.opremaOk && ulaz.vrataOk;
@@ -44,7 +39,7 @@ export async function zabiljeziKontroluVozila(ulaz: NovaKontrolaVozilaUlaz, kori
 
     let neusaglasenostId: string | null = null;
     if (!prosao) {
-      const broj = await sljedeciBrojNc();
+      const broj = await sljedeciBrojNc(klijent);
       const nc = await klijent.query<{ id: string }>(
         `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
          values ($1, 'SREDNJI', 'OTVORENA', 'kontrola_vozila', $2, $3, $4) returning id`,

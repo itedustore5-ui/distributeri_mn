@@ -1,10 +1,12 @@
 # CLAUDE.md — kontekst projekta
 
 **Pročitaj ovaj fajl prvi, prije bilo kakvog rada u ovom repozitorijumu.**
-Ovdje je sve što se ne vidi iz koda: zašto je nešto tako, šta se ne smije dirati,
-i na čemu se već izgubilo vrijeme.
+Ovdje je sve što se ne vidi iz koda: mapa aplikacije, zašto je nešto tako, šta se ne smije
+dirati, šta je poznato da ne valja, i na čemu se već izgubilo vrijeme.
 
 Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — upiši ovdje.
+Posljednji pregled koda i usklađivanje ovog fajla: **23.09.2026.** (Ranija verzija ovog fajla
+opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje u ovom kodu nema.)
 
 ---
 
@@ -13,9 +15,6 @@ Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — u
 Aplikacija za **dobru higijensku praksu i HACCP kod distributera hrane u Crnoj Gori.**
 Vlasnica je konsultantkinja iz Srbije koja uslugu prodaje crnogorskim firmama:
 uspostavljanje sistema jednokratno (900–1.600 €) + mjesečno održavanje (80–180 €).
-
-Nastala je kao nadogradnja na postojeću aplikaciju za mjerenje osposobljenosti zaposlenih
-(`hoteli-pilot` / `pilot_firme` / `pilot_hoteli` — ista aplikacija za različite branše).
 
 **Šta se stvarno prodaje:** ne softver, nego odgovor na pitanje *„serija je sporna, kojim
 kupcima je otišla?"* i dokaz da zapisi nastaju svakog dana, a ne noć prije inspekcije.
@@ -26,39 +25,35 @@ kupcima je otišla?"* i dokaz da zapisi nastaju svakog dana, a ne noć prije ins
 
 **Jedan klijent = jedna baza = jedan Render servis.**
 
-Kod to **ne sprovodi** — `firma_id` se uzima iz URL parametra i nigdje se ne poredi sa
-`korisnik.firma_id`. Dok je jedna baza po klijentu, nema problema. Prvi put kad se dva
-klijenta nađu u istoj bazi, svaki vidi svakoga.
+Kod nema razdvajanje firmi: tabela `firma` ima jedan red, a sve ostale tabele pripadaju toj
+firmi. Prvi put kad se dva klijenta nađu u istoj bazi, svaki vidi sve.
 
-Postoji i **demo instalacija** — posebna baza sa izmišljenim podacima (`05_demo_cg.sql`),
-za prodajne sastanke. Demo se nikad ne koristi za pravi rad, niti obrnuto.
+**Demo baza** (`npm run seed:demo`, `db/13_demo_cg.sql`) je samo za prodajne sastanke i
+testove. Demo se nikad ne koristi za pravi rad, niti obrnuto. `npm run test:e2e` sam provjeri
+da je baza demo i inače odbije da krene.
 
 ---
 
 ## Kome se predaje aplikacija
 
-**Prvi nalog koji se otvara u klijentovoj firmi je `bzr` — odgovorno lice za bezbjednost
-hrane.** Ne direktor, ne magacioner.
+**Prvi nalog u klijentovoj firmi je `bzr` — odgovorno lice za bezbjednost hrane.** Ne direktor,
+ne magacioner.
 
-Zakon 59/2026 ne propisuje da firma mora imenovati „odgovorno lice za bezbjednost hrane"
-kao funkciju. Ono što postoji je **„odgovorno lice u pravnom licu" iz čl. 82** — pojam
-prekršajnog prava, koje lično plaća 500–2.000 €. Dok firma pisano ne odredi ko to jeste,
-to je izvršni direktor. *(likely — iz teksta kazni, ne iz odredbe koja imenuje funkciju.)*
-
-Zato se sistem predaje ovim redom:
+Zakon 59/2026 ne propisuje funkciju „odgovorno lice za bezbjednost hrane". Postoji **„odgovorno
+lice u pravnom licu" iz čl. 82** — pojam prekršajnog prava, lično plaća 500–2.000 €. Dok firma
+pisano ne odredi ko je to, to je izvršni direktor. *(likely — iz teksta kazni.)*
 
 | # | Šta | Čime |
 |---|---|---|
-| 1 | Direktor potpiše rješenje o imenovanju | `prilozi.html` → prva stavka u spisku |
-| 2 | Imenovanom licu se otvara nalog `bzr` | `alati/prvi-korisnik.mjs` / komandna tabla |
-| 3 | To lice dobija `tabla.html` kao prvu stranu | automatski, po ulozi |
-| 4 | Upisuje lica koja rukuju hranom i rokove sanitarnih knjižica | `ljudi.html` → Sanitarne knjižice |
-| 5 | Magacioneri i vozači dobijaju `operater` naloge — **otvara ih sam** | `ljudi.html` → Nalozi |
-| 6 | Direktor dobija `uprava` — pogled bez unosa, uz slanje poruka zaposlenima | po potrebi |
+| 1 | Direktor potpiše rješenje o imenovanju | `/prilozi` → prva stavka |
+| 2 | Imenovanom licu se otvara nalog `bzr` | `npm run prvi-korisnik` |
+| 3 | To lice dobija Kontrolni centar kao prvu stranu | `/tabla`, automatski po ulozi |
+| 4 | Upisuje sve zaposlene; kod onih koji rukuju hranom — rok sanitarne knjižice | `/ljudi` → Svi zaposleni |
+| 5 | Magacioneri (`operater`) i vozači (`vozac`) dobijaju naloge — **otvara ih sam** | `/ljudi` → Nalozi |
+| 6 | Direktor dobija `uprava` — pregled, aktivnost uživo i poruke, bez unosa | otvara konsultant |
 
-**Rješenje o imenovanju nije zakonski obrazac** i tako se i predstavlja. Ono je pisani
-trag ko sprovodi postupke iz čl. 36 i ko javlja UBH po čl. 28. Bez njega inspektor pita
-direktora, a direktor pokazuje na nekoga ko nigdje nije zapisan.
+**Rješenje o imenovanju nije zakonski obrazac** i tako se i predstavlja — pisani trag ko
+sprovodi postupke iz čl. 36 i ko javlja UBH po čl. 28.
 
 ---
 
@@ -71,7 +66,7 @@ poslove).
 
 | Propis | Broj | Članovi |
 |---|---|---|
-| Zakon o bezbjednosti hrane | **59/2026** (objavljen 04.05.2026) — stavio 57/15 van snage | **brojevi članova nepoznati, ne citirati** |
+| Zakon o bezbjednosti hrane | **59/2026** (objavljen 04.05.2026) — stavio 57/15 van snage | čl. 27, 28, 35, 36, 43, 47, 82 — provjereni, tabela ispod |
 | ~~Zakon o bezbjednosti hrane~~ | ~~„Sl. list CG" 57/15~~ | ~~41 sledljivost · 42 povlačenje · 44 transport i obuka · 46 HACCP · 48 registracija · 82 kazne~~ — **prestao da važi** |
 | Pravilnik o registraciji i odobravanju objekata | „Sl. list CG" **111/2022** | taksa 30 € |
 | Pravilnik o sledljivosti | „Sl. list CG" **48/16** | identifikacija serije |
@@ -186,194 +181,267 @@ Nikad ih ne predstavljati kao zvanične obrasce.
 
 ---
 
-## Arhitektura
+## Mapa aplikacije
 
-Postojeća aplikacija se **ne prepisuje** — dodaju se fajlovi i dvije linije u
-`server/index.js`:
+### Stack i tok jednog zahtjeva
 
-```js
-import { zapisiRuter } from './zapisi.js';   // uz ostale import-e
-app.use(express.json());                      // MORA ostati i MORA biti prvo
-app.use(zapisiRuter);                         // odmah ispod
+React 19 + TypeScript + Vite (`src/`) · Express 5 + TypeScript (`server/`, pokreće se kroz `tsx`) ·
+PostgreSQL na Supabase (`db/`) · Render, jedan servis po klijentu.
+
+```
+pregledač  src/pages/*.tsx  ──►  src/lib/api.ts  (zaglavlje x-zahtjev-app, kolačić pilot_sesija)
+   │
+   ▼
+server/index.ts   1. javne rute PRVE: /api/zdravlje, auth, provjera znanja (ulaz šifrom)
+                  2. ruteri /api/*  (server/routes/*.ts) — zod validacija, requireAuth, requireUloga
+   │
+   ▼
+server/services/*.ts   poslovna pravila, transakcije, događaj (dogadjaj) + audit (audit_log)
+   │
+   ▼
+PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_migracije
 ```
 
-### SQL — redoslijed nije proizvoljan
+### Moduli
 
-| Fajl | Šta pravi |
-|---|---|
-| `01_schema.sql` | 22 tabele: `firma`, `korisnik` (prijava), obuke, pitanja i provjera znanja |
-| `00_sifre.sql` | šifre razloga i opasnosti (srpske, interne — klijentu se ne pokazuju) |
-| `02_pogledi.sql` | osnovni izvještaji |
-| `03_analiza.sql` | **`v_evidencija_osposobljavanja`** → Prilog 14 i potvrde |
-| `04_zapisi_cg.sql` | crnogorski dio: `zapis`, `prijem`, `isporuka`, šifarnici, sledljivost. **Na početku radi DROP TABLE — nikad ga ne pokretati na živoj bazi.** |
-| `05_demo_cg.sql` | demo podaci. **Samo na demo bazi.** |
-| `06_ispravke_cg.sql` | ispravke zapisa + uloga `operater`. Ne dira podatke, bezbjedno na živoj bazi. |
-| `07_dopune_cg.sql` | oznaka naknadnog unosa, pogledi za izvoz i dnevni pregled, zabrana prazne korektivne mjere. Ne dira podatke. **Ako ikad ponovo pokreneš 06, odmah poslije pokreni i 07.** |
-| `08_lica_cg.sql` | tabela `lice` i pogled `v_lica` — ko rukuje hranom i dokad važi sanitarna knjižica. Ne dira podatke, bezbjedno na živoj bazi. |
-| `09_nalog_lice_cg.sql` | `korisnik.lice_id` + pogled `v_nalozi` — nalog za prijavu vezan za lice sa spiska, pa nalog nosi šifru i radno mjesto. Ne dira podatke. |
-| `10_plan_obuke_cg.sql` | tabela `plan_obuke` + pogled `v_plan_obuke` — Prilog 13 kao plan sa stanjem (planirano/uskoro/kasni/urađeno), ne kao dnevni zapis. Ne dira podatke. |
-| `11_zaposleni_cg.sql` | `lice.rukuje_hranom` + prošireni `v_lica` (`ima_nalog`) — spisak postaje spisak SVIH zaposlenih. Ne dira podatke. |
-| `12_ko_je_unio_cg.sql` | `uneo_korisnik_id` na `zapis`, `prijem`, `isporuka` — nalog sa kojeg je zapis poslat. Ne dira podatke. |
-| `13_uloga_vozac_cg.sql` | `uloga_t` dobija `vozac`. **`ALTER TYPE ... ADD VALUE` mora biti samostalna naredba.** |
-| `14_moje_liste_cg.sql` | `v_sledljivost_nazad` i `v_sledljivost_napred` nose `uneo_korisnik_id` — bez toga filter „vidim samo svoje" nema po čemu da radi. `v_izvoz_sledljivost` se obnavlja **nepromijenjen** (njegove kolone su zaglavlja CSV-a). |
-| `15_trag_ispravki_cg.sql` | pogled `v_trag_ispravki`, izvučen iz 06. **Bez njega cio izvoz pada** sa `relation "v_trag_ispravki" does not exist` — 06 se ne pokreće ponovo, jer bi vratio poglede na stariju verziju od 07 i 14. Ne dira podatke. |
+| Modul | Strana | Ruta (`server/routes/`) | Servis (`server/services/`) | Glavne tabele |
+|---|---|---|---|---|
+| Prijava, sesije | `/prijava`, prisilna promjena lozinke | `auth.ts` | `server/auth.ts` | `korisnik`, `sesija_prijave` |
+| Ljudi | `/ljudi` (zaposleni, plan obuke, provjera znanja, nalozi) | `ljudi.ts`, `provjeraZnanja.ts` | — | `lice`, `korisnik`, `plan_obuke`, `pitanje`, `sesija_znanja`, `ucesnik_znanja`, `odgovor_znanja` |
+| Šifarnici | `/sifarnici` | `sifarnici.ts` | `skladisteService` | `kupac`, `dobavljac`, `artikal`, `skladiste` |
+| Prijem — KKT 1 | `/prijem` | `prijem.ts` | `prijemService`, `haccpService` | `prijem`, `prijem_stavka`, `lot`, `zaliha`, `kretanje_zalihe` |
+| Zalihe, otpis | `/zalihe` | `zaliha.ts` | `otpisService` | `zaliha`, `kretanje_zalihe` |
+| HACCP — KKT 2, obrasci | `/haccp` | `haccp.ts` | `haccpService` | `kontrolna_tacka`, `pravilo_kontrole`, `mjerenje_temperature`, `zapis` (+ `public/obrasci-cg.json`) |
+| Neusaglašenosti | `/neusaglasenosti` | `neusaglasenosti.ts` | `ncService` | `neusaglasenost`, `korektivna_mjera`, `verifikacija` |
+| Vozila — D1 | `/vozila` | `vozila.ts` | `vozilaService` | `vozilo`, `kontrola_vozila` |
+| Isporuka — KKT 3 | `/isporuka` | `isporuka.ts` | `isporukaService` | `isporuka`, `isporuka_stavka` |
+| Sledljivost, povlačenje | `/sledljivost` | `sledljivost.ts`, `povlacenje.ts` | `sledljivostService`, `povlacenjeService` | `povlacenje`, `povlacenje_kontakt`, `v_sledljivost_*` |
+| Zadaci, obavještenja, poruke | `/moja`, `/tabla`, `/poruke` | `zadaci.ts`, `poruke.ts` | `zadaciService` | `zadatak`, `obavjestenje`, `poruka` |
+| Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | — | čita sve (aktivnost = unija domenskih tabela) |
+| Prilozi, izvještaji, izvoz | `/prilozi`, `/izvjestaji` | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
+| Audit | `/audit` | `audit.ts` | `auditService`, `dogadjajService` | `audit_log`, `dogadjaj` |
+| Bekap | `/tabla` (kartica) | `bekap.ts` | `bekapService` | `bekap_log` |
+| Podešavanje (konsultant) | `/admin` | `firma.ts`, `provjeraZnanja.ts` | — | `firma`, banka pitanja konsultanta |
 
-### Server
+Meni i ko smije na koju stranu: `STAVKE` u `src/components/Layout.tsx` (isti spisak koristi
+`mozeNa()` za linkove iz obavještenja). Rute i uloge u pregledaču: `src/App.tsx`. **Prava stvarno
+provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 
-- `server/zapisi.js` — sav crnogorski API (`/api/cg/*`), montiran kao Express ruter
-- `server/index.js` — postojeća aplikacija, dirano samo na dva mjesta
+### Uloge
 
-### Stranice
+| Uloga | Ko | Prva strana | Upis unazad (`PROZOR`) | Šta radi |
+|---|---|---|:-:|---|
+| `izvodjac` | konsultantkinja | `/tabla` | 30 dana | sve što i `bzr` + Podešavanje, banka pitanja konsultanta; otvara sve naloge osim `izvodjac` |
+| `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, izvoz, poruke |
+| `uprava` | direktor | `/tabla` | — (samo gleda) | Kontrolni centar, aktivnost uživo, zalihe, sledljivost, poruke; bez zadataka i unosa |
+| `operater` | magacioner | `/moja` | 1 | prijem, zalihe i otpis, obrasci P3–P10, isporuka, prijava problema, SVOJA korektivna mjera |
+| `vozac` | vozač | `/moja` | 1 | isporuka i potvrda sa temperaturom (KKT 3), kontrola vozila D1, prijava problema, SVOJA mjera |
 
-| Stranica | Za koga | Uređaj |
+`PROZOR`, `NA_TERENU`, `ogranicenjeDatuma()`, `provjeriProzorUpisa()`, `izvrsilacZa()`,
+`samoMoje()`, `smijeDodijelitiUlogu()` — sve u `server/auth.ts`.
+
+### HACCP tok kako ga kod stvarno sprovodi
+
+| Tačka | Šta se upisuje | Van granice → |
 |---|---|---|
-| `index.html` | ulazna strana — vodi na prijavu; provjera znanja je sporedna vrata | svi |
-| `tabla.html` | **odgovorno lice za bezbjednost hrane** — prva strana poslije prijave za ulogu `bzr` | računar |
-| `ljudi.html` | odgovorno lice — svi zaposleni, godišnji plan obuke, nalozi | računar |
-| `moja.html` | **svaka uloga** — svoja šifra, svoja knjižica, svoj rad, šta danas fali | telefon i računar |
-| `admin.html` | konsultant — komandna tabla (uloga `izvodjac`) | računar |
-| `podesavanje.html` | konsultant | računar |
-| `promet.html` | magacioner, vozač — prijem (KKT 1) i isporuka (KKT 3) | **telefon** |
-| `zapisi.html` | magacioner — dnevni obrasci P1–D4 | **telefon** |
-| `sledljivost.html` | odgovorno lice — pretraga serije, vježba povlačenja | računar |
-| `prilozi.html` | odgovorno lice — štampa priloga i potvrda | računar + štampač |
-| `izvoz.html` | odgovorno lice, konsultant — izvoz podataka klijentu (CSV/JSON) | računar |
+| **KKT 1 — prijem** | stavke sa lotom (bez lota odbijeno), temperatura po `pravilo_kontrole` KKT1 | mjerenje FAIL → neusaglašenost + zadatak + obavještenje `bzr` i uprava + **lot na HOLD**. Artikal sa NEPOTVRĐENOM granicom → samo WARNING i obavještenje `bzr`, bez HOLD-a (invarijanta #5) |
+| odluka o lotu | `bzr`: prihvati / HOLD / odbij (odbijanje traži razlog) | prihvaćeno → zaliha DOSTUPNO + kretanje PRIJEM; HOLD → KARANTIN + kretanje PRIJEM; magacioner dobija obavještenje |
+| **lot na HOLD-u** | `bzr`: **pusti** (razlog obavezan) ili **odbij** — na `/zalihe` i `/prijem` | pušteno iz karantina → DOSTUPNO, kretanje RELEASE 0; odbijeno → karantin 0, kretanje OTPIS. Zadržan pri prijemu (zaliha još ne postoji) → pušten = PRIJEM. **Ne pušta se dok je povlačenje U_TOKU** |
+| **KKT 2 — skladištenje** | ručno mjerenje na `/haccp` | kao KKT 1 (ako je vezano za lot — HOLD) |
+| obrasci P3–P10 | `zapis` iz `public/obrasci-cg.json`; odstupanje traži korektivnu mjeru (tekst) | neusaglašenost odmah u „čeka provjeru" — mjera iz obrasca je upisana kao urađena, potpisuje je ko je unio zapis; zadatak + obavještenje `bzr`. Ispravka zapisa ne otvara drugu |
+| **D1 — vozilo** | kontrola prije utovara (vidi samo vozač, invarijanta #24) | vozilo NIJE_SPREMNO → isporuka tim vozilom odbijena; neusaglašenost |
+| **KKT 3 — isporuka** | potvrda + temperatura pri predaji (obavezna za robu pod režimom) | FAIL → neusaglašenost; lot u magacinu se NE zadržava (problem je u prevozu) |
+| problem na isporuci | „Problem" na isporuci → neusaglašenost vezana za isporuku | zadatak + obavještenje `bzr` |
+| **neusaglašenost** | 4 koraka: prijava → mjera (kome, rok) → urađeno (samo dodijeljeni, uz opis) → provjera drugog lica | provjera SAMO iz „čeka provjeru"; mjeru koja se provjerava bira server (posljednja urađena), ne pregledač. Zadatak se zatvara sam; prijavilac dobija obavještenje |
+| **povlačenje** (čl. 28) | kontakti iz stvarnih isporuka lota | lot na HOLD, zaliha u karantin; zatvara se tek kad su svi pozvani |
 
-`public/obrasci-cg.json` definiše obrasce. **Nov obrazac se dodaje tamo, bez migracije baze.**
-Poslije izmjene obavezno `node test_pravila.mjs`.
+### Migracije (`npm run migriraj`, redoslijed nije proizvoljan)
 
-### Alati — pokreću se sa njenog računara, ne sa servera
+| Fajl | Šta |
+|---|---|
+| `01_organizacija` | `firma` (jedan red), `korisnik`, `uloga_t` |
+| `02_ljudi` | `lice` (svi zaposleni, šifra, knjižica), `plan_obuke` |
+| `03_sifarnici` | `dobavljac`, `kupac` (telefon obavezan), `artikal` (granice, `granica_potvrdio`) |
+| `04_prijem_lot` | `prijem`, `lot`, `prijem_stavka` |
+| `05_zaliha` | `zaliha` (po lotu i statusu), `kretanje_zalihe` (dnevnik) |
+| `06_haccp` | `kontrolna_tacka`, `pravilo_kontrole` (verzionisano), `mjerenje_temperature`, `zapis` |
+| `07_neusaglasenosti` | `neusaglasenost`, `korektivna_mjera`, `verifikacija` |
+| `08_vozila_isporuka` | `vozilo`, `kontrola_vozila`, `isporuka`, `isporuka_stavka` |
+| `09_zadaci_obavjestenja` | `zadatak`, `obavjestenje` |
+| `10_events_audit` | `dogadjaj`, `audit_log` |
+| `11_provjera_znanja` | `pitanje`, `sesija_znanja`, `ucesnik_znanja`, `odgovor_znanja` |
+| `12_pogledi` | `v_lica`, `v_plan_obuke`, `v_zaliha_dostupna`, `v_sledljivost_*`, `v_evidencija_osposobljavanja`, … |
+| `13_demo_cg` | **demo podaci — samo `npm run seed:demo`, samo demo baza** |
+| `14_povlacenje` | `povlacenje`, `povlacenje_kontakt` |
+| `15_isporuka_uneo_cg` | `isporuka.uneo_korisnik_id` |
+| `16_bekap_cg` | `bekap_log` (bekap u ISTOJ bazi) |
+| `17_naknadno_cg` | pogledi sa `naknadno_dana` za izvoz |
+| `18_temperatura_predaje_cg` | `isporuka_stavka.temperatura_predaje` (KKT 3) |
+| `19_skladista_poruke_cg` | `skladiste` (+ veze na prijem/isporuku/nalog), `poruka` |
+| `20_sesije_prijave_cg` | `sesija_prijave` (heš tokena); server je pravi i sam pri startu |
+| `21_pitanja_firme_cg` | `pitanje.izvor` (konsultant/firma), prag i izvor pitanja na terminu |
+
+Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim brojem.
+
+### Alati (`alati/`, pokreću se sa računara konsultantkinje)
 
 | Alat | Šta radi |
 |---|---|
-| `alati/prvi-korisnik.mjs` | pravi nalog konsultanta poslije instalacije |
-| `alati/napravi-licencu.mjs` | licencni ključ |
-| `alati/dnevni-pregled.mjs` | stanje SVIH klijenata u jednom ispisu; izlazni kod 1 ako je neko u zastoju |
-| `alati/dopune.mjs` | primjenjuje SQL dopune 07 i 08 na bazu iz `.env`. Radi i u cmd-u. Idempotentno — već primijenjeno preskače. Nikad ne dira 04 ni 05. |
-| `alati/bekap.ps1` | `pg_dump` po klijentu u `bekap/`, briše starije od 90 dana |
+| `npm run prvi-korisnik -- --firma … --ime … --korisnik …` | prvi `bzr` nalog u novoj bazi |
+| `npm run dnevni-pregled` | stanje svih klijenata iz `alati/klijenti.txt`; izlazni kod 1 ako je neko u zastoju |
+| `alati/napravi-licencu.ts` | licencni ključ za ugovor (papirni trag, aplikacija ga ne provjerava) |
+| `npm run bekap` (`alati/bekap.ts`) | `pg_dump` svake baze iz `klijenti.txt` (ili `DATABASE_URL`) u `bekap/<klijent>/`, samo šema `public`, **bez podataka sesija** (živi tokeni). Svaki fajl se odmah provjeri (`pg_restore --list`), stariji od 90 dana se brišu, ishod u `bekap/POSLJEDNJI-BEKAP.txt`, izlazni kod 1 ako ijedan klijent padne. `bekap/` je u `.gitignore`. Treba mu `pg_dump` ≥ verzije servera (traži najnoviji u `C:/Program Files/PostgreSQL`, ili `PG_DUMP=`). |
 
-Oba posljednja čitaju `alati/klijenti.txt` (`Naziv = postgresql://...`, po jedan red).
-**Taj fajl ima lozinke — u `.gitignore` je i ostaje tamo.** Ako ga nema, gledaju samo
-`DATABASE_URL` iz `.env`.
+`alati/klijenti.txt` ima lozinke baza — u `.gitignore` je i ostaje.
+
+### Testovi (`testovi/`, `npm run test:e2e`)
+
+10 testova, 192 provjere, kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
+terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
+obrasca, nepotvrđena granica — `faza1_haccp`). **Rade samo na demo bazi** (`testovi/pomoc.mjs` to provjeri
+preko pet demo naloga sa fiksnim ID-jevima) i brišu sve što naprave. Server mora raditi
+(`npm run dev` ili `APP_URL=`). Nov tok u aplikaciji = nov test.
 
 ---
 
 ## Invarijante — ovo se ne smije pokvariti
 
-1. **Zapis se ne briše i ne mijenja.** Ispravka je NOV zapis sa `ispravlja_id` → stari.
-   Važeći je onaj **na koji niko ne pokazuje**:
-   `NOT EXISTS (SELECT 1 FROM t n WHERE n.ispravlja_id = t.id)`.
-   *Ranije je stajalo `ispravlja_id IS NULL` — to je naopako i skrivalo je ispravku.*
-2. **Odstupanje bez korektivne mjere se ne snima.** Sprovedeno na tri mjesta: `CHECK` u
-   bazi, provjera u API-ju, provjera u pregledaču.
-3. **Prijem bez broja serije se odbija.** Bez lota nema sledljivosti (čl. 41).
-4. **Kupac bez telefona se ne upisuje.** Povlačenje po čl. 42 počinje telefonom.
-5. **Automatska ocjena odstupanja samo za potvrđene granice.** Dok je
-   `artikal.granica_potvrdio` prazno, granica je pretpostavka konsultanta, ne podatak
-   klijenta — i ne smije se po njoj odbijati roba.
-6. **Operater vidi samo posljednja dva dana** (`ogranicenje(req, kolona)` u `zapisi.js`).
-   Kolona se prosljeđuje — `zapis.datum`, ali `v_sledljivost_nazad.datum_prijema`.
-7. **Isporuka se veže za PRIJEM, ne za artikal.** Tako lot ostaje povezan.
-8. Zalihe i ponuđene serije idu po **FEFO** — prvo ističe, prvo izlazi.
-9. **Koliko unazad se smije upisati stoji na SERVERU**, ne u pregledaču:
-   operater 1 dan · `bzr` 7 · `izvodjac` 30 (`PROZOR` u `zapisi.js`). Datum u
-   budućnosti se ne prima nikad.
-10. **Naknadan unos se ne krije.** `datum < kreirano::date` → oznaka `naknadno +N`
-    u listama i u izvozu. Zapis se smije unijeti kasnije; ne smije izgledati kao da
-    je unesen istog dana.
-11. **Dan se računa po podgoričkom vremenu**, ne po UTC-u — `danasCG()` na serveru,
-    `lokalniDatum()` u pregledaču. `toISOString()` se za datum ne koristi nigdje.
-12. **`ADMIN_TOKEN` se prima samo iz zaglavlja `x-admin-token`.** Nikad iz adrese.
-13. **Odgovorno lice (`bzr`) otvara naloge samo ulozi `operater` i samo u svojoj firmi.**
-    Nikad sebi ravan ni iznad sebe. Sprovedeno u `smijeNadUlogom()` i `ciljKorisnik()`
-    u `server/index.js` — ne u pregledaču.
+Brojevi su stalni — kod ih navodi u komentarima („invarijanta #14"). Ukinuta invarijanta ostaje
+pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
+
+1. **Zapis se ne briše i ne mijenja.** Ispravka je NOV zapis sa `ispravlja_id` → stari. Važeći je
+   onaj **na koji niko ne pokazuje**: `NOT EXISTS (SELECT 1 FROM t n WHERE n.ispravlja_id = t.id)`.
+   Isto važi za potvrđenu isporuku: ispravka je neusaglašenost vezana za nju, ne prepravka.
+2. **Odstupanje bez korektivne mjere se ne snima** — `CHECK` u bazi (`NOT VALID` za stare redove),
+   provjera u ruti i u pregledaču. Neusaglašenost se zatvara samo iz „čeka provjeru" i samo uz
+   urađenu mjeru (`ncService.verifikuj`).
+3. **Prijem bez broja lota se odbija** (zod + `prijemService`). Bez lota nema sledljivosti (čl. 27).
+4. **Kupac bez telefona se ne upisuje.** Povlačenje (čl. 28) počinje telefonom.
+5. **Automatska ocjena samo po POTVRĐENOJ granici** (`artikal.granica_potvrdio`). Nepotvrđena je
+   pretpostavka konsultanta i po njoj se ne odbija roba. Sprovedeno na JEDNOM mjestu,
+   `haccpService.zabiljeziMjerenje`, za sve KKT-ove: van nepotvrđene granice = WARNING +
+   obavještenje `bzr`, bez neusaglašenosti i bez HOLD-a.
+6. **Terenske uloge vide samo posljednji dan** — `ogranicenjeDatuma(uloga, kolona)`; kolona se
+   prosljeđuje (`z.datum`, `i.datum_isporuke`, …), dan po podgoričkom vremenu.
+7. **Isporuka se veže za LOT** (`isporuka_stavka.lot_id`), ne za artikal. Lot mora biti PRIHVAĆEN,
+   imati zalihu i biti u skladištu iz kog isporuka ide.
+8. **FEFO** — zalihe i ponuđeni lotovi poređani po roku.
+9. **Koliko unazad se smije upisati stoji na SERVERU** — `PROZOR` + `provjeriProzorUpisa()`:
+   operater i vozač 1 dan, `bzr` 7, `izvodjac` 30. Datum u budućnosti se ne prima nikad.
+10. **Naknadan unos se ne krije** — `naknadno_dana` u listama i izvozu (oznaka „naknadno +N").
+11. **Dan po podgoričkom vremenu** — `danasCG()` na serveru, `lokalniDatum()` u pregledaču,
+    `(now() at time zone 'Europe/Podgorica')::date` u SQL-u. Nikad `current_date`, nikad
+    `toISOString()` za datum.
+12. *Ukinuto:* `ADMIN_TOKEN` — nova verzija nema HTTP admin rutu; administracija ide kroz `alati/`.
+13. **`bzr` otvara i mijenja naloge samo ulogama `operater` i `vozac`**, nikad sebi ravnom ni
+    iznad sebe — `smijeDodijelitiUlogu()` + `provjeriMozeDaDirneNalog()`, na serveru.
 14. **Banka pitanja KONSULTANTA je samo izvođačeva** (`pitanje.izvor = 'konsultant'`, ruta
-    `/pitanja`): stavke, distraktori, analiza kvaliteta. Ko zna pitanja, ne mjeri više
-    znanje. Od dopune 21 postoje i **pitanja firme** (`izvor = 'firma'`, ruta `/pitanja-firme`)
-    koja unosi i vidi odgovorno lice — o procedurama svoje firme; termin bira izvor. Rezultate
-    (ko, skor, položeno po pragu termina) odgovorno lice vidi normalno. Ne otvarati konsultantovu
-    banku odgovornom licu — to je razlog zašto postoje dva izvora, a ne jedan.
-15a. **Korektivnu mjeru završava samo onaj kome je dodijeljena** (terenske uloge; odgovorno lice i
-    konsultant smiju svaku), i to uz upisan opis šta je urađeno — `zavrsiKorektivnuMjeru()`.
-    Provjerava ISTA osoba ne smije: ko je uradio mjeru, ne verifikuje je.
-15. **U `lice` se upisuje broj i rok sanitarne knjižice — nikad nalaz pregleda.**
-    Rok je podatak o dokumentu, nalaz je podatak o zdravlju.
-16. **Nalog za prijavu i lice sa spiska su dvije stvari, spojene preko `korisnik.lice_id`.**
-    Ime i šifra se čitaju iz `lice`, ne prepisuju u `korisnik` — inače se raziđu.
-    Stari nalozi bez veze prikazuju „bez šifre" i vezuju se dugmetom „poveži".
-17. **Lozinka nije šifra.** Lozinkom se prijavljuje (`korisnik.lozinka_hash`),
-    šifrom potpisuje zapise (`lice.sifra`, polje `izvrsilac`). Ne miješati u tekstu.
-18. **Prilog 13 je plan, ne zapis.** Živi u `plan_obuke`, unosi se na `ljudi.html`
-    → Godišnji plan obuke, štampa iz `prilozi.html`. Stavka koja je prošla bez
-    obuke se NE briše — označi se kao „kasni" i tako i izlazi na štampu.
-19. **Odjava i promjena lozinke se dodaju iz `veza.js`**, u `dodajOdjavu()`, na
-    kraj `.nav` svake stranice. Ne dopisivati ih ručno po stranicama.
-20. **Jedan spisak ljudi, ne dva.** `lice` je spisak SVIH zaposlenih;
-    `rukuje_hranom` odlučuje za koga važe knjižica i obuka. Druga tabela
-    „zaposleni" se ne pravi — dvije liste ljudi se razilaze prvim preimenovanjem.
-21. **Polje „izvršilac" se ne kuca.** Server ga postavlja iz sesije
-    (`izvrsilacZa()` u `zapisi.js`): operateru UVIJEK njegovo ime, bez obzira
-    šta pošalje pregledač; `bzr` i `izvodjac` smiju upisati drugo lice, jer
-    unose i za one koji nemaju nalog, i dobijaju spisak zaposlenih za izbor.
-22. **`izvrsilac` i `uneo_korisnik_id` nisu isto.** Prvi je KO JE OBAVIO radnju
-    (može biti i bez naloga), drugi je NALOG sa kojeg je zapis poslat. „Moja
-    tabla" broji po nalogu; stari zapisi bez naloga se i dalje traže po imenu.
-23. **`potpis` u `/api/ja` je IME, ne šifra.** Zapis čita inspektor, a „M-01"
-    mu ne znači ništa. Pregledač i server rade isti račun — ne smiju se razići.
-24. **Pet uloga, ne četiri.** `operater` = magacin (prijem + P3/P7/P8),
-    `vozac` = prevoz (isporuka + D1 kontrola vozila). **D1 vidi SAMO vozač** —
-    zapis o vozilu potpisuje onaj ko je stajao pored njega; `MOJI` u
-    `zapisi.html` više ne daje magacinu vozačke obrasce. Firma bez ijednog
-    vozačkog naloga: D1 unosi odgovorno lice. Obje su „na terenu": prozor od
-    jednog dana, potpis zaključan, `NA_TERENU` u `zapisi.js`. Firma u kojoj
-    isti čovjek prima i vozi koristi `operater` — podjela se ne nameće.
-25. **Obrazac nosi `uloga` u `obrasci-cg.json`.** Po njoj se filtriraju pločice:
-    vozač vidi samo D1, magacin svoje i vozačke, odgovorno lice sve. Nov
-    obrazac bez `uloga` neće se pojaviti terenskim ulogama.
-26. **Terenske uloge u listama vide SAMO SVOJE unose** — `samoMoje()` i
-    `samoMojeIsporuke()` u `zapisi.js`. Filtrira se po `uneo_korisnik_id`, a
-    za stare zapise bez naloga po potpisu, da čovjeku ne nestane istorija.
-    Odgovorno lice i konsultant vide sve i to se nigdje ne ograničava.
-27. **Radno mjesto nije uloga.** `lice.radno_mjesto` je podatak o čovjeku i ide
-    na štampu; `korisnik.uloga` odlučuje KOJU TABLU vidi. Mogu se razići i
-    razišli su se u praksi (magacioner sa ulogom `vozac` → vozačka tabla).
-    Zato: uloga se predlaže iz radnog mjesta pri otvaranju naloga,
-    neslaganje se ispisuje, a `POST /api/korisnici/:id/uloga` je ispravlja
-    bez zatvaranja naloga. Promjena uloge briše sesiju — stara nosi staru ulogu.
-28. **Lozinka se nigdje ne prikazuje osim jednom, pri postavljanju.** U bazi je
-    samo heš. Na ekranu naloga stoji STANJE (`privremena` / `svoja` /
-    `postavljena`), nikad vrijednost. Traženo je dvaput i dvaput odbijeno —
-    ako se ikad popusti, svaki potpis u aplikaciji gubi vrijednost.
-    Najmanja dužina je **10 znakova**, provjerava se i u pregledaču i na
-    serveru, i piše na tri mjesta u interfejsu.
-29. **Šifre za potpisivanje stoje na jezičku „Godišnji plan obuke"**, kao
-    spisak ime · radno mjesto · šifra sa dugmetom za štampu. Tamo se dijele —
-    uz obuku. Mijenjaju se i dalje na „Svi zaposleni".
-30. **Izvoz ne smije da padne zbog jednog nedostajućeg pogleda.** Prije svakog
-    upita `postoji()` u `zapisi.js` provjeri `to_regclass`. Nedostajući izvor
-    se prijavi poimence (spisak dobije `nedostaje` i `razlog`, `sve.json`
-    dobije listu `nedostaje`, pojedinačni CSV vraća 409 sa komandom za
-    popravku) — sve ostalo se izveze normalno. Ranije je jedan pogled koji
-    nije ušao rušio CIO izvoz sa `relation ... does not exist`, a klijent je
-    ostajao bez svih podataka.
-31. **Preuzimanje ide kroz `fetch`, ne kroz `<a href>`.** Obično preuzimanje
-    koje padne pregledač ne prikaže nikako — klik izgleda kao pokvareno
-    dugme, a server je vratio 401, 409 ili 500. `preuzmi()` u `izvoz.html`
-    pročita odgovor, ispiše tačnu grešku, i tek onda snimi fajl.
-32. **U provjeru znanja se ulazi ŠIFROM SA SPISKA ZAPOSLENIH.** `lice.sifra` i
-    `ucesnik.sifra` su isti broj sa ceduljice. Ako šifra nije u `ucesnik`,
-    `/api/sesija` je traži u `lice` iste firme i upisuje čovjeka sam, u
-    trenutku ulaska. Nema drugog spiska za održavanje. Ime se prepisuje samo
-    kad `grupa.cuva_imena` — inače mjerenje ostaje anonimno, ali onda i
-    **Prilog 14 izlazi bez imena prisutnih.**
-33. **Tri stvari obaraju provjeru znanja, nijedna se ne vidi iz aplikacije:**
-    (a) `import { generisiFormu } from './forma.js'` u `server/index.js` —
-    bez njega `/api/sesija` puca sa „generisiFormu is not defined"; bio je
-    izgubljen pri odvajanju crnogorske verzije i vidio se samo u logu;
-    (b) stavke banke koje čekaju potvrdu (`zahteva_potvrdu` i `potvrdio IS
-    NULL`) — jedna nepotvrđena porodica obara CIJELU provjeru, potvrđuje se
-    na komandnoj tabli; (c) nema otvorenog termina (`talas.otvoren`).
-    Sve troje provjerava `alati/provjeri.mjs`.
+    `/pitanja`). Ko zna pitanja, ne mjeri više znanje. **Pitanja firme** (`izvor = 'firma'`,
+    `/pitanja-firme`) unosi i vidi odgovorno lice. Rezultate vidi normalno.
+15. **U `lice` ide broj i rok sanitarne knjižice — nikad nalaz pregleda.**
+    15a. **Korektivnu mjeru završava samo onaj kome je dodijeljena** (terenske uloge; `bzr` i
+    `izvodjac` smiju svaku), uz upisan opis šta je urađeno — `zavrsiKorektivnuMjeru()`. Ko je uradio
+    mjeru, ne provjerava je.
+16. **Nalog i lice su dvije stvari, spojene preko `korisnik.lice_id`.** Ime i šifra se čitaju iz
+    `lice`, ne prepisuju u `korisnik`.
+17. **Lozinka nije šifra.** Lozinkom se prijavljuje, šifrom (`lice.sifra`) potpisuje i ulazi u
+    provjeru znanja.
+18. **Prilog 13 je plan, ne zapis** (`plan_obuke`, `v_plan_obuke` sa stanjem KASNI/USKORO/…).
+    Stavka koja je prošla bez obuke se ne briše.
+19. *Ukinuto:* `veza.js` / `dodajOdjavu()` — odjava i promjena lozinke su u `Layout.tsx` i `/moja`.
+20. **Jedan spisak ljudi** — `lice` su SVI zaposleni; `rukuje_hranom` odlučuje za koga važe
+    knjižica i obuka. Druga tabela zaposlenih se ne pravi.
+21. **Izvršilac se ne kuca** — `izvrsilacZa()`: terenskoj ulozi UVIJEK njeno ime; `bzr` i
+    `izvodjac` smiju upisati drugo lice.
+22. **`izvrsilac` ≠ `uneo_korisnik_id`** — prvi je ko je obavio radnju (može biti bez naloga),
+    drugi nalog sa kog je zapis poslat.
+23. **Potpis je IME, ne šifra** — inspektoru „M-01" ne znači ništa; i u evidenciji kontrola vozila.
+24. **Pet uloga.** D1 (kontrola vozila) vidi i unosi SAMO vozač, odgovorno lice i konsultant; HACCP
+    obrasci nisu za vozača.
+25. **Obrazac nosi `uloge` u `public/obrasci-cg.json`** — po njima se filtriraju pločice na
+    `/haccp`. Nov obrazac bez `uloge` se ne pojavljuje terenskim ulogama.
+26. **Terenske uloge u listama vide SAMO SVOJE unose** — `samoMoje()`; vozač vidi i isporuke koje su
+    mu dodijeljene (`vozac_korisnik_id`). *Važi za zapise i isporuke; prijemi i lotovi su preko
+    API-ja vidljivi svima u firmi — nalaz U1.*
+27. **Radno mjesto nije uloga.** `lice.radno_mjesto` ide na štampu, `korisnik.uloga` odlučuje
+    tablu. Promjena uloge briše sesije tog naloga.
+28. **Lozinka se prikazuje samo jednom, pri postavljanju.** U bazi je heš; najmanje 10 znakova,
+    provjera i u pregledaču i na serveru. Sesije: u bazi samo heš tokena (`sesija_prijave`);
+    promjena lozinke odjavljuje ostale uređaje.
+29. **Šifre za potpis se dijele na kartici „Godišnji plan obuke"** (spisak za štampu).
+30. **Izvoz ne pada zbog jednog nedostajućeg pogleda** — `tabelaPostoji()` prije upita; spisak
+    izvora nosi `nedostaje`, `sve.json` listu `nedostaje`, pojedinačni CSV vraća 409.
+31. **Preuzimanje ide kroz `fetch`** (`preuzmiFajl()`), da se greška 401/409/500 ispiše.
+32. **U provjeru znanja se ulazi ŠIFROM SA SPISKA, bez naloga** — ruta mora ostati javna i
+    montirana PRIJE rutera sa `requireAuth` (vidi „Naučeno"). Rezultat se ne može naduvati: jedan
+    odgovor po pitanju, ništa poslije završetka.
+33. *Ukinuto:* `generisiFormu` / `talas` — stara verzija. Provjera znanja sada pada samo ako nema
+    otvorenog termina ili nema pitanja iz izabranog izvora (tada se termin ne može ni otvoriti).
+
+---
+
+## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
+
+Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** visoko · **S** srednje · **N** nisko.
+
+### HACCP tok
+
+| # | | Nalaz | Gdje |
+|---|:-:|---|---|
+| H1 | ✓ **riješeno u fazi 1 (23.09.2026)** | ~~Lot na HOLD-u je slijepa ulica.~~ Sada: `bzr` pušta (razlog obavezan) ili odbija zadržan lot; pušteno → RELEASE, odbijeno → OTPIS iz karantina; ne pušta se dok je povlačenje U_TOKU. Usput nađeno i ispravljeno: lot zadržan PRI PRIJEMU nije imao zalihu uopšte, a odluka „HOLD" nije upisivala PRIJEM u dnevnik kretanja. | `prijemService.donesiOdlukuOLotu` |
+| H2 | ✓ **riješeno u fazi 1 (23.09.2026)** | ~~Neusaglašenost se može zatvoriti bez korektivne mjere.~~ Sada: samo iz CEKA_VERIFIKACIJU, a mjeru bira server (posljednja urađena) — četiri oka se ne mogu zaobići izostavljanjem id-a. | `ncService.verifikuj` |
+| H3 | ✓ **riješeno u fazi 1 (23.09.2026)** | ~~Odstupanje u obrascu ne ulazi u tok neusaglašenosti.~~ Sada: neusaglašenost u „čeka provjeru" + zadatak + obavještenje `bzr`. **Posljedica za H7:** kad odstupanje upiše samo odgovorno lice, provjeriti ga može samo konsultant. | `ncService.neusaglasenostIzZapisa` |
+| H4 | ✓ **riješeno u fazi 1 (23.09.2026)** — djelimično | ~~KKT 1 i KKT 2 ne poštuju `granica_potvrdio`.~~ Sada na jednom mjestu (`zabiljeziMjerenje`). **Ostaje otvoreno:** dva izvora granica (`pravilo_kontrole` i `artikal.temp_min/max`) se mogu razići — ide u fazu 3. | `haccpService` |
+| H5 | **V** | **Nema plana monitoringa**: nigdje ne piše koliko često i ko mjeri komoru ili popunjava koji obrazac, pa aplikacija ne može reći „komora 2 danas nije izmjerena". A to je ono što se prodaje — dokaz da zapisi nastaju svakog dana. | nema modela |
+| H6 | **S** | **7. princip HACCP-a (verifikacija sistema) nije pokriven**: kalibracija termometara, godišnja revizija HACCP plana, interni audit; nema ni štampe HACCP plana iz podešenih KKT-ova i granica. | nema modela |
+| H7 | **S** | **Firma sa jednim odgovornim licem ne može zatvoriti neusaglašenost** koju je samo riješila (pravilo četiri oka), a uprava ne smije provjeravati. | `ncService`, uloge |
+
+### Baza
+
+| # | | Nalaz | Gdje |
+|---|:-:|---|---|
+| B1 | **V** | **Brojevi dokumenata = `count(*) + 1`** — dva istovremena unosa dobiju isti broj i drugi pada (unique). NC se numeriše na dva mjesta (`haccpService`, `ncService`), povlačenje pravi treći format (`NC-…-P###`, nasumično). | servisi |
+| B2 | **S** | **Polimorfne veze bez zaštite** — `izvor_tip`/`izvor_id` u `neusaglasenost`, `zadatak`, `obavjestenje`: nema FK ni CHECK liste tipova; greška u kucanju tipa prolazi, veza može pokazivati u prazno. | 07, 09 |
+| B3 | **S** | **Zaliha nije po skladištu** — skladište lota se čita iz prijema; premještanje ne postoji. Kad se uvede, `zaliha` mora dobiti `skladiste_id`. | 05, 19 |
+| B4 | **S** | **Dva dnevnika + treći izvor**: `dogadjaj` i `audit_log` se pišu paralelno, a „Aktivnost uživo" se gradi iz domenskih tabela. `dogadjaj` se skoro ne čita — ili ga koristiti ili prestati puniti. | 10 |
+| B5 | **N** | Pogledi sa `p.*` se ne proširuju sami kad se doda kolona — mora `drop` + `create` (desilo se u 19). | `v_izvoz_*` |
+| B6 | **N** | `CHECK ... NOT VALID` — stari redovi sa praznom mjerom nisu provjereni. | 07 |
+
+### Arhitektura i pogon
+
+| # | | Nalaz | Gdje |
+|---|:-:|---|---|
+| A1 | ✓ **riješeno u fazi 1 (23.09.2026)** — osim rasporeda | ~~Bekap samo u istoj bazi.~~ Sada `npm run bekap` (`pg_dump` na računar, provjeren, 90 dana). **Ostaje:** da se pokreće SAM (Task Scheduler) — dok nije u rasporedu, bekap zavisi od toga da se neko sjeti. | `alati/bekap.ts` |
+| A2 | **V** | **Više koraka bez transakcije** — dodjela zadatka + obavještenje, ručni zadatak + obavještenje + audit, izmjena stavke prijema (dva `update` + audit), završetak povlačenja. Ako drugi korak padne, prvi ostaje. | `routes/zadaci.ts`, `prijemService.izmijeniStavku`, `povlacenjeService.zavrsiPovlacenje` |
+| A3 | **S** | **Ruteri na zajedničkom `/api` sa `.use(requireAuth)`** — ko smije zavisi od REDOSLIJEDA montiranja; jedna takva greška je zaključala upravu i provjeru znanja. Svaki ruter treba svoj prefiks. | `server/index.ts` |
+| A4 | **S** | SQL i poslovna pravila pola u rutama (`zadaci`, `poruke`, `tabla`, `ljudi`, `provjeraZnanja`), pola u servisima. | `server/routes/` |
+| A5 | **S** | Testovi rade na ISTOJ demo bazi koju koristi Render i ne pokreću se sami (nema CI). | `testovi/` |
+| A6 | **S** | Obavještenja stižu samo dok je aplikacija otvorena (provjera na 30 s) — nema push obavještenja na zaključan telefon. | `Layout.tsx` |
+| A7 | **N** | Liste bez straničenja (lotovi, isporuke, neusaglašenosti) — dovoljno za malog distributera. | rute |
+| A8 | **N** | Ograničenje pokušaja prijave je u memoriji — restart ga briše. | `server/auth.ts` |
+
+### Uloge
+
+| # | | Nalaz |
+|---|:-:|---|
+| U1 | **S** | Mnoge GET rute imaju samo `requireAuth` — vozač preko API-ja čita prijeme, lotove, zapise i tablu (ekran ih krije). Unutar jedne firme nizak rizik, ali pravilo #26 važi samo djelimično. |
+| U2 | **S** | Pravilo četiri oka nema izlaz za malu firmu (= H7): treba dozvoliti provjeru konsultantu ili upravi, ili svjesno potpisan izuzetak. |
+| U3 | **N** | Jedan `izvodjac` nalog po bazi — ako konsultantkinja dobije saradnika, dijele nalog i ne vidi se ko je šta uradio. |
+
+---
+
+## Plan izmjena po fazama
+
+| Faza | Šta | Nalazi | Procjena |
+|---|---|---|---|
+| ~~**1 — HACCP rupe i bekap**~~ ✓ 23.09.2026 | Pusti / odbij lot na HOLD-u. Provjera samo uz urađenu mjeru. Odstupanje u obrascu → neusaglašenost. Potvrđena granica na svim KKT. `npm run bekap`. Test `faza1_haccp` (33 provjere). **Ostalo: Task Scheduler za bekap.** | H1, H2, H3, H4, A1 | urađeno |
+| **2 — Integritet baze** | Brojevi iz jedne funkcije sa zaključavanjem (brojač po danu u tabeli). Transakcije oko višekoračnih upisa. CHECK liste za `izvor_tip`. Stroža čitanja za terenske uloge. | B1, A2, B2, U1 | 1 dan |
+| **3 — HACCP kao sistem** | Plan monitoringa (šta, koliko često, ko) + „šta danas fali" na tabli i Mojoj strani. Kalibracija termometara, godišnja revizija, štampa HACCP plana. Izlaz za malu firmu kod četiri oka. Jedan izvor granica (pravilo, ne artikal). | H5, H6, H7, U2, ostatak H4 | 2–3 dana |
+| **4 — Arhitektura i pogon** | Ruteri pod svojim prefiksom. SQL iz ruta u servise. Zasebna test baza + automatsko pokretanje testova. Odluka o `dogadjaj`. Push obavještenja (PWA). | A3, A4, A5, B4, A6 | 2–3 dana |
+| **5 — Po potražnji klijenata** | Premještanje robe među skladištima, skeniranje otpremnica, straničenje, više konsultantskih naloga. | B3, A7, U3 | po stavci |
+
+**Pilot sa prvim klijentom ide paralelno od faze 1** — pravi magacioner nađe ono što test ne nađe.
 
 ---
 
@@ -381,87 +449,61 @@ Oba posljednja čitaju `alati/klijenti.txt` (`Naziv = postgresql://...`, po jeda
 
 | Problem | Uzrok | Rješenje |
 |---|---|---|
-| `Cannot read properties of undefined (reading 'email')` | obrisan `app.use(express.json())` pri dodavanju rutera | mora postojati i biti **prije** ruta |
-| `syntax error at or near "db"` u Supabase | nalijepljeno **ime fajla** umjesto sadržaja | `Get-Content db\x.sql -Raw -Encoding UTF8 \| Set-Clipboard` |
-| kvačice se prikazuju kao `Ä‡` | kopirano bez `-Encoding UTF8` | uvijek sa tim dodatkom |
-| `'Get-Content' is not recognized` | naredba iz uputstva nalijepljena u **cmd**, a to je PowerShell cmdlet | dopune ide `node alati\dopune.mjs` — radi u oba |
-| magacioner ne može da se prijavi | `/api/lozinka` nije dozvoljavao ulogu `operater`, a `mora_promeniti` je TRUE | uloga dodata u `dozvoli(...)` |
-| operater završi na `/admin.html` | `gde()` u `prijava.html` nije poznavao ulogu | operater → `/promet.html` |
-| `invalid input value for enum uloga_t: "operater"` | `ALTER TYPE` nije prošao | `ALTER TYPE uloga_t ADD VALUE IF NOT EXISTS 'operater';` kao **samostalna** naredba |
-| `timestamp + integer` greška | `generate_series` vraća `timestamptz` | `d::date` |
-| ekran spremnosti javlja 15 rupa umjesto 3 | nedjelje se računaju kao radni dani | `?neradni=0`, podrazumijevano nedjelja |
-| „1 artikala bez granice" | nema padeža | `pade(n, jedan, dva, pet)` u `zapisi.js` |
-| izvještaj štampa sirov JSON | `podaci->>'opis'` je NULL | `jsonb_each_text` + `string_agg` |
-| operateru puca lista prijema (500) | `ogranicenje()` je zakucavao kolonu `datum`, a pogled ima `datum_prijema` | kolona se prosljeđuje kao argument |
-| `cannot change data type of view column` | `CREATE OR REPLACE VIEW` ne mijenja tip kolone | `DROP VIEW IF EXISTS` pa `CREATE VIEW` |
-| svi demo zapisi nose oznaku „naknadno" | `kreirano` je trenutak pokretanja skripte, a datumi su unazad | `05_demo_cg.sql` na kraju poravnava `kreirano` sa `datum` |
-| odstupanje „sa mjerom" koja je prazan razmak | `CHECK` je tražio samo `IS NOT NULL` | `COALESCE(btrim(...),'') <> ''`, `NOT VALID` da ne padne na živoj bazi |
-| neusaglašenost se nikad nije mogla zatvoriti — verifikacija vraća 500 | isti parametar u istom upitu i kao enum (`set status = $1`) i kao tekst (`case when $1 = 'ZATVORENA'`) → `inconsistent types deduced for parameter $1`; isto sa `$2` u CASE-u (`text` naspram `uuid`). Greška se ne vidi dok neko prvi put ne pokuša da zatvori NC | eksplicitan cast na SVAKOM mjestu: `$1::nc_status_t`, `$2::uuid`. Novi upit koji isti parametar koristi dvaput — kastovati odmah |
-| uprava dobija 403 na svom Kontrolnom centru; ulazak u provjeru znanja šifrom (bez naloga) vraća 401 | ruter montiran na zajednički `/api` radi `.use(requireAuth, requireUloga(...))` BEZ putanje — to važi za SVAKI zahtjev koji prođe kroz taj ruter, pa zaključa i rute registrovane poslije njega (izvoz je zaključao `/tabla` za upravu, a svaki `.use(requireAuth)` javne rute) | `.use("/izvoz", …)` — provjera samo za svoje adrese; javne rute (`/zdravlje`, provjera znanja) montirane PRVE u `server/index.ts`. `testovi/pristup.test.mjs` hvata ovo za svaku ulogu |
-| „poruka nije stigla" — a stigla je | zvonce i lista obavještenja osvježavali su se samo pri prelasku na drugu stranu; magacioner kome je strana već otvorena nije vidio ništa | provjera na 30 s dok je aplikacija na ekranu + odmah pri povratku (`visibilitychange`, `focus`) — `Layout.tsx` |
-| ne zna se je li deploy prošao | `IZDANJE` je bilo zakucano na „1.0.0" | izdanje = `RENDER_GIT_COMMIT`, vidi se u `/api/zdravlje` i u dnu menija |
+| neusaglašenost se nikad nije mogla zatvoriti (500) | isti parametar i kao enum (`set status = $1`) i kao tekst (`case when $1 = …`) | kastovati na SVAKOM mjestu: `$1::nc_status_t`, `$2::uuid` |
+| uprava 403 na Kontrolnom centru; provjera znanja 401 za sve | `.use(requireAuth, requireUloga(…))` BEZ putanje na ruteru montiranom na `/api` važi i za rute registrovane poslije | `.use("/izvoz", …)`; javne rute montirane PRVE; `testovi/pristup.test.mjs` |
+| lot pod povlačenjem i dalje ponuđen za isporuku | povlačenje nije mijenjalo status lota | povlačenje stavlja lot na HOLD, zalihu u karantin |
+| „poruka nije stigla" — a stigla je | zvonce se osvježavalo samo pri prelasku na drugu stranu | provjera na 30 s + pri povratku u aplikaciju (`Layout.tsx`) |
+| ne zna se je li deploy prošao | izdanje zakucano na „1.0.0" | izdanje = `RENDER_GIT_COMMIT`, u `/api/zdravlje` i u dnu menija |
+| deploy odjavljuje vozača usred ture | sesije u memoriji servera | sesije u bazi (`sesija_prijave`, heš tokena) |
+| skor provjere znanja se mogao naduvati | više odgovora na isto pitanje, odgovori poslije završetka | jedan odgovor po pitanju, ništa poslije završetka |
+| svi demo zapisi nose „naknadno" | vrijeme upisa = trenutak pokretanja skripte | `13_demo_cg.sql` na kraju poravnava `created_at` sa datumom |
+| odstupanje „sa mjerom" koja je prazan razmak | `CHECK` je tražio samo `IS NOT NULL` | `COALESCE(btrim(…),'') <> ''`, `NOT VALID` |
+| `cannot change data type of view column` / nova kolona ne ulazi u izvoz | `create or replace view` ne mijenja tip ni redoslijed; `p.*` se razvija pri pravljenju | `drop view` + `create view` |
+| `invalid input value for enum` | `ALTER TYPE … ADD VALUE` u istoj transakciji sa upotrebom | samostalna naredba |
+| build pada, typecheck prolazi (ili obrnuto) | `replaceAll`, `.at()` — projekat cilja stariji JS | `.replace(/…/g, …)`, `[arr.length - 1]` |
+| kvačice kao `Ä‡` | kopirano bez UTF-8 | uvijek UTF-8 |
+| zadržana roba se nije mogla ni pustiti ni odbiti | odluka je primala samo lot PRIMLJEN; RELEASE u enumu, a niko ga ne koristi | odluka radi i iz HOLD (`odHolda`); test `faza1_haccp` |
+| lot zadržan pri prijemu (temperatura) nema zalihu uopšte | HOLD na KKT 1 se desi PRIJE odluke, pa prebacivanje DOSTUPNO → KARANTIN nema šta da prebaci | puštanje takvog lota pravi zalihu i PRIJEM u dnevniku; kod čita količinu u karantinu i ne pretpostavlja da postoji |
+| zaliha u karantinu se udvostruči ili padne na unique | drugi HOLD istog lota radio je `insert` u `zaliha` sa (lot, status) koji već postoji | `on conflict (lot_id, status) do update` — sabira |
+| `pg_dump` pravi bekap od 78 tabela, pola tuđih | Supabase ima svoje šeme (`auth`, `storage`, …) | `--schema=public`; sesije bez podataka (`--exclude-table-data`) — to su živi tokeni |
 
 ### Gdje se zapravo testira
 
-**Vlasnica radi na ŽIVOJ aplikaciji na Renderu, ne lokalno.** Iz toga slijedi:
-
-- Izmjena fajla na njenom računaru **ne mijenja ništa** dok ne ode
-  `git add -A && git commit && git push`, pa Render → Manual Deploy.
-- SQL dopune (`node alati\dopune.mjs`) idu na **istu Supabase bazu** koju
-  koristi Render, pa one djeluju odmah — a kod ne. Otuda stalna zbrka
-  „baza je zelena, a aplikacija se ponaša staro".
-- `alati/provjeri.mjs` prima adresu:
-  `node alati\provjeri.mjs https://moja-app.onrender.com`, ili `APP_URL=` u
-  `.env`. Bez toga gleda `localhost` i javlja da server ne radi — što je tačno,
-  ali beskorisno.
-- Oznaka izdanja u `/api/zdravlje` (`IZDANJE` u `server/index.js`) je jedini
-  pouzdan način da se vidi je li deploy stvarno prošao.
+**Vlasnica radi na ŽIVOJ aplikaciji na Renderu.** Izmjena na računaru ne mijenja ništa dok ne ode
+`git push` pa Render → Manual Deploy. Migracije (`npm run migriraj`) idu na istu Supabase bazu
+i djeluju odmah — kod ne. Zato: **prvo migracije, pa deploy** (nov kod koji traži tabelu koje
+nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git log -1 --format=%h`.
 
 ### Okruženje
 
-- **Supabase: obavezno Session pooler, port 5432.** Direct connection radi samo preko IPv6
-  i Render ga ne dohvata.
-- **Render besplatni plan spava poslije 15 min**, prvi zahtjev čeka ~50 s. Za demo pred
-  klijentom — plaćeni plan, ne UptimeRobot.
-- Node ne učitava izmjene sam: poslije izmjene u `server/` treba **restart**.
+- **Supabase: Session pooler, port 5432.** Direct connection radi samo preko IPv6, Render ga ne dohvata.
+- **Render besplatni plan spava poslije 15 min** — za demo i pravi rad plaćeni plan.
+- Server ne učitava izmjene sam (`tsx` bez watch): poslije izmjene u `server/` — restart.
 
 ---
 
 ## Provjera prije isporuke
 
 ```bash
-npm run test:e2e             # 127 provjera, 7 tokova — SAMO na demo bazi, server mora raditi
-node test_pravila.mjs        # pravila odstupanja po obrascima
-python3 db/_gradi_banku.py   # banka: 22 porodice, 70 pitanja, 6 tema
-node test_simulacija.mjs     # postojeći test mjerenja znanja
-node test_uloge.mjs          # ko šta smije da vidi
-node alati/dnevni-pregled.mjs # stižu li zapisi uopšte, po svim klijentima
+npm run typecheck
+npm run build
+npm run dev          # u drugom prozoru
+npm run test:e2e     # samo demo baza; izlazni kod 1 ako išta padne
 ```
 
-Lokalno: `npm start`, pa provjeri tri stvari — pretragu serije `MLJ-2609-A` na
-`/sledljivost.html`, crvenu presudu na Prilogu P7 sa temperaturom `8.6`, i pregled
-odstupanja na `/prilozi.html`.
+Pa ručno na telefonu (375 px): `/moja` za vozača i magacionera, potvrda isporuke sa
+temperaturom, „Prijavi problem".
 
 ---
 
-## Otvoreno — po redu hitnosti
+## Otvoreno
 
-| # | Šta | Stanje |
-|---|---|---|
-| 1 | **Bekap se ne radi sam.** `alati/bekap.ps1` postoji, ali ga neko mora pokrenuti. Dok to nije u Task Scheduleru, bekapa nema. | **otvoreno** |
-| 2 | Obavještenje o tišini je alat koji se pokreće ručno (`alati/dnevni-pregled.mjs`), nije mejl. Pravi mejl traži SMTP nalog — to je poslovna odluka, ne kod. | otvoreno, ublaženo |
-| 3 | Nema provjere da korisnik pripada firmi iz URL-a — `firmaZa(req)` uzima `korisnik.firma_id` kad postoji, ali `izvodjac` ima `firma_id = NULL` pa i dalje pada na `?firma=` | otvoreno (ublaženo pravilom jedna baza = jedan klijent) |
-| 4 | Stari redovi sa praznom korektivnom mjerom nisu provjereni — `CHECK` je `NOT VALID` | otvoreno, vidi se u dnevnom pregledu |
-| ✓ | Datum zapisa zaključan na serveru — `PROZOR` po ulozi + zabrana budućnosti | riješeno |
-| ✓ | Izvoz podataka klijentu (čl. 7 ugovora) — `izvoz.html`, CSV po tabeli + sve u jednom JSON-u | riješeno |
-| ✓ | `ADMIN_TOKEN` samo iz zaglavlja `x-admin-token` | riješeno |
-| ✓ | Datum po podgoričkom vremenu umjesto UTC-a | riješeno |
-| ✓ | Naknadan unos se prepoznaje i prikazuje | riješeno |
-| ✓ | Operater ne može da promijeni lozinku | riješeno |
-| ✓ | Svaka uloga ide na svoj ekran poslije prijave (`bzr` → `tabla.html`) | riješeno |
-| ✓ | `/api/cg/spremnost` ima svoj ekran — `tabla.html` | riješeno |
-| ✓ | Rješenje o imenovanju odgovornog lica — `prilozi.html`, prva stavka u spisku | riješeno |
-| ✓ | Ispravka pogrešnog unosa + trag ispravki | riješeno |
+Tehnički nalozi i plan su u „Nalazi" i „Plan izmjena po fazama" iznad. Od ranijih stavki i dalje
+važi: broj Sl. lista Uredbe o higijeni hrane nije provjeren (vidi pravni okvir).
+
+**Bekap se ne pokreće sam** dok `npm run bekap` nije u Task Scheduleru na računaru
+konsultantkinje. Skripta postoji i radi; raspored je odluka vlasnice (računar mora biti uključen
+u to vrijeme).
 
 ### Van koda
 

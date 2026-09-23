@@ -56,8 +56,9 @@ export function Prijem() {
 
   const donesiOdluku = async (prijemId: string, lotId: string, odluka: "PRIHVATI" | "HOLD" | "ODBIJI", kolicina: number) => {
     let napomena: string | undefined;
-    if (odluka === "ODBIJI") {
-      napomena = window.prompt("Razlog odbijanja (obavezno):") ?? undefined;
+    const izHolda = stavke[prijemId]?.find((s) => s.lot_id === lotId)?.lot_status === "HOLD";
+    if (odluka === "ODBIJI" || izHolda) {
+      napomena = window.prompt(izHolda && odluka === "PRIHVATI" ? "Zašto se zadržana roba pušta (obavezno):" : "Razlog odbijanja (obavezno):") ?? undefined;
       if (!napomena) return;
     }
     try {
@@ -155,6 +156,11 @@ export function Prijem() {
                                           <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "ODBIJI", Number(s.primljena_kolicina))}>Odbij</button>
                                         </>
                                       )}
+                                    </div>
+                                  ) : s.lot_status === "HOLD" && moguOdlucivati ? (
+                                    <div style={{ display: "flex", gap: 6 }}>
+                                      <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "PRIHVATI", Number(s.primljena_kolicina))}>Pusti</button>
+                                      <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "ODBIJI", Number(s.primljena_kolicina))}>Odbij</button>
                                     </div>
                                   ) : (
                                     <span className="muted-text">Odlučeno</span>

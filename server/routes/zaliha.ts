@@ -23,7 +23,8 @@ zalihaRuter.get(
     const status = typeof request.query.status === "string" ? request.query.status : undefined;
     const rezultat = await upit(
       `select l.*, a.naziv as artikal_naziv, d.naziv as dobavljac_naziv, p.skladiste_id, s.naziv as skladiste_naziv,
-              coalesce((select sum(z.kolicina) from zaliha z where z.lot_id = l.id and z.status = 'DOSTUPNO'), 0) as dostupno
+              coalesce((select sum(z.kolicina) from zaliha z where z.lot_id = l.id and z.status = 'DOSTUPNO'), 0) as dostupno,
+              coalesce((select sum(z.kolicina) from zaliha z where z.lot_id = l.id and z.status = 'KARANTIN'), 0) as karantin
        from lot l join artikal a on a.id = l.artikal_id join dobavljac d on d.id = l.dobavljac_id
        left join prijem p on p.id = l.prijem_id left join skladiste s on s.id = p.skladiste_id
        where ($1::text is null or l.status::text = $1)

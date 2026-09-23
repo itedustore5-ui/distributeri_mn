@@ -1,16 +1,9 @@
-import type { PoolClient } from "pg";
 import { transakcija, upit, pool } from "../db.js";
 import { ApiGreska } from "../greske.js";
-import { danasCG } from "../vrijeme.js";
 import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu, zatvoriZadatkeIzvora } from "./zadaciService.js";
-
-async function sljedeciBrojPovlacenja(klijent: PoolClient) {
-  const danas = danasCG().replaceAll("-", "").slice(2);
-  const rezultat = await klijent.query<{ broj: number }>(`select count(*)::int as broj from povlacenje where broj like $1`, [`PVL-${danas}-%`]);
-  return `PVL-${danas}-${String((rezultat.rows[0]?.broj ?? 0) + 1).padStart(3, "0")}`;
-}
+import { sljedeciBroj, sljedeciBrojNc, danasKratko } from "./brojeviService.js";
 
 /** Povlačenje počinje telefonom (čl. 28) — kontakti se snimaju iz stvarnih isporuka tog lota,
  * ne unose se ručno, da se niko ne izostavi. Automatski otvara i neusaglašenost visoke
@@ -20,7 +13,7 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
   if (!lotRed.rows[0]) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Lot nije pronađen.");
 
   return transakcija(async (klijent) => {
-    const broj = await sljedeciBrojPovlacenja(klijent);
+    const broj = await sljedeciBroj(klijent, "povlacenje", `PVL-${danasKratko()}`);
     const povlacenje = await klijent.query<{ id: string }>(
       `insert into povlacenje (broj, lot_id, razlog, pokrenuo_korisnik_id) values ($1, $2, $3, $4) returning id`,
       [broj, lotId, razlog, korisnikId],
@@ -58,7 +51,7 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
       [lotId, povlacenjeId, korisnikId],
     );
 
-    const brojNc = `NC-${danasCG().replaceAll("-", "").slice(2)}-P${Math.floor(Math.random() * 900 + 100)}`;
+    const brojNc = await sljedeciBrojNc(klijent);
     const nc = await klijent.query<{ id: string }>(
       `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
        values ($1, 'VISOK', 'OTVORENA', 'povlacenje', $2, $3, $4) returning id`,

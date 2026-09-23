@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { LockKeyhole, ShieldCheck, AlertCircle } from "lucide-react";
+import { Link } from "react-router-dom";
+import { LockKeyhole, ShieldCheck, AlertCircle, GraduationCap } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { ApiGreska } from "../lib/api";
 
@@ -63,6 +64,10 @@ export function Prijava() {
             {saljem ? "Prijavljivanje..." : "Prijavi se"}
           </button>
         </form>
+        {/* Provjera znanja nema nalog — ulazi se šifrom sa spiska zaposlenih (invarijanta #32). */}
+        <Link to="/provjera-znanja" className="secondary-button auth-submit" style={{ marginTop: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, textDecoration: "none" }}>
+          <GraduationCap size={16} /> Provjera znanja — ulaz šifrom
+        </Link>
         <div className="auth-security-note">
           <ShieldCheck size={14} />
           <span>Podaci se prenose šifrovano. Lozinka se čuva samo kao heš — niko, ni konsultant, ne može da je pročita.</span>
