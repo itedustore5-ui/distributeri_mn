@@ -7,6 +7,7 @@ import { hashLozinke, MINIMALNA_DUZINA_LOZINKE } from "../lozinke.js";
 import { tijelo, str } from "../validacija.js";
 import { logKreiranje, logIzmjena } from "../services/auditService.js";
 import crypto from "node:crypto";
+import { danasCG } from "../vrijeme.js";
 
 export const ljudiRuter = Router();
 ljudiRuter.use(requireAuth);
@@ -119,7 +120,7 @@ ljudiRuter.patch(
   "/plan-obuke/:id/uradjeno",
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
-    const obavljenoDatum = typeof request.body?.obavljenoDatum === "string" ? request.body.obavljenoDatum : new Date().toISOString().slice(0, 10);
+    const obavljenoDatum = typeof request.body?.obavljenoDatum === "string" ? request.body.obavljenoDatum : danasCG();
     await pool.query(`update plan_obuke set obavljeno_datum = $1 where id = $2`, [obavljenoDatum, request.params.id]);
     response.status(204).end();
   }),
@@ -131,8 +132,9 @@ ljudiRuter.get(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (_request, response) => {
     const rezultat = await upit(
-      `select k.id, k.korisnicko_ime, k.uloga, k.lozinka_stanje, k.aktivan, k.poslednja_prijava_at, l.ime as lice_ime
-       from korisnik k left join lice l on l.id = k.lice_id
+      `select k.id, k.korisnicko_ime, k.uloga, k.lozinka_stanje, k.aktivan, k.poslednja_prijava_at, l.ime as lice_ime,
+              k.skladiste_id, s.naziv as skladiste_naziv
+       from korisnik k left join lice l on l.id = k.lice_id left join skladiste s on s.id = k.skladiste_id
        order by k.uloga, k.korisnicko_ime`,
     );
     response.json(rezultat.rows);
@@ -199,6 +201,28 @@ ljudiRuter.patch(
     await provjeriMozeDaDirneNalog(request, str(request.params.id));
     await pool.query(`update korisnik set aktivan = false, updated_at = now() where id = $1`, [request.params.id]);
     obrisiSveSesijeZaKorisnika(str(request.params.id));
+    response.status(204).end();
+  }),
+);
+
+// Matično skladište naloga — samo podrazumijevani izbor u formama; magacioner po potrebi bira
+// drugo skladište pri samom unosu. Ista granica kao za ostale izmjene naloga (invarijanta #13),
+// osim što svako smije da postavi svoje.
+const maticnoSchema = z.object({ skladisteId: z.string().uuid().nullable() });
+
+ljudiRuter.patch(
+  "/nalozi/:id/skladiste",
+  requireUloga("bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ciljId = str(request.params.id);
+    const { skladisteId } = tijelo(maticnoSchema, request.body);
+    if (ciljId !== request.korisnik!.id) await provjeriMozeDaDirneNalog(request, ciljId);
+    if (skladisteId) {
+      const postoji = await pool.query(`select 1 from skladiste where id = $1 and aktivan`, [skladisteId]);
+      if (!postoji.rows[0]) throw new ApiGreska(400, "SKLADISTE_NE_POSTOJI", "Izabrano skladište ne postoji ili više nije aktivno.");
+    }
+    await pool.query(`update korisnik set skladiste_id = $1 where id = $2`, [skladisteId, ciljId]);
+    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { skladisteId } });
     response.status(204).end();
   }),
 );

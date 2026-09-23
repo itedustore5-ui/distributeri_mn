@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -20,8 +20,10 @@ import {
   ChevronDown,
   LogOut,
   Bell,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth, NAZIV_ULOGE, type Uloga } from "../lib/auth";
+import { api } from "../lib/api";
 
 type StavkaMenija = { putanja: string; naziv: string; ikonica: ReactNode; uloge: Uloga[] };
 
@@ -34,6 +36,7 @@ const STAVKE: StavkaMenija[] = [
   { putanja: "/isporuka", naziv: "Isporuka", ikonica: <PackageCheck size={18} />, uloge: ["vozac", "operater", "bzr", "izvodjac"] },
   { putanja: "/vozila", naziv: "Vozila", ikonica: <Truck size={18} />, uloge: ["vozac", "bzr", "izvodjac"] },
   { putanja: "/neusaglasenosti", naziv: "Neusaglašenosti", ikonica: <AlertTriangle size={18} />, uloge: ["operater", "vozac", "bzr", "izvodjac"] },
+  { putanja: "/poruke", naziv: "Poruke", ikonica: <MessageSquare size={18} />, uloge: ["bzr", "izvodjac", "uprava"] },
   { putanja: "/ljudi", naziv: "Ljudi", ikonica: <Users size={18} />, uloge: ["bzr", "izvodjac"] },
   { putanja: "/sifarnici", naziv: "Šifarnici", ikonica: <Contact size={18} />, uloge: ["bzr", "izvodjac"] },
   { putanja: "/sledljivost", naziv: "Sledljivost", ikonica: <History size={18} />, uloge: ["bzr", "izvodjac", "uprava"] },
@@ -45,12 +48,35 @@ const STAVKE: StavkaMenija[] = [
 
 const NASLOVI: Record<string, string> = Object.fromEntries(STAVKE.map((s) => [s.putanja, s.naziv]));
 
+/** Link iz obavještenja ili zadatka se prikazuje samo ako uloga smije na tu stranu —
+ * isti spisak kao meni, da se ne raziđu. */
+export function mozeNa(uloga: Uloga, putanja: string) {
+  return STAVKE.some((s) => s.putanja === putanja && s.uloge.includes(uloga));
+}
+
+/** Javlja zvoncu u zaglavlju da se broj nepročitanih promijenio. */
+export const OBAVJESTENJA_PROMIJENJENA = "obavjestenja-promijenjena";
+
 export function Layout({ children }: { children: ReactNode }) {
   const { korisnik, odjavi } = useAuth();
   const [sidebarOtvoren, setSidebarOtvoren] = useState(() => window.innerWidth > 760);
   const [korisnikMenu, setKorisnikMenu] = useState(false);
   const navigate = useNavigate();
   const lokacija = useLocation();
+  const [neprocitano, setNeprocitano] = useState(0);
+
+  // Broj se osvježava pri svakom prelasku na drugu stranu i kad Moja strana označi pročitano —
+  // magacioner i vozač ne gledaju Moju stranu stalno, pa zvonce mora samo da kaže da ima nešto.
+  useEffect(() => {
+    if (!korisnik) return;
+    const osvjezi = () =>
+      api<{ procitano_at: string | null }[]>("/obavjestenja")
+        .then((lista) => setNeprocitano(lista.filter((o) => !o.procitano_at).length))
+        .catch(() => {});
+    osvjezi();
+    window.addEventListener(OBAVJESTENJA_PROMIJENJENA, osvjezi);
+    return () => window.removeEventListener(OBAVJESTENJA_PROMIJENJENA, osvjezi);
+  }, [korisnik, lokacija.pathname]);
 
   if (!korisnik) return null;
   const stavke = STAVKE.filter((s) => s.uloge.includes(korisnik.uloga));
@@ -103,8 +129,9 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="topbar-actions">
-            <button className="icon-button" onClick={() => navigate("/moja")} aria-label="Obavještenja">
+            <button className="icon-button zvonce" onClick={() => navigate("/moja")} aria-label={neprocitano > 0 ? `Obavještenja: ${neprocitano} nepročitanih` : "Obavještenja"}>
               <Bell size={18} />
+              {neprocitano > 0 && <span className="zvonce-broj">{neprocitano > 9 ? "9+" : neprocitano}</span>}
             </button>
             <div className="user-menu-wrap">
               <button className="user-menu user-menu-button" onClick={() => setKorisnikMenu((o) => !o)}>

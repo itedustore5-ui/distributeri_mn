@@ -3,6 +3,7 @@ import { ApiGreska } from "../greske.js";
 import { emituj } from "./dogadjajService.js";
 import { logIzmjena, logPromjenaStatusa } from "./auditService.js";
 import { danasCG } from "../vrijeme.js";
+import { zatvoriZadatkeIzvora, kreirajObavjestenje } from "./zadaciService.js";
 
 export async function sljedeciBrojNeusaglasenosti() {
   const danas = danasCG().replaceAll("-", "").slice(2);
@@ -42,6 +43,17 @@ export async function dodajKorektivnuMjeru(
     await klijent.query(`update neusaglasenost set status = 'MJERA_U_TOKU', updated_at = now() where id = $1`, [neusaglasenostId]);
     const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-039", entitetTip: "neusaglasenost", entitetId: neusaglasenostId, korisnikId });
     await logPromjenaStatusa(klijent, { dogadjajId, korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: "MJERA_U_TOKU" } });
+    if (ulaz.dodijeljenoKorisnikId && ulaz.dodijeljenoKorisnikId !== korisnikId) {
+      const nc = await klijent.query<{ broj: string }>(`select broj from neusaglasenost where id = $1`, [neusaglasenostId]);
+      await kreirajObavjestenje(klijent, {
+        korisnikId: ulaz.dodijeljenoKorisnikId,
+        naslov: `Korektivna mjera za vas — ${nc.rows[0]?.broj ?? "neusaglašenost"}`,
+        poruka: `${ulaz.opis}${ulaz.rok ? ` Rok: ${ulaz.rok}.` : ""} Kad je urađeno, označite je kao završenu na strani Neusaglašenosti.`,
+        ozbiljnost: "SREDNJI",
+        izvorTip: "neusaglasenost",
+        izvorId: neusaglasenostId,
+      });
+    }
     return mjera.rows[0].id;
   });
 }
@@ -85,9 +97,9 @@ export async function verifikuj(
 
     const noviStatus = ulaz.rezultat === "POTVRDJENO" ? "ZATVORENA" : "PONOVO_OTVORENA";
     await klijent.query(
-      `update neusaglasenost set status = $1, updated_at = now(),
-       zatvoreno_at = case when $1 = 'ZATVORENA' then now() else null end,
-       zatvorio_korisnik_id = case when $1 = 'ZATVORENA' then $2 else null end
+      `update neusaglasenost set status = $1::nc_status_t, updated_at = now(),
+       zatvoreno_at = case when $1::nc_status_t = 'ZATVORENA' then now() else null end,
+       zatvorio_korisnik_id = case when $1::nc_status_t = 'ZATVORENA' then $2::uuid else null end
        where id = $3`,
       [noviStatus, korisnikId, neusaglasenostId],
     );
@@ -99,6 +111,27 @@ export async function verifikuj(
       korisnikId,
     });
     await logPromjenaStatusa(klijent, { dogadjajId, korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: noviStatus } });
+
+    if (noviStatus === "ZATVORENA") {
+      await zatvoriZadatkeIzvora(klijent, "neusaglasenost", neusaglasenostId);
+      // Ko je prijavio problem saznaje da je riješen — inače magacioner koji je izmjerio 8 °C
+      // nikad ne sazna šta je bilo dalje, i sljedeći put ne prijavi.
+      const nc = await klijent.query<{ broj: string; prijavio_korisnik_id: string | null }>(
+        `select broj, prijavio_korisnik_id from neusaglasenost where id = $1`,
+        [neusaglasenostId],
+      );
+      const prijavio = nc.rows[0]?.prijavio_korisnik_id;
+      if (prijavio && prijavio !== korisnikId) {
+        await kreirajObavjestenje(klijent, {
+          korisnikId: prijavio,
+          naslov: `Neusaglašenost ${nc.rows[0].broj} je zatvorena`,
+          poruka: ulaz.napomena ?? "Korektivna mjera je sprovedena i provjerena.",
+          ozbiljnost: "NIZAK",
+          izvorTip: "neusaglasenost",
+          izvorId: neusaglasenostId,
+        });
+      }
+    }
 
     return { status: noviStatus };
   });

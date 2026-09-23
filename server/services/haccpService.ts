@@ -39,12 +39,14 @@ async function sljedeciBrojNc(klijent: PoolClient) {
 
 type NoviMjerenjeInput = {
   kontrolnaTackaId: string;
-  praviloKontroleId: string;
+  praviloKontroleId: string | null;
   lotId?: string | null;
   vozilId?: string | null;
   vrijednost: number;
   izmjerioKorisnikId: string;
   napomena?: string;
+  /** false kad je lot samo trag (npr. KKT 3 pri predaji) — roba u magacinu nije bila u vozilu. */
+  holdLota?: boolean;
 };
 
 /** Mjerenje + posljedice ako je FAIL: NC, zadatak, obavještenje bzr-u, i HOLD na LOT-u gdje
@@ -81,13 +83,13 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
       const nc = await klijent.query<{ id: string }>(
         `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
          values ($1, 'VISOK', 'OTVORENA', 'mjerenje_temperature', $2, $3, $4) returning id`,
-        [broj, mjerenjeId, `Mjerenje van opsega: ${ulaz.vrijednost}°C.`, ulaz.izmjerioKorisnikId],
+        [broj, mjerenjeId, `Mjerenje van opsega: ${ulaz.vrijednost}°C.${ulaz.napomena ? ` ${ulaz.napomena}.` : ""}`, ulaz.izmjerioKorisnikId],
       );
       neusaglasenostId = nc.rows[0].id;
 
       await kreirajZadatak(klijent, {
         naslov: `Riješi neusaglašenost ${broj}`,
-        opis: `Temperaturno mjerenje van opsega (${ulaz.vrijednost}°C).`,
+        opis: `Temperaturno mjerenje van opsega (${ulaz.vrijednost}°C).${ulaz.napomena ? ` ${ulaz.napomena}.` : ""}`,
         prioritet: "VISOK",
         izvorTip: "neusaglasenost",
         izvorId: neusaglasenostId,
@@ -100,7 +102,7 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
         izvorId: neusaglasenostId,
       });
 
-      if (ulaz.lotId) {
+      if (ulaz.lotId && ulaz.holdLota !== false) {
         await klijent.query(`update lot set status = 'HOLD', updated_at = now() where id = $1`, [ulaz.lotId]);
         await klijent.query(
           `update zaliha set status = 'KARANTIN', updated_at = now() where lot_id = $1 and status = 'DOSTUPNO'`,

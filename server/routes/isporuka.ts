@@ -17,9 +17,10 @@ isporukaRuter.get(
     const filterMoje = samoMoje(request.korisnik!.uloga) ? "and (i.uneo_korisnik_id = $1 or i.vozac_korisnik_id = $1)" : "";
     const parametri = filterMoje ? [request.korisnik!.id] : [];
     const rezultat = await upit(
-      `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj,
+      `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj, s.naziv as skladiste_naziv,
               ((i.created_at at time zone 'Europe/Podgorica')::date - i.datum_isporuke) as naknadno_dana
        from isporuka i join kupac k on k.id = i.kupac_id left join vozilo v on v.id = i.vozilo_id
+       left join skladiste s on s.id = i.skladiste_id
        where ${ogranicenje} ${filterMoje}
        order by i.datum_isporuke desc, i.created_at desc`,
       parametri,
@@ -32,13 +33,14 @@ isporukaRuter.get(
   "/isporuke/:id",
   asyncRuta(async (request, response) => {
     const isporuka = await upit(
-      `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj from isporuka i
-       join kupac k on k.id = i.kupac_id left join vozilo v on v.id = i.vozilo_id where i.id = $1`,
+      `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj, s.naziv as skladiste_naziv from isporuka i
+       join kupac k on k.id = i.kupac_id left join vozilo v on v.id = i.vozilo_id left join skladiste s on s.id = i.skladiste_id
+       where i.id = $1`,
       [request.params.id],
     );
     if (!isporuka.rows[0]) throw new ApiGreska(404, "ISPORUKA_NE_POSTOJI", "Isporuka nije pronađena.");
     const stavke = await upit(
-      `select ist.*, l.broj_lota, a.naziv as artikal_naziv from isporuka_stavka ist
+      `select ist.*, l.broj_lota, a.naziv as artikal_naziv, a.temp_kontrolisano, a.temp_min, a.temp_max, a.granica_potvrdio from isporuka_stavka ist
        join lot l on l.id = ist.lot_id join artikal a on a.id = l.artikal_id where ist.isporuka_id = $1`,
       [request.params.id],
     );
@@ -49,6 +51,7 @@ isporukaRuter.get(
 const stavkaSchema = z.object({ lotId: z.string().uuid(), planiranaKolicina: z.number().positive() });
 const novaIsporukaSchema = z.object({
   kupacId: z.string().uuid(),
+  skladisteId: z.string().uuid().optional(),
   vozilId: z.string().uuid().optional(),
   vozacKorisnikId: z.string().uuid().optional(),
   datumIsporuke: z.string(),
@@ -83,6 +86,7 @@ const potvrdaStavkaSchema = z.object({
   isporucenaKolicina: z.number().nonnegative(),
   odbijenaKolicina: z.number().nonnegative().optional(),
   razlogOdbijanja: z.string().optional(),
+  temperaturaPredaje: z.number().min(-40).max(40).nullable().optional(),
 });
 
 isporukaRuter.post(

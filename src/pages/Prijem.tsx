@@ -5,14 +5,27 @@ import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
+import { useSkladista, type Skladiste } from "../lib/skladista";
 
 type Dobavljac = { id: string; naziv: string };
 type Artikal = { id: string; naziv: string; temp_kontrolisano: boolean };
-type PrijemRed = { id: string; dobavljac_naziv: string; datum_prijema: string; broj_dokumenta: string | null; status: string; broj_stavki: number; naknadno_dana: number };
+type PrijemRed = {
+  id: string;
+  dobavljac_naziv: string;
+  datum_prijema: string;
+  broj_dokumenta: string | null;
+  status: string;
+  broj_stavki: number;
+  naknadno_dana: number;
+  skladiste_id: string | null;
+  skladiste_naziv: string | null;
+};
 type Stavka = { id: string; lot_id: string; artikal_naziv: string; broj_lota: string; lot_status: string; primljena_kolicina: string; rok_trajanja: string | null; temperatura_prijema: string | null };
 
 export function Prijem() {
   const { korisnik } = useAuth();
+  const skladista = useSkladista();
+  const [filterSkladiste, setFilterSkladiste] = useState("");
   const [lista, setLista] = useState<PrijemRed[]>([]);
   const [dobavljaci, setDobavljaci] = useState<Dobavljac[]>([]);
   const [artikli, setArtikli] = useState<Artikal[]>([]);
@@ -71,6 +84,17 @@ export function Prijem() {
         }
       />
       {greska && <div className="auth-error" style={{ marginBottom: 16 }}>{greska}</div>}
+      {skladista.vise && (
+        <div className="filter-bar">
+          <label>
+            Magacin
+            <select value={filterSkladiste} onChange={(e) => setFilterSkladiste(e.target.value)}>
+              <option value="">Svi magacini</option>
+              {skladista.sva.map((sk) => <option key={sk.id} value={sk.id}>{sk.naziv}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
 
       <div className="panel full-panel">
         <div className="data-table-wrap">
@@ -79,6 +103,7 @@ export function Prijem() {
               <tr>
                 <th></th>
                 <th>Dobavljač</th>
+                {skladista.vise && <th>Magacin</th>}
                 <th>Datum</th>
                 <th>Dokument</th>
                 <th>Stavki</th>
@@ -86,11 +111,12 @@ export function Prijem() {
               </tr>
             </thead>
             <tbody>
-              {lista.map((p) => (
+              {lista.filter((p) => !filterSkladiste || p.skladiste_id === filterSkladiste).map((p) => (
                 <Fragment key={p.id}>
                   <tr style={{ cursor: "pointer" }} onClick={() => prosiri(p.id)}>
                     <td>{otvoren === p.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</td>
                     <td>{p.dobavljac_naziv}</td>
+                    {skladista.vise && <td className="muted-text">{p.skladiste_naziv ?? "—"}</td>}
                     <td className="muted-text">{p.datum_prijema}<NaknadnoOznaka dana={p.naknadno_dana} /></td>
                     <td className="muted-text">{p.broj_dokumenta ?? "—"}</td>
                     <td>{p.broj_stavki}</td>
@@ -98,7 +124,7 @@ export function Prijem() {
                   </tr>
                   {otvoren === p.id && (
                     <tr>
-                      <td colSpan={6} style={{ background: "#fbfcfd", padding: 0 }}>
+                      <td colSpan={skladista.vise ? 7 : 6} style={{ background: "#fbfcfd", padding: 0 }}>
                         <table className="data-table" style={{ margin: "0 12px 12px" }}>
                           <thead>
                             <tr>
@@ -152,6 +178,8 @@ export function Prijem() {
         <NoviPrijemModal
           dobavljaci={dobavljaci}
           artikli={artikli}
+          skladista={skladista.vise ? skladista.aktivna : []}
+          podrazumijevanoSkladiste={skladista.podrazumijevano}
           onClose={() => setModalNovi(false)}
           onCreated={ucitaj}
         />
@@ -210,8 +238,24 @@ function IzmjenaStavkeModal({ prijemId, stavka, onClose, onSacuvano }: { prijemI
 
 type NoviRed = { artikalId: string; brojLota: string; rokTrajanja: string; primljenaKolicina: string; temperaturaPrijema: string };
 
-function NoviPrijemModal({ dobavljaci, artikli, onClose, onCreated }: { dobavljaci: Dobavljac[]; artikli: Artikal[]; onClose: () => void; onCreated: () => void }) {
+function NoviPrijemModal({
+  dobavljaci,
+  artikli,
+  skladista,
+  podrazumijevanoSkladiste,
+  onClose,
+  onCreated,
+}: {
+  dobavljaci: Dobavljac[];
+  artikli: Artikal[];
+  /** Prazno kad firma ima jedno skladište — tada se polje ne prikazuje. */
+  skladista: Skladiste[];
+  podrazumijevanoSkladiste: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [dobavljacId, setDobavljacId] = useState(dobavljaci[0]?.id ?? "");
+  const [skladisteId, setSkladisteId] = useState(podrazumijevanoSkladiste);
   const [brojDokumenta, setBrojDokumenta] = useState("");
   const [datum, setDatum] = useState(lokalniDatum());
   const [redovi, setRedovi] = useState<NoviRed[]>([{ artikalId: artikli[0]?.id ?? "", brojLota: "", rokTrajanja: "", primljenaKolicina: "", temperaturaPrijema: "" }]);
@@ -225,6 +269,7 @@ function NoviPrijemModal({ dobavljaci, artikli, onClose, onCreated }: { dobavlja
       await api("/prijem", {
         telo: {
           dobavljacId,
+          skladisteId: skladisteId || undefined,
           brojDokumenta: brojDokumenta || undefined,
           datumPrijema: datum,
           stavke: redovi.map((r) => ({
@@ -255,6 +300,14 @@ function NoviPrijemModal({ dobavljaci, artikli, onClose, onCreated }: { dobavlja
           </select>
         </label>
         <label>Datum prijema<input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} /></label>
+        {skladista.length > 0 && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            U magacin
+            <select value={skladisteId} onChange={(e) => setSkladisteId(e.target.value)}>
+              {skladista.map((sk) => <option key={sk.id} value={sk.id}>{sk.naziv}</option>)}
+            </select>
+          </label>
+        )}
         <label style={{ gridColumn: "1 / -1" }}>Broj dokumenta (otpremnica)<input value={brojDokumenta} onChange={(e) => setBrojDokumenta(e.target.value)} /></label>
       </div>
       <div style={{ padding: "0 20px" }}>

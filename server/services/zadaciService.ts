@@ -47,6 +47,16 @@ export async function kreirajObavjestenje(klijent: PoolClient | typeof pool, ula
   );
 }
 
+/** Automatski zadatak živi koliko i ono iz čega je nastao — kad se zatvori neusaglašenost ili
+ * povlačenje, njegov zadatak se zatvara sam. Inače bi ostao da visi kao "zakašnjeo" zauvijek. */
+export async function zatvoriZadatkeIzvora(klijent: PoolClient | typeof pool, izvorTip: string, izvorId: string) {
+  await klijent.query(
+    `update zadatak set status = 'ZAVRSEN', zavrseno_at = now()
+     where izvor_tip = $1 and izvor_id = $2 and status not in ('ZAVRSEN', 'OTKAZAN')`,
+    [izvorTip, izvorId],
+  );
+}
+
 /** Obavijesti sve aktivne korisnike zadate uloge (npr. bzr kad nastane kritična NC). */
 export async function obavijestiUlogu(klijent: PoolClient | typeof pool, uloga: string, ulaz: Omit<NovoObavjestenjeInput, "korisnikId">) {
   const korisnici = await klijent.query<{ id: string }>(`select id from korisnik where uloga = $1 and aktivan`, [uloga]);

@@ -1,8 +1,11 @@
+import type { PoolClient } from "pg";
 import { transakcija, upit, pool } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logOdluka, logIzmjena } from "./auditService.js";
 import { evaluirajPravilo, zabiljeziMjerenje } from "./haccpService.js";
+import { kreirajObavjestenje } from "./zadaciService.js";
+import { odrediSkladiste } from "./skladisteService.js";
 
 const KKT1_SIFRA = "KKT1";
 
@@ -17,6 +20,7 @@ export type StavkaUlaz = {
 
 export type NoviPrijemUlaz = {
   dobavljacId: string;
+  skladisteId?: string | null;
   brojDokumenta?: string;
   datumPrijema: string;
   napomena?: string;
@@ -33,14 +37,15 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
     }
   }
 
+  const skladisteId = await odrediSkladiste(pool, ulaz.skladisteId, korisnikId);
   const kktRed = await upit<{ id: string }>(`select id from kontrolna_tacka where sifra = $1`, [KKT1_SIFRA]);
   const kkt1Id = kktRed.rows[0]?.id;
 
   const { prijemId, lotoviZaProvjeru } = await transakcija(async (klijent) => {
     const prijem = await klijent.query<{ id: string }>(
-      `insert into prijem (dobavljac_id, broj_dokumenta, datum_prijema, status, primio_korisnik_id, napomena)
-       values ($1, $2, $3, 'CEKA_ODLUKU', $4, $5) returning id`,
-      [ulaz.dobavljacId, ulaz.brojDokumenta ?? null, ulaz.datumPrijema, korisnikId, ulaz.napomena ?? null],
+      `insert into prijem (dobavljac_id, broj_dokumenta, datum_prijema, status, primio_korisnik_id, napomena, skladiste_id)
+       values ($1, $2, $3, 'CEKA_ODLUKU', $4, $5, $6) returning id`,
+      [ulaz.dobavljacId, ulaz.brojDokumenta ?? null, ulaz.datumPrijema, korisnikId, ulaz.napomena ?? null, skladisteId],
     );
     const prijemId = prijem.rows[0].id;
     await emituj(klijent, { tipDogadjaja: "EVT-009", entitetTip: "prijem", entitetId: prijemId, korisnikId });
@@ -138,6 +143,58 @@ export async function izmijeniStavku(lotId: string, ulaz: StavkaIzmjenaUlaz, kor
 
 export type Odluka = "PRIHVATI" | "HOLD" | "ODBIJI";
 
+/** Magacioner koji je primio robu saznaje šta je odlučeno. Zadržavanje i odbijanje traže od
+ * njega da robu fizički izdvoji, pa se javljaju odmah, po lotu. Prihvatanje se ne javlja po
+ * stavci, nego jednom kad je cio prijem riješen — da deset stavki ne napravi deset poruka. */
+async function obavijestiPrimaoca(
+  klijent: PoolClient,
+  ulaz: { prijemId: string; lotId: string; odluka: Odluka; prijemStatus: string; napomena?: string; korisnikId: string },
+) {
+  const red = await klijent.query<{ primio_korisnik_id: string; broj_dokumenta: string | null; broj_lota: string; artikal: string; dobavljac: string }>(
+    `select p.primio_korisnik_id, p.broj_dokumenta, l.broj_lota, a.naziv as artikal, d.naziv as dobavljac
+     from prijem p join lot l on l.prijem_id = p.id join artikal a on a.id = l.artikal_id join dobavljac d on d.id = p.dobavljac_id
+     where p.id = $1 and l.id = $2`,
+    [ulaz.prijemId, ulaz.lotId],
+  );
+  const r = red.rows[0];
+  if (!r || r.primio_korisnik_id === ulaz.korisnikId) return;
+  const prijem = r.broj_dokumenta ? `Prijem ${r.broj_dokumenta} (${r.dobavljac})` : `Prijem od ${r.dobavljac}`;
+  const razlog = ulaz.napomena?.trim() ? ` Razlog: ${ulaz.napomena.trim()}` : "";
+
+  if (ulaz.odluka === "HOLD") {
+    await kreirajObavjestenje(klijent, {
+      korisnikId: r.primio_korisnik_id,
+      naslov: `Zadržano: ${r.artikal} · lot ${r.broj_lota}`,
+      poruka: `${prijem}. Izdvojite robu i označite je — ne ide u isporuku dok se ne odluči.${razlog}`,
+      ozbiljnost: "SREDNJI",
+      izvorTip: "lot",
+      izvorId: ulaz.lotId,
+    });
+  } else if (ulaz.odluka === "ODBIJI") {
+    await kreirajObavjestenje(klijent, {
+      korisnikId: r.primio_korisnik_id,
+      naslov: `Odbijeno: ${r.artikal} · lot ${r.broj_lota}`,
+      poruka: `${prijem}. Izdvojite robu za povrat dobavljaču.${razlog}`,
+      ozbiljnost: "VISOK",
+      izvorTip: "lot",
+      izvorId: ulaz.lotId,
+    });
+  }
+
+  if (ulaz.prijemStatus !== "CEKA_ODLUKU") {
+    const ishod =
+      ulaz.prijemStatus === "PRIHVACEN" ? "sve je prihvaćeno, roba može na policu" : ulaz.prijemStatus === "ODBIJEN" ? "sve je odbijeno" : "djelimično prihvaćeno — pogledajte stavke";
+    await kreirajObavjestenje(klijent, {
+      korisnikId: r.primio_korisnik_id,
+      naslov: `${prijem}: odluka donesena`,
+      poruka: `Odgovorno lice je odlučilo: ${ishod}.`,
+      ozbiljnost: "NIZAK",
+      izvorTip: "prijem",
+      izvorId: ulaz.prijemId,
+    });
+  }
+}
+
 export async function donesiOdlukuOLotu(lotId: string, odluka: Odluka, kolicina: number, napomena: string | undefined, korisnikId: string) {
   return transakcija(async (klijent) => {
     const lotRed = await klijent.query<{ id: string; artikal_id: string; prijem_id: string; status: string }>(
@@ -200,6 +257,7 @@ export async function donesiOdlukuOLotu(lotId: string, odluka: Odluka, kolicina:
       korisnikId,
       lot.prijem_id,
     ]);
+    await obavijestiPrimaoca(klijent, { prijemId: lot.prijem_id, lotId, odluka, prijemStatus, napomena, korisnikId });
 
     return { status: noviStatus, prijemStatus };
   });

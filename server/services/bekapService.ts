@@ -1,4 +1,4 @@
-import { pool } from "../db.js";
+import { pool, tabelaPostoji } from "../db.js";
 import { obavijestiUlogu } from "./zadaciService.js";
 
 /** Sve poslovne tabele — u istom redoslijedu kao db/*.sql. Namjerno bez schema_migracije
@@ -13,6 +13,7 @@ const TABELE = [
   "zadatak", "obavjestenje", "dogadjaj", "audit_log",
   "pitanje", "sesija_znanja", "ucesnik_znanja", "odgovor_znanja",
   "plan_obuke", "povlacenje", "povlacenje_kontakt",
+  "skladiste", "poruka",
 ] as const;
 
 type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
@@ -21,6 +22,8 @@ export async function napraviBekap(tip: "RUCNI" | "AUTOMATSKI", korisnikId: stri
   const podaci: Record<string, unknown[]> = {};
   let ukupnoRedova = 0;
   for (const tabela of TABELE) {
+    // Tabela iz dopune koja na ovoj bazi još nije pokrenuta ne smije da obori cio bekap.
+    if (!(await tabelaPostoji(tabela))) continue;
     const rezultat = await pool.query(`select * from ${tabela}`);
     podaci[tabela] = rezultat.rows;
     ukupnoRedova += rezultat.rowCount ?? 0;

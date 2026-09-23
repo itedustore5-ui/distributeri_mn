@@ -4,7 +4,7 @@ import { ApiGreska } from "../greske.js";
 import { danasCG } from "../vrijeme.js";
 import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
-import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
+import { kreirajZadatak, obavijestiUlogu, zatvoriZadatkeIzvora } from "./zadaciService.js";
 
 async function sljedeciBrojPovlacenja(klijent: PoolClient) {
   const danas = danasCG().replaceAll("-", "").slice(2);
@@ -93,5 +93,6 @@ export async function zavrsiPovlacenje(povlacenjeId: string, korisnikId: string)
     [korisnikId, povlacenjeId],
   );
   if (!rezultat.rows[0]) throw new ApiGreska(404, "POVLACENJE_NE_POSTOJI", "Povlačenje nije pronađeno ili je već zatvoreno.");
+  await zatvoriZadatkeIzvora(pool, "povlacenje", povlacenjeId);
   await logPromjenaStatusa(pool, { korisnikId, entitetTip: "povlacenje", entitetId: povlacenjeId, noveVrijednosti: { status: "ZAVRSENO" } });
 }

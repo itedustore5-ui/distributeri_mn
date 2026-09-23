@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { pool, upit } from "../db.js";
-import { asyncRuta } from "../greske.js";
+import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { logKreiranje, logIzmjena } from "../services/auditService.js";
@@ -145,6 +145,68 @@ sifarniciRuter.patch(
       ],
     );
     await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "artikal", entitetId: str(request.params.id), noveVrijednosti: ulaz });
+    response.status(204).end();
+  }),
+);
+
+// Skladišta (magacini). Firma sa jednim ih ne vidi nigdje osim ovdje — izbor skladišta se u
+// formama pojavljuje tek kad postoji više od jednog aktivnog.
+sifarniciRuter.get(
+  "/skladista",
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const [skladista, maticno] = await Promise.all([
+      upit(`select id, naziv, adresa, aktivan from skladiste order by aktivan desc, naziv`),
+      upit<{ skladiste_id: string | null }>(`select skladiste_id from korisnik where id = $1`, [request.korisnik!.id]),
+    ]);
+    response.json({ skladista: skladista.rows, maticno: maticno.rows[0]?.skladiste_id ?? null });
+  }),
+);
+
+const skladisteSchema = z.object({
+  naziv: z.string().trim().min(2, "Naziv skladišta je obavezan."),
+  adresa: z.string().optional(),
+  aktivan: z.boolean().optional(),
+});
+
+const JEDINSTVEN_NAZIV = "23505";
+
+sifarniciRuter.post(
+  "/skladista",
+  requireUloga("bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ulaz = tijelo(skladisteSchema, request.body);
+    try {
+      const rezultat = await pool.query<{ id: string }>(`insert into skladiste (naziv, adresa) values ($1, $2) returning id`, [ulaz.naziv, ulaz.adresa || null]);
+      await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "skladiste", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
+      response.status(201).json({ id: rezultat.rows[0].id });
+    } catch (e) {
+      if ((e as { code?: string }).code === JEDINSTVEN_NAZIV) throw new ApiGreska(409, "SKLADISTE_POSTOJI", "Skladište sa tim nazivom već postoji.");
+      throw e;
+    }
+  }),
+);
+
+sifarniciRuter.patch(
+  "/skladista/:id",
+  requireUloga("bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ulaz = tijelo(skladisteSchema, request.body);
+    const id = str(request.params.id);
+    if (ulaz.aktivan === false) {
+      const ostala = await pool.query(`select 1 from skladiste where aktivan and id <> $1 limit 1`, [id]);
+      if (!ostala.rows[0]) throw new ApiGreska(409, "POSLJEDNJE_SKLADISTE", "Firma mora imati bar jedno aktivno skladište.");
+    }
+    try {
+      const rezultat = await pool.query(
+        `update skladiste set naziv = $1, adresa = $2, aktivan = coalesce($3, aktivan) where id = $4`,
+        [ulaz.naziv, ulaz.adresa || null, ulaz.aktivan ?? null, id],
+      );
+      if (rezultat.rowCount === 0) throw new ApiGreska(404, "SKLADISTE_NE_POSTOJI", "Skladište nije pronađeno.");
+    } catch (e) {
+      if ((e as { code?: string }).code === JEDINSTVEN_NAZIV) throw new ApiGreska(409, "SKLADISTE_POSTOJI", "Skladište sa tim nazivom već postoji.");
+      throw e;
+    }
+    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "skladiste", entitetId: id, noveVrijednosti: ulaz });
     response.status(204).end();
   }),
 );

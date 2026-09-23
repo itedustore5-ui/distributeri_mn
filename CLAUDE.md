@@ -54,7 +54,7 @@ Zato se sistem predaje ovim redom:
 | 3 | To lice dobija `tabla.html` kao prvu stranu | automatski, po ulozi |
 | 4 | Upisuje lica koja rukuju hranom i rokove sanitarnih knjižica | `ljudi.html` → Sanitarne knjižice |
 | 5 | Magacioneri i vozači dobijaju `operater` naloge — **otvara ih sam** | `ljudi.html` → Nalozi |
-| 6 | Direktor dobija `uprava` — samo pogled, bez unosa | po potrebi |
+| 6 | Direktor dobija `uprava` — pogled bez unosa, uz slanje poruka zaposlenima | po potrebi |
 
 **Rješenje o imenovanju nije zakonski obrazac** i tako se i predstavlja. Ono je pisani
 trag ko sprovodi postupke iz čl. 36 i ko javlja UBH po čl. 28. Bez njega inspektor pita
@@ -390,6 +390,7 @@ Oba posljednja čitaju `alati/klijenti.txt` (`Naziv = postgresql://...`, po jeda
 | `cannot change data type of view column` | `CREATE OR REPLACE VIEW` ne mijenja tip kolone | `DROP VIEW IF EXISTS` pa `CREATE VIEW` |
 | svi demo zapisi nose oznaku „naknadno" | `kreirano` je trenutak pokretanja skripte, a datumi su unazad | `05_demo_cg.sql` na kraju poravnava `kreirano` sa `datum` |
 | odstupanje „sa mjerom" koja je prazan razmak | `CHECK` je tražio samo `IS NOT NULL` | `COALESCE(btrim(...),'') <> ''`, `NOT VALID` da ne padne na živoj bazi |
+| neusaglašenost se nikad nije mogla zatvoriti — verifikacija vraća 500 | isti parametar u istom upitu i kao enum (`set status = $1`) i kao tekst (`case when $1 = 'ZATVORENA'`) → `inconsistent types deduced for parameter $1`; isto sa `$2` u CASE-u (`text` naspram `uuid`). Greška se ne vidi dok neko prvi put ne pokuša da zatvori NC | eksplicitan cast na SVAKOM mjestu: `$1::nc_status_t`, `$2::uuid`. Novi upit koji isti parametar koristi dvaput — kastovati odmah |
 
 ### Gdje se zapravo testira
 

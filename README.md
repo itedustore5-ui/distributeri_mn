@@ -31,7 +31,7 @@ više klijenata u istoj bazi. Ne dijeliti bazu između klijenata.
 ```bash
 npm install
 cp .env.example .env      # popuniti DATABASE_URL
-npm run migriraj          # kreira šemu (fajlovi db/01_*.sql ... db/14_*.sql)
+npm run migriraj          # kreira šemu (fajlovi db/01_*.sql ... db/19_*.sql)
 npm run seed:demo         # OPCIONO: dodaje demo podatke i demo naloge (SAMO za demo bazu)
 npm run dev                # http://localhost:5000
 ```
@@ -53,10 +53,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`17_naknadno_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`19_skladista_poruke_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -172,7 +172,7 @@ alati/                 CLI skripte, pokreću se sa računara konsultantkinje
 | `bzr` | Odgovorno lice za bezbjednost hrane | sve u firmi — prva strana poslije prijave je `/tabla` |
 | `operater` | Magacioner | prijem, zalihe, HACCP, isporuka — samo poslednji 1 dan, samo svoje unose |
 | `vozac` | Vozač | vozila (D1 — vidi samo vozač), isporuka — samo poslednji 1 dan, samo svoje unose |
-| `uprava` | Direktor | pregled bez unosa |
+| `uprava` | Direktor | pregled bez unosa; šalje poruke zaposlenima |
 | `izvodjac` | Konsultant | sve + banka pitanja za provjeru znanja + podešavanje firme (`/admin`) |
 
 Dozvole se provjeravaju **na serveru** (`server/auth.ts` → `requireUloga`, `ogranicenjeDatuma`,
@@ -261,6 +261,63 @@ količina — ručno se ništa ne kuca, da se niko ne izostavi). Otvara i neusag
 ozbiljnosti i zadatak. Sekcija „Povlačenja" na istoj strani prati ko je već zvan
 („Označi zvano" po kupcu) i ne dozvoljava zatvaranje dok svi nisu kontaktirani. Spisak se štampa
 dugmetom „Štampaj spisak" (`db/14_povlacenje.sql`).
+
+### Obavještenja i zadaci — ko šta dobija
+
+Zvonce u zaglavlju pokazuje broj nepročitanih; klik na obavještenje vodi na stranu na koju se
+odnosi (samo ako uloga smije tamo).
+
+| Kome | Kada |
+|---|---|
+| odgovorno lice (`bzr`) | temperatura van opsega · pokrenuto povlačenje · vozilo nije prošlo kontrolu · sedmični bekap |
+| vozač | dodijeljena mu je isporuka (pri pravljenju ili kad se promijeni vozač) |
+| magacioner | lot sa njegovog prijema je **zadržan** ili **odbijen** (odmah, po lotu); cio prijem je riješen (jedna poruka, ne po stavci) |
+| svako | dodijeljen mu je zadatak ili korektivna mjera · neusaglašenost koju je prijavio je zatvorena · **poruka** od odgovornog lica ili uprave |
+
+Niko ne dobija obavještenje o onome što je sam uradio.
+
+**Zadaci** nastaju sami (neusaglašenost, povlačenje, kontrola vozila) i nastaju
+**nedodijeljeni** — odgovorno lice ih vidi na Kontrolnom centru i u „Moji zadaci", i dodjeljuje
+ih nekome padajućim spiskom (ta osoba dobije obavještenje). Terenske uloge vide samo zadatke
+dodijeljene njima. Zadatak se **zatvara sam** kad se zatvori neusaglašenost ili povlačenje iz
+kog je nastao. Odgovorno lice pravi i **ručne zadatke** („Novi zadatak": šta, kome, prioritet,
+rok) — rok je kraj izabranog dana po podgoričkom vremenu.
+
+### Poruke
+
+`/poruke` (odgovorno lice, konsultant, uprava): poruka se šalje **po grupi** (magacioneri,
+vozači, …), **pojedinačno** ili **svima**; „Važno" je ističe crveno. Primalac je dobija kao
+obavještenje sa imenom pošiljaoca. Pošiljalac vidi „pročitalo X od Y" i spisak ko je pročitao.
+Poruka se ne briše i ne mijenja (`poruka`, `db/19_skladista_poruke_cg.sql`). Svi pošiljaoci
+vide sve poslate poruke — da odgovorno lice i uprava ne šalju različita uputstva istim ljudima.
+
+### Više skladišta
+
+Dopuna 19 pravi jedno skladište („Glavni magacin") i veže za njega sve postojeće prijeme i
+isporuke. **Dok firma ima jedno aktivno skladište, izbor se nigdje ne prikazuje.** Čim se u
+Šifarnici → Skladišta doda drugo, prijem, isporuka i zalihe dobijaju izbor i kolonu „Magacin".
+
+- Lot ostaje u skladištu u koje je primljen; isporuka ide iz jednog skladišta i server odbija
+  lot iz drugog. **Premještanje robe između skladišta nije u ovoj verziji.**
+- Matično skladište naloga (Ljudi → Nalozi) je samo podrazumijevani izbor — magacioner po potrebi
+  bira drugo pri unosu. Bez matičnog, a sa više skladišta, izbor je obavezan.
+- Posljednje aktivno skladište se ne može ugasiti; ugašeno ostaje u istoriji.
+
+Isporuke se filtriraju po **datumu, vozilu i magacinu** (vozač vidi samo svoje).
+
+### Temperatura pri predaji (KKT 3)
+
+Na potvrdi isporuke, za svaki artikal pod temperaturnim režimom (`artikal.temp_kontrolisano`)
+koji se predaje, vozač upisuje temperaturu izmjerenu kod kupca — bez nje server odbija potvrdu.
+Čuva se na stavci (`isporuka_stavka.temperatura_predaje`, `db/18_temperatura_predaje_cg.sql`) i
+izvozi u „Stavke isporuka".
+
+Ocjena ide redom: pravilo za KKT 3 postavljeno za taj artikal → granica sa samog artikla, **samo
+ako je potvrđena** (`granica_potvrdio`). Nepotvrđena granica se ne ocjenjuje. Opšte pravilo
+KKT 3 (rashladni režim vozila, 0–5 °C) se namjerno ne koristi — po njemu bi smrznuta roba na
+−18 °C ispala „van opsega". Van granice → mjerenje FAIL na KKT 3 (vezano za lot i vozilo),
+neusaglašenost i zadatak, obavještenje odgovornom licu. **Lot u magacinu se ne stavlja na HOLD**
+— problem je nastao u prevozu, a roba koja je ostala u magacinu nije bila u tom vozilu.
 
 ---
 

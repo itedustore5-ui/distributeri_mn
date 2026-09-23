@@ -15,6 +15,7 @@ import { Neusaglasenosti } from "./pages/Neusaglasenosti";
 import { Vozila } from "./pages/Vozila";
 import { Isporuka } from "./pages/Isporuka";
 import { Moja } from "./pages/Moja";
+import { Poruke } from "./pages/Poruke";
 import { Sledljivost } from "./pages/Sledljivost";
 import { Prilozi } from "./pages/Prilozi";
 import { Izvjestaji } from "./pages/Izvjestaji";
@@ -48,6 +49,7 @@ function Rute() {
       <Route path="/" element={<PocetnaPreusmjeri />} />
       <Route path="/tabla" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><Tabla /></Zasticeno>} />
       <Route path="/moja" element={<Zasticeno><Moja /></Zasticeno>} />
+      <Route path="/poruke" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><Poruke /></Zasticeno>} />
       <Route path="/ljudi" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Ljudi /></Zasticeno>} />
       <Route path="/sifarnici" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Sifarnici /></Zasticeno>} />
       <Route path="/prijem" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Prijem /></Zasticeno>} />

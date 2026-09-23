@@ -14,10 +14,10 @@ prijemRuter.get(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ogranicenje = ogranicenjeDatuma(request.korisnik!.uloga, "p.datum_prijema");
     const rezultat = await upit(
-      `select p.*, d.naziv as dobavljac_naziv,
+      `select p.*, d.naziv as dobavljac_naziv, s.naziv as skladiste_naziv,
               (select count(*) from lot l where l.prijem_id = p.id) as broj_stavki,
               ((p.created_at at time zone 'Europe/Podgorica')::date - p.datum_prijema) as naknadno_dana
-       from prijem p join dobavljac d on d.id = p.dobavljac_id
+       from prijem p join dobavljac d on d.id = p.dobavljac_id left join skladiste s on s.id = p.skladiste_id
        where ${ogranicenje}
        order by p.datum_prijema desc, p.created_at desc`,
     );
@@ -28,7 +28,11 @@ prijemRuter.get(
 prijemRuter.get(
   "/prijem/:id",
   asyncRuta(async (request, response) => {
-    const prijem = await upit(`select p.*, d.naziv as dobavljac_naziv from prijem p join dobavljac d on d.id = p.dobavljac_id where p.id = $1`, [request.params.id]);
+    const prijem = await upit(
+      `select p.*, d.naziv as dobavljac_naziv, s.naziv as skladiste_naziv from prijem p
+       join dobavljac d on d.id = p.dobavljac_id left join skladiste s on s.id = p.skladiste_id where p.id = $1`,
+      [request.params.id],
+    );
     if (!prijem.rows[0]) throw new ApiGreska(404, "PRIJEM_NE_POSTOJI", "Prijem nije pronađen.");
     const stavke = await upit(
       `select ps.*, l.broj_lota, l.status as lot_status, l.rok_trajanja, a.naziv as artikal_naziv
@@ -51,6 +55,7 @@ const stavkaSchema = z.object({
 
 const noviPrijemSchema = z.object({
   dobavljacId: z.string().uuid(),
+  skladisteId: z.string().uuid().optional(),
   brojDokumenta: z.string().optional(),
   datumPrijema: z.string(),
   napomena: z.string().optional(),

@@ -1,31 +1,22 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { KeyRound, BookOpen, Bell, CheckCircle2, ArrowDownToLine, PackageCheck, Truck } from "lucide-react";
+import { KeyRound, BookOpen, CheckCircle2, ArrowDownToLine, PackageCheck, Truck } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { PageHeader } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth, NAZIV_ULOGE } from "../lib/auth";
+import { ListaZadataka, ListaObavjestenja } from "../components/Zadaci";
 
 type Lice = { id: string; ime: string; sifra: string; sanitarna_knjizica_rok: string | null; knjizica_status: string | null };
-type Zadatak = { id: string; naslov: string; opis: string | null; status: string; rok_at: string | null };
-type Obavjestenje = { id: string; naslov: string; poruka: string | null; ozbiljnost: string; procitano_at: string | null; created_at: string };
 
 export function Moja() {
   const { korisnik } = useAuth();
   const navigate = useNavigate();
   const [lice, setLice] = useState<Lice | null>(null);
-  const [zadaci, setZadaci] = useState<Zadatak[]>([]);
-  const [obavjestenja, setObavjestenja] = useState<Obavjestenje[]>([]);
   const [brojPrijema, setBrojPrijema] = useState<number | null>(null);
   const [brojIsporuka, setBrojIsporuka] = useState<number | null>(null);
 
-  const ucitaj = () => {
-    api<Zadatak[]>("/zadaci?moji=1").then(setZadaci);
-    api<Obavjestenje[]>("/obavjestenja").then(setObavjestenja);
-  };
-
   useEffect(() => {
-    ucitaj();
     if (korisnik?.lice_id) {
       api<Lice[]>("/lica").then((lica) => setLice(lica.find((l) => l.id === korisnik.lice_id) ?? null));
     }
@@ -96,47 +87,8 @@ export function Moja() {
         <div><h2>Zadaci i obavještenja</h2></div>
       </div>
       <div className="dashboard-columns">
-        <div className="panel table-panel">
-          <div className="panel-header">
-            <h2>Moji zadaci</h2>
-          </div>
-          <div className="task-list">
-            {zadaci.length === 0 && <p style={{ color: "#9aa5ae", fontSize: 11, padding: "0 0 10px" }}>Nema otvorenih zadataka.</p>}
-            {zadaci.map((z) => (
-              <div key={z.id} className="task-row">
-                <span className={`task-check ${z.status === "ZAVRSEN" ? "success" : "warning"}`} />
-                <div>
-                  <strong>{z.naslov}</strong>
-                  {z.opis && <span>{z.opis}</span>}
-                </div>
-                {z.status !== "ZAVRSEN" && (
-                  <button className="row-action" onClick={() => api(`/zadaci/${z.id}`, { method: "PATCH", telo: { status: "ZAVRSEN" } }).then(ucitaj)}>
-                    <CheckCircle2 size={14} />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="panel activity-panel">
-          <div className="panel-header">
-            <h2><Bell size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />Obavještenja</h2>
-          </div>
-          <div className="activity-list">
-            {obavjestenja.length === 0 && <p style={{ color: "#9aa5ae", fontSize: 11, padding: "14px 0" }}>Nema novih obavještenja.</p>}
-            {obavjestenja.map((o) => (
-              <div key={o.id} className="activity-row">
-                <span className="activity-time">{new Date(o.created_at).toLocaleDateString("sr-Latn-ME")}</span>
-                <div className={`activity-icon ${o.ozbiljnost === "VISOK" ? "danger" : "warning"}`}><Bell size={12} /></div>
-                <div>
-                  <strong>{o.naslov}</strong>
-                  {o.poruka && <p>{o.poruka}</p>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <ListaZadataka samoMoji />
+        <ListaObavjestenja />
       </div>
 
       <div className="section-heading" style={{ marginTop: 26 }}>

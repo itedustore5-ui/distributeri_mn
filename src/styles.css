@@ -302,3 +302,45 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
   .panel { box-shadow: none !important; border: 0 !important; }
   body { background: #fff !important; }
 }
+/* Zadaci i obavještenja */
+.zadatak-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
+.zadatak-izvor { border: 0; background: #f0f4ff; color: #2b60d7; border-radius: 5px; font-size: 9px; font-weight: 600; padding: 2px 7px; cursor: pointer; }
+.zadatak-izvor:hover { background: #e1eaff; }
+.task-row .zadatak-kasni { color: var(--red); font-weight: 600; }
+.zadatak-dodijeli { height: 24px; font-size: 9px; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; max-width: 190px; background: #fff; color: #495966; }
+.activity-row.klikabilno { cursor: pointer; }
+.activity-row.klikabilno:hover { background: #f8fafc; }
+.activity-row.neprocitano strong::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--blue); margin-right: 5px; vertical-align: 1px; }
+.zvonce { position: relative; }
+.zvonce-broj { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--red); color: #fff; font-size: 8px; font-weight: 700; display: grid; place-items: center; line-height: 1; }
+.temp-predaje { display: flex; flex-direction: column; gap: 4px; }
+.temp-upozorenje { font-size: 10px; color: var(--red); font-weight: 600; }
+.temp-granica { font-size: 9px; color: #8d9ba5; font-weight: 400; }
+@media (max-width: 760px) { .activity-panel, .control-panel, .table-panel { min-height: auto; } .activity-list { padding-bottom: 8px; } }
+
+/* Filteri iznad liste (isporuka, prijem, zalihe) */
+.filter-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin-bottom: 16px; }
+.filter-bar label { display: flex; flex-direction: column; gap: 4px; font-size: 9px; font-weight: 600; color: #8b98a4; text-transform: uppercase; letter-spacing: .05em; }
+.filter-bar input, .filter-bar select { height: 32px; border: 1px solid var(--line); border-radius: 7px; background: #fff; padding: 0 9px; font-size: 11px; color: #3d4d59; text-transform: none; letter-spacing: 0; min-width: 140px; }
+.filter-bar .small-action.selected { background: #315fda; color: #fff; }
+.filter-bar .filter-broj { margin-left: auto; font-size: 10px; color: #9aa5ae; align-self: center; }
+@media (max-width: 480px) { .filter-bar label { flex: 1 1 140px; } .filter-bar input, .filter-bar select { min-width: 0; width: 100%; } .filter-bar .filter-broj { margin-left: 0; } }
+/* Poruke */
+.primaoci-lista { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow: auto; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.primaoci-lista label, .grupe-lista label { flex-direction: row !important; align-items: center; gap: 8px; font-size: 11px; font-weight: 500; color: #3d4d59; }
+.primaoci-lista input, .grupe-lista input { width: auto !important; height: auto !important; }
+.grupe-lista { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.poruka-red { padding: 14px 0; border-top: 1px solid #f0f3f6; display: flex; flex-direction: column; gap: 4px; }
+.poruka-red:first-child { border-top: 0; }
+.poruka-red strong { font-size: 11px; color: #40515e; }
+.poruka-red p { font-size: 10px; color: #6b7a86; margin: 0; white-space: pre-wrap; }
+.poruka-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 9px; color: #9aa5ae; }
+.poruka-procitano { font-weight: 600; color: #3b69ce; }
+.poruka-procitano.sve { color: var(--green); }
+.vazno-oznaka { display: inline-flex; border-radius: 5px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #c34e55; background: #fff0f0; margin-left: 6px; }
+.activity-row .posiljalac { font-size: 9px; color: #7890b8; font-weight: 600; margin-top: 2px; display: block; }
+.form-grid textarea { border: 1px solid #dfe7ed; border-radius: 6px; padding: 8px 9px; font: inherit; font-size: 11px; color: #566974; resize: vertical; outline: 0; }
+.form-grid textarea:focus { border-color: #82a2ec; box-shadow: 0 0 0 3px #4773dc13; }
+.form-grid .polje-naslov { display: flex; flex-direction: column; gap: 6px; color: #6d7d88; font-size: 10px; font-weight: 600; }
+.form-grid label.potvrda-red { flex-direction: row; align-items: center; gap: 8px; font-weight: 500; }
+.form-grid label.potvrda-red input { width: auto; height: auto; }

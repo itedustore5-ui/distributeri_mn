@@ -4,6 +4,7 @@ import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
+import { useSkladista } from "../lib/skladista";
 
 type Lot = {
   id: string;
@@ -13,6 +14,8 @@ type Lot = {
   rok_trajanja: string | null;
   status: string;
   dostupno: string;
+  skladiste_id: string | null;
+  skladiste_naziv: string | null;
 };
 
 const FILTERI = [
@@ -28,6 +31,8 @@ export function Zalihe() {
   const mozeOtpisati = korisnik?.uloga === "operater" || korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
   const [lotovi, setLotovi] = useState<Lot[]>([]);
   const [filter, setFilter] = useState("");
+  const skladista = useSkladista();
+  const [filterSkladiste, setFilterSkladiste] = useState("");
   const [otpisLot, setOtpisLot] = useState<Lot | null>(null);
 
   const ucitaj = () => {
@@ -52,12 +57,23 @@ export function Zalihe() {
           </>
         }
       />
-      <div className="filter-tabs" style={{ marginBottom: 16 }}>
-        {FILTERI.map((f) => (
-          <button key={f.kod} className={filter === f.kod ? "selected" : ""} onClick={() => setFilter(f.kod)}>
-            {f.naziv}
-          </button>
-        ))}
+      <div className="filter-bar">
+        <div className="filter-tabs">
+          {FILTERI.map((f) => (
+            <button key={f.kod} className={filter === f.kod ? "selected" : ""} onClick={() => setFilter(f.kod)}>
+              {f.naziv}
+            </button>
+          ))}
+        </div>
+        {skladista.vise && (
+          <label>
+            Magacin
+            <select value={filterSkladiste} onChange={(e) => setFilterSkladiste(e.target.value)}>
+              <option value="">Svi magacini</option>
+              {skladista.sva.map((sk) => <option key={sk.id} value={sk.id}>{sk.naziv}</option>)}
+            </select>
+          </label>
+        )}
       </div>
       <div className="panel full-panel">
         <div className="data-table-wrap">
@@ -66,6 +82,7 @@ export function Zalihe() {
               <tr>
                 <th>Artikal</th>
                 <th>Dobavljač</th>
+                {skladista.vise && <th>Magacin</th>}
                 <th>Lot <ZakonskaOznaka clan="27" /></th>
                 <th>Rok trajanja</th>
                 <th>Dostupno</th>
@@ -74,10 +91,11 @@ export function Zalihe() {
               </tr>
             </thead>
             <tbody>
-              {lotovi.map((l) => (
+              {lotovi.filter((l) => !filterSkladiste || l.skladiste_id === filterSkladiste).map((l) => (
                 <tr key={l.id}>
                   <td>{l.artikal_naziv}</td>
                   <td className="muted-text">{l.dobavljac_naziv}</td>
+                  {skladista.vise && <td className="muted-text">{l.skladiste_naziv ?? "—"}</td>}
                   <td><code>{l.broj_lota}</code></td>
                   <td className={uskoroIsticu(l.rok_trajanja) ? "expiry-near" : "muted-text"}>{l.rok_trajanja ?? "—"}</td>
                   <td>{l.dostupno}</td>

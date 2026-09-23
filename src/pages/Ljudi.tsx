@@ -5,6 +5,7 @@ import { api, ApiGreska } from "../lib/api";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
+import { useSkladista } from "../lib/skladista";
 
 type Lice = {
   id: string;
@@ -35,6 +36,8 @@ type Nalog = {
   lozinka_stanje: string;
   aktivan: boolean;
   lice_ime: string | null;
+  skladiste_id: string | null;
+  skladiste_naziv: string | null;
 };
 
 type Sesija = { id: string; naziv: string; broj_pitanja: number; otvoren: boolean; cuva_imena: boolean };
@@ -54,6 +57,9 @@ export function Ljudi() {
   const smijeDirnutiNalog = (uloga: string) =>
     korisnik?.uloga === "izvodjac" ? uloga !== "izvodjac" : korisnik?.uloga === "bzr" && (uloga === "operater" || uloga === "vozac");
   const [tab, setTab] = useState<(typeof TABOVI)[number]["kod"]>("zaposleni");
+  const skladista = useSkladista();
+  const postaviMaticno = (nalogId: string, skladisteId: string) =>
+    api(`/nalozi/${nalogId}/skladiste`, { method: "PATCH", telo: { skladisteId: skladisteId || null } }).then(ucitaj);
   const [lica, setLica] = useState<Lice[]>([]);
   const [plan, setPlan] = useState<PlanStavka[]>([]);
   const [nalozi, setNalozi] = useState<Nalog[]>([]);
@@ -265,6 +271,7 @@ export function Ljudi() {
         <>
           <p className="muted-text" style={{ fontSize: 11, marginBottom: 14, maxWidth: 640 }}>
             Nalog je za prijavu u aplikaciju — magacioner i vozač njime vide svoju tablu na terenu.
+            {skladista.vise && " Matično skladište je samo podrazumijevani izbor pri unosu — magacioner po potrebi bira i drugo."}
             Nije isto što i provjera znanja: za nju služi šifra sa spiska „Svi zaposleni", ne
             korisničko ime i lozinka.
           </p>
@@ -276,6 +283,7 @@ export function Ljudi() {
                   <th>Korisničko ime</th>
                   <th>Lice</th>
                   <th>Uloga</th>
+                  {skladista.vise && <th>Matično skladište</th>}
                   <th>Lozinka</th>
                   <th>Status</th>
                   <th></th>
@@ -287,6 +295,18 @@ export function Ljudi() {
                     <td>{n.korisnicko_ime}</td>
                     <td className="muted-text">{n.lice_ime ?? "—"}</td>
                     <td>{n.uloga}</td>
+                    {skladista.vise && (
+                      <td>
+                        {n.aktivan && (smijeDirnutiNalog(n.uloga) || n.id === korisnik?.id) ? (
+                          <select className="zadatak-dodijeli" aria-label="Matično skladište" value={n.skladiste_id ?? ""} onChange={(e) => postaviMaticno(n.id, e.target.value)}>
+                            <option value="">— nije podešeno —</option>
+                            {skladista.aktivna.map((sk) => <option key={sk.id} value={sk.id}>{sk.naziv}</option>)}
+                          </select>
+                        ) : (
+                          <span className="muted-text">{n.skladiste_naziv ?? "—"}</span>
+                        )}
+                      </td>
+                    )}
                     <td>
                       <StatusBadge status={n.lozinka_stanje === "privremena" ? "USKORO" : "VAZI"} tekst={n.lozinka_stanje} />
                     </td>

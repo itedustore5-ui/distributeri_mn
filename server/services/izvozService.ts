@@ -8,6 +8,7 @@ export const IZVORI_IZVOZA = [
   { kod: "prijemi", naziv: "Prijemi", izvor: "v_izvoz_prijemi" },
   { kod: "lotovi", naziv: "Lotovi", izvor: "lot" },
   { kod: "isporuke", naziv: "Isporuke", izvor: "v_izvoz_isporuke" },
+  { kod: "isporuke_stavke", naziv: "Stavke isporuka", izvor: "isporuka_stavka" },
   { kod: "neusaglasenosti", naziv: "Neusaglašenosti", izvor: "neusaglasenost" },
   { kod: "korektivne_mjere", naziv: "Korektivne mjere", izvor: "korektivna_mjera" },
   { kod: "mjerenja", naziv: "Temperaturna mjerenja", izvor: "mjerenje_temperature" },

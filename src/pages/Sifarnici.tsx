@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
+import { StatusBadge } from "../components/StatusBadge";
+import type { Skladiste } from "../lib/skladista";
 
 type Kupac = { id: string; naziv: string; adresa: string | null; telefon: string; email: string | null; aktivan: boolean };
 type Dobavljac = { id: string; naziv: string; pib: string | null; adresa: string | null; telefon: string | null; email: string | null; aktivan: boolean };
@@ -22,6 +24,7 @@ const TABOVI = [
   { kod: "kupci", naziv: "Kupci" },
   { kod: "dobavljaci", naziv: "Dobavljači" },
   { kod: "artikli", naziv: "Artikli" },
+  { kod: "skladista", naziv: "Skladišta" },
 ] as const;
 
 export function Sifarnici() {
@@ -35,11 +38,14 @@ export function Sifarnici() {
   const [modalIzmjenaDobavljac, setModalIzmjenaDobavljac] = useState<Dobavljac | null>(null);
   const [modalNoviArtikal, setModalNoviArtikal] = useState(false);
   const [modalIzmjenaArtikal, setModalIzmjenaArtikal] = useState<Artikal | null>(null);
+  const [skladista, setSkladista] = useState<Skladiste[]>([]);
+  const [modalSkladiste, setModalSkladiste] = useState<Skladiste | "novo" | null>(null);
 
   const ucitaj = () => {
     api<Kupac[]>("/kupci").then(setKupci);
     api<Dobavljac[]>("/dobavljaci").then(setDobavljaci);
     api<Artikal[]>("/artikli").then(setArtikli);
+    api<{ skladista: Skladiste[] }>("/skladista").then((r) => setSkladista(r.skladista));
   };
   useEffect(ucitaj, []);
 
@@ -47,7 +53,7 @@ export function Sifarnici() {
     <>
       <PageHeader
         title="Šifarnici"
-        description="Kupci, dobavljači i artikli — osnovni podaci na koje se oslanja sledljivost."
+        description="Kupci, dobavljači, artikli i skladišta — osnovni podaci na koje se oslanja sledljivost."
         action={
           tab === "kupci" ? (
             <button className="primary-button" onClick={() => setModalNoviKupac(true)}>
@@ -57,9 +63,13 @@ export function Sifarnici() {
             <button className="primary-button" onClick={() => setModalNoviDobavljac(true)}>
               <Plus size={16} /> Novi dobavljač
             </button>
-          ) : (
+          ) : tab === "artikli" ? (
             <button className="primary-button" onClick={() => setModalNoviArtikal(true)}>
               <Plus size={16} /> Novi artikal
+            </button>
+          ) : (
+            <button className="primary-button" onClick={() => setModalSkladiste("novo")}>
+              <Plus size={16} /> Novo skladište
             </button>
           )
         }
@@ -164,6 +174,44 @@ export function Sifarnici() {
         </div>
       )}
 
+      {tab === "skladista" && (
+        <>
+          <p className="muted-text" style={{ fontSize: 11, marginBottom: 14, maxWidth: 680 }}>
+            Dok firma ima jedno aktivno skladište, izbor skladišta se nigdje ne prikazuje. Čim ih ima više,
+            prijem, isporuka i zalihe dobijaju izbor i kolonu „Magacin". Roba ostaje u skladištu u koje je
+            primljena i isporučuje se iz njega. Magacioner po potrebi radi i u drugom skladištu — bira ga pri
+            unosu; matično skladište naloga se podešava na Ljudi → Nalozi.
+          </p>
+          <div className="panel full-panel">
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Naziv</th>
+                    <th>Adresa</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {skladista.map((sk) => (
+                    <tr key={sk.id}>
+                      <td>{sk.naziv}</td>
+                      <td className="muted-text">{sk.adresa ?? "—"}</td>
+                      <td>{sk.aktivan ? <StatusBadge status="VAZI" tekst="Aktivno" /> : <StatusBadge status="ISTEKLA" tekst="Neaktivno" />}</td>
+                      <td><button className="small-action" onClick={() => setModalSkladiste(sk)}>Izmijeni</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {modalSkladiste && (
+        <SkladisteModal skladiste={modalSkladiste === "novo" ? undefined : modalSkladiste} onClose={() => setModalSkladiste(null)} onSacuvano={ucitaj} />
+      )}
       {modalNoviKupac && <KupacModal onClose={() => setModalNoviKupac(false)} onSacuvano={ucitaj} />}
       {modalIzmjenaKupac && <KupacModal kupac={modalIzmjenaKupac} onClose={() => setModalIzmjenaKupac(null)} onSacuvano={ucitaj} />}
       {modalNoviDobavljac && <DobavljacModal onClose={() => setModalNoviDobavljac(false)} onSacuvano={ucitaj} />}
@@ -312,6 +360,44 @@ function ArtikalModal({ artikal, onClose, onSacuvano }: { artikal?: Artikal; onC
               </select>
             </label>
           </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function SkladisteModal({ skladiste, onClose, onSacuvano }: { skladiste?: Skladiste; onClose: () => void; onSacuvano: () => void }) {
+  const izmjena = !!skladiste;
+  const [naziv, setNaziv] = useState(skladiste?.naziv ?? "");
+  const [adresa, setAdresa] = useState(skladiste?.adresa ?? "");
+  const [aktivan, setAktivan] = useState(skladiste?.aktivan ?? true);
+  const [greska, setGreska] = useState("");
+
+  const posalji = async () => {
+    try {
+      if (izmjena) await api(`/skladista/${skladiste!.id}`, { method: "PATCH", telo: { naziv, adresa: adresa || undefined, aktivan } });
+      else await api("/skladista", { telo: { naziv, adresa: adresa || undefined } });
+      onSacuvano();
+      onClose();
+    } catch (e) {
+      setGreska(e instanceof ApiGreska ? e.message : "Skladište nije sačuvano.");
+    }
+  };
+
+  return (
+    <Modal
+      naslov={izmjena ? `Izmjena — ${skladiste!.naziv}` : "Novo skladište"}
+      onClose={onClose}
+      greska={greska}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={naziv.trim().length < 2}>Sačuvaj</button></>}
+    >
+      <div className="form-grid">
+        <label style={{ gridColumn: "1 / -1" }}>Naziv<input value={naziv} onChange={(e) => setNaziv(e.target.value)} placeholder="npr. Magacin Bar" /></label>
+        <label style={{ gridColumn: "1 / -1" }}>Adresa<input value={adresa} onChange={(e) => setAdresa(e.target.value)} /></label>
+        {izmjena && (
+          <label className="potvrda-red" style={{ gridColumn: "1 / -1" }}>
+            <input type="checkbox" checked={aktivan} onChange={(e) => setAktivan(e.target.checked)} /> Aktivno — neaktivno se više ne nudi u prijemu i isporuci, ali ostaje u istoriji
+          </label>
         )}
       </div>
     </Modal>

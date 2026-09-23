@@ -4,6 +4,7 @@ import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDow
 import { api, ApiGreska, preuzmiFajl } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader } from "../components/Zajednicko";
+import { ListaZadataka } from "../components/Zadaci";
 import { useAuth } from "../lib/auth";
 
 type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
@@ -16,6 +17,7 @@ type TablaPodaci = {
     vozilaNijeSpremno: number;
     lotoviNaHoldu: number;
     zadaciZakasnili: number;
+    zadaciOtvoreni: number;
     knjizicIstice: number;
     povlacenjaUToku: number;
   };
@@ -60,7 +62,7 @@ export function Tabla() {
     { naslov: "Temperature van opsega (24h)", vrijednost: k.temperatureVanOpsega, ikonica: <Thermometer size={18} />, putanja: "/haccp", tona: k.temperatureVanOpsega > 0 ? "danger" : "warning" },
     { naslov: "Vozila nisu spremna", vrijednost: k.vozilaNijeSpremno, ikonica: <Truck size={18} />, putanja: "/vozila", tona: k.vozilaNijeSpremno > 0 ? "danger" : "warning" },
     { naslov: "Lotovi na HOLD-u", vrijednost: k.lotoviNaHoldu, ikonica: <PackageX size={18} />, putanja: "/zalihe", tona: k.lotoviNaHoldu > 0 ? "danger" : "warning" },
-    { naslov: "Zakašnjeli zadaci", vrijednost: k.zadaciZakasnili, ikonica: <Clock3 size={18} />, putanja: "/moja", tona: k.zadaciZakasnili > 0 ? "danger" : "warning" },
+    { naslov: "Zakašnjeli zadaci", vrijednost: k.zadaciZakasnili, ikonica: <Clock3 size={18} />, putanja: "#zadaci", tona: k.zadaciZakasnili > 0 ? "danger" : "warning" },
     { naslov: "Knjižice ističu/istekle", vrijednost: k.knjizicIstice, ikonica: <BookOpen size={18} />, putanja: "/ljudi", tona: k.knjizicIstice > 0 ? "danger" : "warning" },
   ];
 
@@ -75,7 +77,7 @@ export function Tabla() {
       </div>
       <div className="alert-grid">
         {kriticneKartice.map((kartica) => (
-          <button key={kartica.naslov} className={`alert-card ${kartica.vrijednost > 0 ? kartica.tona : "neutral"}`} onClick={() => navigate(kartica.putanja)}>
+          <button key={kartica.naslov} className={`alert-card ${kartica.vrijednost > 0 ? kartica.tona : "neutral"}`} onClick={() => kartica.putanja.startsWith("#") ? document.getElementById(kartica.putanja.slice(1))?.scrollIntoView({ behavior: "smooth" }) : navigate(kartica.putanja)}>
             <div className="alert-card-icon">{kartica.ikonica}</div>
             <div className="alert-card-content">
               <b>{kartica.vrijednost}</b>
@@ -120,6 +122,18 @@ export function Tabla() {
           </div>
         </button>
       </div>
+
+      <div className="section-heading" id="zadaci" style={{ marginTop: 26 }}>
+        <div>
+          <h2>Otvoreni zadaci ({k.zadaciOtvoreni})</h2>
+          <span>
+            {mozeBekap
+              ? "Nastaju sami iz neusaglašenosti, povlačenja i kontrole vozila. Dodijelite zadatak nekome — dobiće obavještenje. Zatvara se sam kad se zatvori ono iz čega je nastao."
+              : "Nastaju sami iz neusaglašenosti, povlačenja i kontrole vozila."}
+          </span>
+        </div>
+      </div>
+      <ListaZadataka samoMoji={false} naslov="Svi otvoreni zadaci" />
 
       {mozeBekap && (
         <>
