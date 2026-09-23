@@ -52,7 +52,7 @@ const TON_PO_STATUSU: Record<string, Ton> = {
   PONOVO_OTVORENA: "warning",
 };
 
-const NAZIVI: Record<string, string> = {
+export const NAZIVI: Record<string, string> = {
   PRIHVACEN: "Prihvaćen",
   PRIHVACENO: "Prihvaćeno",
   PRIHVACENA: "Prihvaćena",

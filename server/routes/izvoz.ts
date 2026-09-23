@@ -1,11 +1,14 @@
 import { Router } from "express";
 import { asyncRuta } from "../greske.js";
 import { requireAuth, requireUloga } from "../auth.js";
-import { IZVORI_IZVOZA, izvezi, izveziSve, nizUCsv } from "../services/izvozService.js";
+import { IZVORI_IZVOZA, izvezi, izveziSve, nizUCsv, pregled, spisakIzvora } from "../services/izvozService.js";
 import { str } from "../validacija.js";
 
 export const izvozRuter = Router();
-izvozRuter.use(requireAuth, requireUloga("bzr", "izvodjac"));
+// Provjera važi SAMO za adrese ovog rutera. Ruter je montiran na zajednički "/api", pa bi
+// .use(...) bez putanje važio za SVAKI zahtjev koji prođe kroz njega — i zaključao bi rute
+// registrovane poslije (ovako je uprava dobijala 403 na /api/tabla).
+izvozRuter.use("/izvoz", requireAuth, requireUloga("bzr", "izvodjac"));
 
 /** HTTP zaglavlja moraju biti ASCII — "š"/"č"/"ž"/"đ" u nazivu izvještaja (npr.
  * "Neusaglašenosti", "Povlačenja") su rušili preuzimanje sa ERR_INVALID_CHAR. Fajl dobija
@@ -21,9 +24,19 @@ function nazivZaZaglavlje(naziv: string, ekstenzija: string) {
   return `attachment; filename="${ascii}.${ekstenzija}"; filename*=UTF-8''${encodeURIComponent(`${osnova}.${ekstenzija}`)}`;
 }
 
-izvozRuter.get("/izvoz/izvori", (_request, response) => {
-  response.json(IZVORI_IZVOZA.map(({ kod, naziv }) => ({ kod, naziv })));
-});
+izvozRuter.get(
+  "/izvoz/izvori",
+  asyncRuta(async (_request, response) => {
+    response.json(await spisakIzvora());
+  }),
+);
+
+izvozRuter.get(
+  "/izvoz/:kod/pregled",
+  asyncRuta(async (request, response) => {
+    response.json(await pregled(str(request.params.kod)));
+  }),
+);
 
 izvozRuter.get(
   "/izvoz/:kod.csv",

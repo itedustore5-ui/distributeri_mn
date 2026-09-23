@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Bell, CheckCircle2, ListTodo, Plus, Send } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { useAuth, NAZIV_ULOGE, type Uloga } from "../lib/auth";
-import { mozeNa, OBAVJESTENJA_PROMIJENJENA } from "./Layout";
+import { mozeNa, OBAVJESTENJA_PROMIJENJENA, OBAVJESTENJA_STIGLA } from "./Layout";
 import { Modal } from "./Zajednicko";
 import { lokalniDatum } from "../lib/vrijeme";
 
@@ -62,6 +62,9 @@ export function ListaZadataka({ samoMoji, naslov = "Moji zadaci" }: { samoMoji: 
   useEffect(() => {
     ucitaj();
     if (vodiSistem) api<Izvrsilac[]>("/zadaci/izvrsioci").then(setIzvrsioci);
+    const osvjezi = () => ucitaj();
+    window.addEventListener(OBAVJESTENJA_STIGLA, osvjezi);
+    return () => window.removeEventListener(OBAVJESTENJA_STIGLA, osvjezi);
   }, [samoMoji, vodiSistem]);
 
   const izmijeni = async (id: string, telo: { status?: string; dodijeljenoKorisnikId?: string | null }) => {
@@ -204,6 +207,9 @@ export function ListaObavjestenja() {
   const ucitaj = () => api<Obavjestenje[]>("/obavjestenja").then(setLista);
   useEffect(() => {
     ucitaj();
+    const osvjezi = () => ucitaj();
+    window.addEventListener(OBAVJESTENJA_STIGLA, osvjezi);
+    return () => window.removeEventListener(OBAVJESTENJA_STIGLA, osvjezi);
   }, []);
 
   const javiZvoncu = () => window.dispatchEvent(new Event(OBAVJESTENJA_PROMIJENJENA));

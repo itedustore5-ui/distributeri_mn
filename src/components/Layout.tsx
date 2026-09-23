@@ -56,6 +56,10 @@ export function mozeNa(uloga: Uloga, putanja: string) {
 
 /** Javlja zvoncu u zaglavlju da se broj nepročitanih promijenio. */
 export const OBAVJESTENJA_PROMIJENJENA = "obavjestenja-promijenjena";
+/** Javlja otvorenim listama (obavještenja, zadaci) da je stiglo nešto novo — da se osvježe same. */
+export const OBAVJESTENJA_STIGLA = "obavjestenja-stigla";
+
+const PROVJERA_MS = 30_000;
 
 export function Layout({ children }: { children: ReactNode }) {
   const { korisnik, odjavi } = useAuth();
@@ -64,18 +68,42 @@ export function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const lokacija = useLocation();
   const [neprocitano, setNeprocitano] = useState(0);
+  const [izdanje, setIzdanje] = useState("");
 
-  // Broj se osvježava pri svakom prelasku na drugu stranu i kad Moja strana označi pročitano —
-  // magacioner i vozač ne gledaju Moju stranu stalno, pa zvonce mora samo da kaže da ima nešto.
+  useEffect(() => {
+    api<{ izdanje: string }>("/zdravlje").then((z) => setIzdanje(z.izdanje)).catch(() => {});
+  }, []);
+
+  // Zvonce se osvježava samo — na svakih 30 s dok je aplikacija na ekranu, odmah kad se korisnik
+  // vrati u nju (otključa telefon, prebaci se iz druge aplikacije), pri prelasku na drugu stranu i
+  // kad Moja strana označi pročitano. Bez toga poruka poslata dok je magacioneru strana već
+  // otvorena "ne stiže" — stigla je, ali je niko ne prikaže.
   useEffect(() => {
     if (!korisnik) return;
+    let prethodniNajnoviji: string | null = null;
     const osvjezi = () =>
-      api<{ procitano_at: string | null }[]>("/obavjestenja")
-        .then((lista) => setNeprocitano(lista.filter((o) => !o.procitano_at).length))
+      api<{ id: string; procitano_at: string | null }[]>("/obavjestenja")
+        .then((lista) => {
+          setNeprocitano(lista.filter((o) => !o.procitano_at).length);
+          const najnoviji = lista[0]?.id ?? null;
+          if (prethodniNajnoviji !== null && najnoviji !== prethodniNajnoviji) window.dispatchEvent(new Event(OBAVJESTENJA_STIGLA));
+          prethodniNajnoviji = najnoviji;
+        })
         .catch(() => {});
+    const kadJeVidljivo = () => {
+      if (document.visibilityState === "visible") osvjezi();
+    };
     osvjezi();
+    const interval = window.setInterval(kadJeVidljivo, PROVJERA_MS);
     window.addEventListener(OBAVJESTENJA_PROMIJENJENA, osvjezi);
-    return () => window.removeEventListener(OBAVJESTENJA_PROMIJENJENA, osvjezi);
+    document.addEventListener("visibilitychange", kadJeVidljivo);
+    window.addEventListener("focus", kadJeVidljivo);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener(OBAVJESTENJA_PROMIJENJENA, osvjezi);
+      document.removeEventListener("visibilitychange", kadJeVidljivo);
+      window.removeEventListener("focus", kadJeVidljivo);
+    };
   }, [korisnik, lokacija.pathname]);
 
   if (!korisnik) return null;
@@ -112,7 +140,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="sidebar-bottom">
           <div className="sidebar-status">
             <span className="status-dot" />
-            <span>Sistem operativan</span>
+            <span>Sistem operativan{izdanje ? ` · izdanje ${izdanje}` : ""}</span>
           </div>
         </div>
       </aside>

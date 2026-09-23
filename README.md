@@ -31,7 +31,7 @@ više klijenata u istoj bazi. Ne dijeliti bazu između klijenata.
 ```bash
 npm install
 cp .env.example .env      # popuniti DATABASE_URL
-npm run migriraj          # kreira šemu (fajlovi db/01_*.sql ... db/19_*.sql)
+npm run migriraj          # kreira šemu (fajlovi db/01_*.sql ... db/21_*.sql)
 npm run seed:demo         # OPCIONO: dodaje demo podatke i demo naloge (SAMO za demo bazu)
 npm run dev                # http://localhost:5000
 ```
@@ -45,18 +45,21 @@ Vidi [`.env.example`](.env.example). Najvažnije:
   produkciji.
 - `NODE_ENV` — `development` lokalno, `production` na Renderu.
 
-Nema `SESSION_SECRET` ni `ADMIN_TOKEN` — sesije su nasumični 256-bitni tokeni koje server čuva
-u memoriji (nema šta da se potpisuje), a nema HTTP admin-rute koja bi trebalo zaglavlje sa
+Nema `SESSION_SECRET` ni `ADMIN_TOKEN` — sesije su nasumični 256-bitni tokeni; u bazi
+(`sesija_prijave`, `db/20_sesije_prijave_cg.sql`) stoji samo njihov sha256 heš, pa deploy i restart
+nikoga ne odjavljuju. Promjena lozinke odjavljuje sve ostale uređaje; promjena uloge i
+deaktivacija odjavljuju sve. Server tabelu sesija pravi i sam pri pokretanju ako je nema, da
+deploy prije dopune 20 ne zaključa korisnike van aplikacije. Nema HTTP admin-rute koja bi trebalo zaglavlje sa
 tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije idu preko
 `alati/*` skripti koje se povezuju direktno na bazu.
 
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`19_skladista_poruke_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`21_pitanja_firme_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -114,7 +117,9 @@ Svaki klijent dobija **svoj** Supabase projekat i **svoj** Render web servis, sa
    ```
    Naziv klijenta = postgresql://...
    ```
-5. Provjera da je deploy stvarno prošao: `GET /api/zdravlje` vraća `{ ok: true, izdanje: "..." }`.
+5. Provjera da je deploy stvarno prošao: `GET /api/zdravlje` vraća `{ ok: true, izdanje: "abc1234" }` —
+   izdanje je commit koji Render stvarno pokreće (`RENDER_GIT_COMMIT`), i piše i u dnu menija.
+   Uporediti sa `git log -1 --format=%h`. Lokalno piše „lokalno".
 
 ### Demo instalacija
 
@@ -257,7 +262,8 @@ sačuvati ga van aplikacije.
 
 `/sledljivost` → rezultat pretrage → **Pokreni povlačenje** (samo `bzr`/`izvodjac`) otvara
 povlačenje za taj LOT i **automatski** popuni spisak kupaca iz stvarnih isporuka (ime, telefon,
-količina — ručno se ništa ne kuca, da se niko ne izostavi). Otvara i neusaglašenost visoke
+količina — ručno se ništa ne kuca, da se niko ne izostavi). **Lot odmah ide na HOLD, a zaliha
+tog lota u karantin** — sporna serija se više ne nudi za isporuku. Otvara i neusaglašenost visoke
 ozbiljnosti i zadatak. Sekcija „Povlačenja" na istoj strani prati ko je već zvan
 („Označi zvano" po kupcu) i ne dozvoljava zatvaranje dok svi nisu kontaktirani. Spisak se štampa
 dugmetom „Štampaj spisak" (`db/14_povlacenje.sql`).
@@ -269,7 +275,8 @@ odnosi (samo ako uloga smije tamo).
 
 | Kome | Kada |
 |---|---|
-| odgovorno lice (`bzr`) | temperatura van opsega · pokrenuto povlačenje · vozilo nije prošlo kontrolu · sedmični bekap |
+| odgovorno lice (`bzr`) | temperatura van opsega · pokrenuto povlačenje · vozilo nije prošlo kontrolu · sedmični bekap · **prijavljen problem sa terena** · **mjera urađena — čeka provjeru** |
+| uprava | temperatura van opsega · povlačenje · vozilo nije spremno · problem visoke ozbiljnosti — sve ostalo vidi u „Aktivnosti uživo" |
 | vozač | dodijeljena mu je isporuka (pri pravljenju ili kad se promijeni vozač) |
 | magacioner | lot sa njegovog prijema je **zadržan** ili **odbijen** (odmah, po lotu); cio prijem je riješen (jedna poruka, ne po stavci) |
 | svako | dodijeljen mu je zadatak ili korektivna mjera · neusaglašenost koju je prijavio je zatvorena · **poruka** od odgovornog lica ili uprave |
@@ -282,6 +289,62 @@ ih nekome padajućim spiskom (ta osoba dobije obavještenje). Terenske uloge vid
 dodijeljene njima. Zadatak se **zatvara sam** kad se zatvori neusaglašenost ili povlačenje iz
 kog je nastao. Odgovorno lice pravi i **ručne zadatke** („Novi zadatak": šta, kome, prioritet,
 rok) — rok je kraj izabranog dana po podgoričkom vremenu.
+
+### Neusaglašenosti — kako se rješavaju
+
+Na vrhu strane stoje četiri koraka, a u svakoj neusaglašenosti piše **šta je sljedeće i čije je**:
+
+1. **Prijava** — svako (i vozač i magacioner) prijavi problem tamo gdje ga vidi: „Prijavi problem"
+   na Neusaglašenostima, ili „Problem" na konkretnoj isporuci. Odgovorno lice dobija
+   obavještenje i nedodijeljen zadatak; visoku ozbiljnost vidi i uprava.
+2. **Mjera** — odgovorno lice upiše korektivnu mjeru, **kome je daje** i rok. Ta osoba dobija
+   obavještenje i na listi joj stoji „Mjera za vas".
+3. **Urađeno** — mjeru završava **samo onaj kome je dodijeljena** (server odbija ostale), i mora
+   upisati šta je urađeno — taj zapis čita inspektor. Odgovorno lice dobija „čeka vašu provjeru".
+4. **Provjera** — odgovorno lice provjeri i zatvori (ne može ista osoba koja je uradila mjeru), ili
+   vrati. Zadatak se zatvara sam, a ko je prijavio dobija obavještenje.
+
+Terenske uloge prvo vide „Za mene" (ono što su prijavile ili im je dodijeljeno).
+
+### Problem na isporuci
+
+Dugme „Problem" na svakoj isporuci: vrsta (kupac odbio, oštećeno, pogrešna količina ili artikal,
+temperatura, reklamacija poslije isporuke, kašnjenje, drugo) + opis. Upisuje se kao neusaglašenost
+vezana za tu isporuku, a isporuka dobija narandžastu oznaku dok se ne zatvori. **Potvrđena
+isporuka se ne prepravlja** — ispravka je ovaj zapis, da ostane trag šta je bilo i šta je urađeno.
+Dok isporuka nije potvrđena, pogrešna količina ili artikal se ispravljaju dugmetom „Izmijeni".
+
+### Zalihe — filteri i štampa
+
+Status (sa brojem na svakoj kartici), pretraga po artiklu, lotu i dobavljaču, rok (ističe za 7
+dana, istekao, bez roka), dobavljač, artikal, magacin, „samo na stanju" i poredak (FEFO, artikal,
+količina). „Štampaj" i „CSV" daju **tačno ono što je na ekranu**; na papiru stoje firma, datum i
+primijenjeni filteri.
+
+### Uprava — „Aktivnost uživo"
+
+Na Kontrolnom centru: svaki prijem, odluka, isporuka, dnevni obrazac, kontrola vozila,
+neusaglašenost, otpis i povlačenje — ko i kada, osvježava se na 30 s, „Samo problemi" sužava.
+Uprava ne dobija obavještenje za svaki unos (50 poruka dnevno bi zatrpalo ono nekoliko važnih);
+važno stiže na zvonce. Uprava nema zadatke i ne vidi sanitarnu knjižicu ako ne rukuje hranom.
+
+### Izvještaji — prvo pregled
+
+Izvještaj se prvo otvori na ekranu (najnovijih 500 redova, čitljiva zaglavlja, statusi kao u
+aplikaciji, bez internih ID-jeva, pretraga), pa se štampa ili preuzme CSV sa svim kolonama.
+
+### Provjera znanja — pitanja firme i rezultati
+
+Ljudi → Provjera znanja:
+
+- **Termini i rezultati** — termin bira izvor pitanja (sva / samo pitanja firme / samo
+  konsultantova) i **prag za „položeno"** (podrazumijevano 70 %). Za svaki termin: koliko je
+  završilo, koliko položilo, prosjek. Ispod: ko je radio, tačno X/Y, skor u %, položeno ili ne —
+  sa štampom.
+- **Pitanja firme** — unosi ih odgovorno lice, o procedurama svoje firme; vidi koliko je ljudi
+  odgovorilo i koliko tačno. Pitanje na koje se već odgovaralo ne mijenja se (rezultati bi
+  pokazivali odgovore na pitanje koje više ne postoji) — isključi se i unese novo.
+- **Pitanja konsultanta** ostaju skrivena i odgovornom licu (invarijanta #14).
 
 ### Poruke
 
@@ -364,7 +427,30 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
+npm run dev          # u drugom prozoru — testovi rade protiv servera koji radi
+npm run test:e2e     # 159 provjera kroz svih pet uloga; izlazni kod 1 ako išta padne
 ```
+
+`npm run test:e2e` (fajlovi u `testovi/`) radi **samo na demo bazi** — prije prvog koraka provjeri
+da u bazi stoji svih pet demo naloga sa svojim fiksnim ID-jevima i inače odbije da krene, jer
+testovi prave i brišu podatke. Server i test moraju gledati istu bazu (`DATABASE_URL` iz
+`.env`); drugi server se zadaje sa `APP_URL=`. Jedan test: `npm run test:e2e -- povlacenje`.
+
+| Test | Šta dokazuje |
+|---|---|
+| `pristup` | svaka uloga vidi svoje adrese i ne vidi tuđe; provjera znanja i `/zdravlje` rade bez prijave |
+| `obavjestenja` | obavještenja za teren, zadaci, KKT 3 pri predaji, neusaglašenost od otvaranja do zatvaranja |
+| `poruke_skladista` | poruke (grupa, pojedinačno, svima, ko je pročitao), ručni zadaci, više skladišta |
+| `povlacenje` | spisak kupaca iz isporuka, lot na HOLD-u, ne zatvara se dok svi nisu zvani |
+| `provjera_znanja` | ulazak šifrom, rezultat se ne može naduvati, Prilog 14 |
+| `prilozi_izvoz` | podaci za štampu, svih 14 CSV izvora i kolone koje se prodaju kao dokaz |
+| `sesije` | prijava u bazi kao heš, odjava, promjena lozinke odjavljuje ostale uređaje |
+| `neusaglasenosti_teren` | vozač prijavi problem na isporuci → mjera njemu → samo on je završava, uz opis → provjera; uprava i aktivnost |
+| `znanje_firme` | pitanja firme, termin sa pragom, rezultat „položeno", statistika po pitanju |
+
+Svaki test briše sve što napravi. Nov tok u aplikaciji = nov test u `testovi/` — dvije greške koje
+su dugo bile na Renderu (neusaglašenost se nije mogla zatvoriti; uprava i provjera znanja
+zaključani) našao je tek test koji prolazi tok do kraja.
 
 Ručno, na `npm run dev`, kroz svih pet uloga:
 

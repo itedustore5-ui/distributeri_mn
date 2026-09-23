@@ -287,9 +287,15 @@ Oba posljednja čitaju `alati/klijenti.txt` (`Naziv = postgresql://...`, po jeda
 13. **Odgovorno lice (`bzr`) otvara naloge samo ulozi `operater` i samo u svojoj firmi.**
     Nikad sebi ravan ni iznad sebe. Sprovedeno u `smijeNadUlogom()` i `ciljKorisnik()`
     u `server/index.js` — ne u pregledaču.
-14. **Banka pitanja je samo izvođačeva** (`bankaPitanja` u `server/index.js`): stavke,
-    distraktori, analiza kvaliteta, pregled sesije, paket, šifarnik. Ko zna pitanja,
-    ne mjeri više znanje. Rezultate i evidenciju obuke odgovorno lice vidi normalno.
+14. **Banka pitanja KONSULTANTA je samo izvođačeva** (`pitanje.izvor = 'konsultant'`, ruta
+    `/pitanja`): stavke, distraktori, analiza kvaliteta. Ko zna pitanja, ne mjeri više
+    znanje. Od dopune 21 postoje i **pitanja firme** (`izvor = 'firma'`, ruta `/pitanja-firme`)
+    koja unosi i vidi odgovorno lice — o procedurama svoje firme; termin bira izvor. Rezultate
+    (ko, skor, položeno po pragu termina) odgovorno lice vidi normalno. Ne otvarati konsultantovu
+    banku odgovornom licu — to je razlog zašto postoje dva izvora, a ne jedan.
+15a. **Korektivnu mjeru završava samo onaj kome je dodijeljena** (terenske uloge; odgovorno lice i
+    konsultant smiju svaku), i to uz upisan opis šta je urađeno — `zavrsiKorektivnuMjeru()`.
+    Provjerava ISTA osoba ne smije: ko je uradio mjeru, ne verifikuje je.
 15. **U `lice` se upisuje broj i rok sanitarne knjižice — nikad nalaz pregleda.**
     Rok je podatak o dokumentu, nalaz je podatak o zdravlju.
 16. **Nalog za prijavu i lice sa spiska su dvije stvari, spojene preko `korisnik.lice_id`.**
@@ -391,6 +397,9 @@ Oba posljednja čitaju `alati/klijenti.txt` (`Naziv = postgresql://...`, po jeda
 | svi demo zapisi nose oznaku „naknadno" | `kreirano` je trenutak pokretanja skripte, a datumi su unazad | `05_demo_cg.sql` na kraju poravnava `kreirano` sa `datum` |
 | odstupanje „sa mjerom" koja je prazan razmak | `CHECK` je tražio samo `IS NOT NULL` | `COALESCE(btrim(...),'') <> ''`, `NOT VALID` da ne padne na živoj bazi |
 | neusaglašenost se nikad nije mogla zatvoriti — verifikacija vraća 500 | isti parametar u istom upitu i kao enum (`set status = $1`) i kao tekst (`case when $1 = 'ZATVORENA'`) → `inconsistent types deduced for parameter $1`; isto sa `$2` u CASE-u (`text` naspram `uuid`). Greška se ne vidi dok neko prvi put ne pokuša da zatvori NC | eksplicitan cast na SVAKOM mjestu: `$1::nc_status_t`, `$2::uuid`. Novi upit koji isti parametar koristi dvaput — kastovati odmah |
+| uprava dobija 403 na svom Kontrolnom centru; ulazak u provjeru znanja šifrom (bez naloga) vraća 401 | ruter montiran na zajednički `/api` radi `.use(requireAuth, requireUloga(...))` BEZ putanje — to važi za SVAKI zahtjev koji prođe kroz taj ruter, pa zaključa i rute registrovane poslije njega (izvoz je zaključao `/tabla` za upravu, a svaki `.use(requireAuth)` javne rute) | `.use("/izvoz", …)` — provjera samo za svoje adrese; javne rute (`/zdravlje`, provjera znanja) montirane PRVE u `server/index.ts`. `testovi/pristup.test.mjs` hvata ovo za svaku ulogu |
+| „poruka nije stigla" — a stigla je | zvonce i lista obavještenja osvježavali su se samo pri prelasku na drugu stranu; magacioner kome je strana već otvorena nije vidio ništa | provjera na 30 s dok je aplikacija na ekranu + odmah pri povratku (`visibilitychange`, `focus`) — `Layout.tsx` |
+| ne zna se je li deploy prošao | `IZDANJE` je bilo zakucano na „1.0.0" | izdanje = `RENDER_GIT_COMMIT`, vidi se u `/api/zdravlje` i u dnu menija |
 
 ### Gdje se zapravo testira
 
@@ -421,6 +430,7 @@ Oba posljednja čitaju `alati/klijenti.txt` (`Naziv = postgresql://...`, po jeda
 ## Provjera prije isporuke
 
 ```bash
+npm run test:e2e             # 127 provjera, 7 tokova — SAMO na demo bazi, server mora raditi
 node test_pravila.mjs        # pravila odstupanja po obrascima
 python3 db/_gradi_banku.py   # banka: 22 porodice, 70 pitanja, 6 tema
 node test_simulacija.mjs     # postojeći test mjerenja znanja

@@ -4,7 +4,10 @@ import { asyncRuta } from "../greske.js";
 import { requireAuth, requireUloga } from "../auth.js";
 
 export const auditRuter = Router();
-auditRuter.use(requireAuth, requireUloga("bzr", "izvodjac"));
+// Provjera važi SAMO za adrese ovog rutera. Ruter je montiran na zajednički "/api", pa bi
+// .use(...) bez putanje važio za SVAKI zahtjev koji prođe kroz njega — i zaključao bi rute
+// registrovane poslije (ovako je uprava dobijala 403 na /api/tabla).
+auditRuter.use("/audit", requireAuth, requireUloga("bzr", "izvodjac"));
 
 auditRuter.get(
   "/audit",

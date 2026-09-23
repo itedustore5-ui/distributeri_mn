@@ -30,7 +30,9 @@ import { pripremiSesije } from "./auth.js";
 
 const port = Number(process.env.PORT || 5000);
 const isProduction = process.env.NODE_ENV === "production";
-const IZDANJE = "1.0.0";
+// Render sam postavlja RENDER_GIT_COMMIT — izdanje je commit koji STVARNO radi, pa se u
+// /api/zdravlje (i u dnu menija) vidi je li deploy prošao. Lokalno: "lokalno".
+const IZDANJE = process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? "lokalno";
 
 const app = express();
 app.disable("x-powered-by");
@@ -49,7 +51,15 @@ app.use((_request, response, next) => {
 });
 
 app.use("/api", zahtjevAppZaglavlje);
+
+// JAVNE adrese moraju biti montirane PRIJE rutera koji rade .use(requireAuth) — takav ruter na
+// zajedničkom "/api" zaustavlja svaki zahtjev bez prijave, i onaj koji mu ne pripada. Ovako je
+// ulazak u provjeru znanja šifrom (bez naloga) vraćao 401.
+app.get("/api/zdravlje", (_request, response) => {
+  response.json({ ok: true, izdanje: IZDANJE });
+});
 app.use("/api", authRuter);
+app.use("/api", provjeraZnanjaRuter);
 app.use("/api", ljudiRuter);
 app.use("/api", sifarniciRuter);
 app.use("/api", prijemRuter);
@@ -64,14 +74,9 @@ app.use("/api", sledljivostRuter);
 app.use("/api", izvozRuter);
 app.use("/api", auditRuter);
 app.use("/api", tablaRuter);
-app.use("/api", provjeraZnanjaRuter);
 app.use("/api", firmaRuter);
 app.use("/api", povlacenjeRuter);
 app.use("/api", bekapRuter);
-
-app.get("/api/zdravlje", (_request, response) => {
-  response.json({ ok: true, izdanje: IZDANJE });
-});
 
 app.use("/api", (_request: Request, response: Response, _next: NextFunction) => {
   response.status(404).json({ error: { code: "RUTA_NE_POSTOJI", message: "Traženi API resurs ne postoji." } });

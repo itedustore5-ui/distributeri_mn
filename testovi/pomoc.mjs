@@ -1,0 +1,77 @@
+// Zajedničko za sve testove: prijava, provjera, veza sa bazom i zaštita da se testovi
+// NIKAD ne pokrenu na bazi pravog klijenta (prave i brišu podatke).
+import "dotenv/config";
+import pg from "pg";
+
+export const APP_URL = (process.env.APP_URL || "http://localhost:5000").replace(/\/$/, "");
+const BAZA = `${APP_URL}/api`;
+
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+
+// Demo nalozi iz db/13_demo_cg.sql i db/migriraj.ts (lozinke su tamo javne — samo za demo bazu).
+export const NALOZI = {
+  ana: { ime: "ana.b", lozinka: "Podgorica-2026!", id: "11000000-0000-0000-0000-000000000002" },
+  marko: { ime: "marko.v", lozinka: "Magacin-2026!", id: "11000000-0000-0000-0000-000000000003" },
+  petar: { ime: "petar.j", lozinka: "Vozac-2026!", id: "11000000-0000-0000-0000-000000000004" },
+  direktor: { ime: "direktor", lozinka: "Uprava-2026!", id: "11000000-0000-0000-0000-000000000005" },
+  konsultant: { ime: "konsultant", lozinka: "Konsultant-2026!", id: "11000000-0000-0000-0000-000000000001" },
+};
+
+/** Baza je demo samo ako u njoj stoje svih pet demo naloga sa svojim fiksnim ID-jevima. */
+export async function provjeriDemoBazu() {
+  const r = await pool.query(`select count(*)::int as n from korisnik where (id::text, korisnicko_ime) in (select * from unnest($1::text[], $2::text[]))`, [
+    Object.values(NALOZI).map((n) => n.id),
+    Object.values(NALOZI).map((n) => n.ime),
+  ]);
+  if (r.rows[0].n !== Object.keys(NALOZI).length) {
+    throw new Error("Ovo NIJE demo baza — testovi prave i brišu podatke i pokreću se samo na demo bazi. Prekidam.");
+  }
+}
+
+export const danasCG = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Podgorica" });
+
+/** Klijent bez prijave — za javne adrese (zdravlje, ulazak u provjeru znanja šifrom). */
+export function anonimno() {
+  return zahtjev(null);
+}
+
+/** Prijavljen klijent: `k(putanja, { method, telo })` → { status, tijelo }. */
+export async function prijava(nalog) {
+  const r = await fetch(`${BAZA}/auth/prijava`, {
+    method: "POST",
+    headers: { "x-zahtjev-app": "1", "Content-Type": "application/json" },
+    body: JSON.stringify({ korisnickoIme: nalog.ime, lozinka: nalog.lozinka }),
+  });
+  if (r.status !== 200) throw new Error(`Prijava ${nalog.ime} nije uspjela (${r.status})`);
+  const k = zahtjev(r.headers.get("set-cookie").split(";")[0]);
+  k.id = nalog.id;
+  return k;
+}
+
+function zahtjev(kolacic) {
+  return async (putanja, { method, telo } = {}) => {
+    const odg = await fetch(`${BAZA}${putanja}`, {
+      method: method ?? (telo === undefined ? "GET" : "POST"),
+      headers: { "x-zahtjev-app": "1", "Content-Type": "application/json", ...(kolacic ? { cookie: kolacic } : {}) },
+      body: telo === undefined ? undefined : JSON.stringify(telo),
+    });
+    const tekst = await odg.text();
+    let tijelo = null;
+    try {
+      tijelo = tekst ? JSON.parse(tekst) : null;
+    } catch {
+      tijelo = tekst;
+    }
+    return { status: odg.status, tijelo };
+  };
+}
+
+/** Sakupljač rezultata jednog testa. */
+export function noviRezultati() {
+  const lista = [];
+  const provjeri = (naziv, uslov, detalj = "") => {
+    lista.push({ naziv, ok: !!uslov });
+    console.log(`  ${uslov ? "✓" : "✗"} ${naziv}${detalj ? ` — ${detalj}` : ""}`);
+  };
+  return { lista, provjeri };
+}

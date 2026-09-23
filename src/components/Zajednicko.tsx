@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { api } from "../lib/api";
 import { X, AlertCircle } from "lucide-react";
 
 export function StatCard({ ikonica, boja, oznaka, vrijednost, detalj }: { ikonica: ReactNode; boja: string; oznaka: string; vrijednost: string | number; detalj?: string }) {
@@ -92,4 +93,27 @@ export function PrazanPrikaz({ poruka }: { poruka: string }) {
 
 export function Ucitavanje() {
   return <div className="auth-loading">Učitavanje...</div>;
+}
+
+/** Zaglavlje koje se vidi SAMO na štampi: firma, naslov, kad je štampano i po kojim filterima —
+ * papir bez toga inspektoru ne kaže šta je izvučeno i kada. */
+export function StampaZaglavlje({ naslov, filteri, brojRedova }: { naslov: string; filteri?: string[]; brojRedova?: number }) {
+  const [firma, setFirma] = useState<string>("");
+  useEffect(() => {
+    api<{ naziv: string } | null>("/firma").then((f) => setFirma(f?.naziv ?? "")).catch(() => {});
+  }, []);
+  const aktivni = (filteri ?? []).filter(Boolean);
+  return (
+    <div className="samo-stampa stampa-zaglavlje">
+      <div>
+        <strong>{firma}</strong>
+        <h1>{naslov}</h1>
+      </div>
+      <div className="stampa-meta">
+        <span>Štampano: {new Date().toLocaleString("sr-Latn-ME", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+        <span>Filteri: {aktivni.length ? aktivni.join(" · ") : "bez filtera (sve)"}</span>
+        {brojRedova !== undefined && <span>Broj stavki: {brojRedova}</span>}
+      </div>
+    </div>
+  );
 }

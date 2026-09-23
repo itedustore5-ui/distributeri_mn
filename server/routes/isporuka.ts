@@ -18,6 +18,7 @@ isporukaRuter.get(
     const parametri = filterMoje ? [request.korisnik!.id] : [];
     const rezultat = await upit(
       `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj, s.naziv as skladiste_naziv,
+              (select count(*)::int from neusaglasenost nc where nc.izvor_tip = 'isporuka' and nc.izvor_id = i.id and nc.status <> 'ZATVORENA') as otvorena_odstupanja,
               ((i.created_at at time zone 'Europe/Podgorica')::date - i.datum_isporuke) as naknadno_dana
        from isporuka i join kupac k on k.id = i.kupac_id left join vozilo v on v.id = i.vozilo_id
        left join skladiste s on s.id = i.skladiste_id

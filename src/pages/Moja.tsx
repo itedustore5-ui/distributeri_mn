@@ -8,7 +8,7 @@ import { useAuth, NAZIV_ULOGE } from "../lib/auth";
 import { ListaZadataka, ListaObavjestenja } from "../components/Zadaci";
 import { lokalniDatum } from "../lib/vrijeme";
 
-type Lice = { id: string; ime: string; sifra: string; sanitarna_knjizica_rok: string | null; knjizica_status: string | null };
+type Lice = { id: string; ime: string; sifra: string; sanitarna_knjizica_rok: string | null; knjizica_status: string | null; rukuje_hranom: boolean };
 
 export function Moja() {
   const { korisnik } = useAuth();
@@ -30,7 +30,7 @@ export function Moja() {
   }, [korisnik?.lice_id, korisnik?.uloga]);
 
   const terenskaUloga = korisnik?.uloga === "operater" || korisnik?.uloga === "vozac";
-  const knjizicaTrazi = terenskaUloga && lice && (lice.knjizica_status === "ISTEKLA" || lice.knjizica_status === "USKORO");
+  const knjizicaTrazi = terenskaUloga && lice && lice.rukuje_hranom && (lice.knjizica_status === "ISTEKLA" || lice.knjizica_status === "USKORO");
 
   return (
     <>
@@ -90,7 +90,7 @@ export function Moja() {
         <div><h2>Zadaci i obavještenja</h2></div>
       </div>
       <div className="dashboard-columns">
-        <ListaZadataka samoMoji />
+        {korisnik?.uloga !== "uprava" && <ListaZadataka samoMoji />}
         <ListaObavjestenja />
       </div>
 
@@ -98,11 +98,13 @@ export function Moja() {
         <div><h2>Moji podaci</h2></div>
       </div>
       <div className="dashboard-columns">
-        {lice && (
+        {/* Knjižica se tiče samo onih koji rukuju hranom (Zakon o zaštiti stanovništva od zaraznih
+            bolesti, čl. 31); šifra za potpis — onih koji potpisuju obrasce, ne uprave. */}
+        {lice && (lice.rukuje_hranom || korisnik?.uloga !== "uprava") && (
           <div className="panel" style={{ minHeight: "auto" }}>
-            <div className="panel-header"><h2>Sanitarna knjižica i šifra</h2></div>
+            <div className="panel-header"><h2>{lice.rukuje_hranom ? "Sanitarna knjižica i šifra" : "Šifra"}</h2></div>
             <div style={{ padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
-              {lice.knjizica_status && (
+              {lice.rukuje_hranom && lice.knjizica_status && (
                 <div>
                   <span className="meta-label">Sanitarna knjižica</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>

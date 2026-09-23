@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, AlertTriangle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
@@ -23,6 +24,7 @@ type IsporukaRed = {
   skladiste_id: string | null;
   skladiste_naziv: string | null;
   naknadno_dana: number;
+  otvorena_odstupanja: number;
 };
 type StavkaIsporuke = {
   id: string;
@@ -65,6 +67,8 @@ export function Isporuka() {
   const [modalIzmjena, setModalIzmjena] = useState<{ isporuka: IsporukaRed; stavke: StavkaIsporuke[] } | null>(null);
   const [modalPotvrda, setModalPotvrda] = useState<IsporukaRed | null>(null);
   const [stavke, setStavke] = useState<StavkaIsporuke[]>([]);
+  const [modalOdstupanje, setModalOdstupanje] = useState<IsporukaRed | null>(null);
+  const navigate = useNavigate();
 
   const ucitaj = () => {
     api<IsporukaRed[]>("/isporuke").then(setLista);
@@ -168,14 +172,26 @@ export function Isporuka() {
                   <td className="muted-text">{i.registarski_broj ?? "—"}</td>
                   <td className="muted-text">{imeVozaca(i.vozac_korisnik_id)}</td>
                   <td className="muted-text">{i.datum_isporuke}<NaknadnoOznaka dana={i.naknadno_dana} /></td>
-                  <td><StatusBadge status={i.status} /></td>
                   <td>
-                    {i.status === "U_PRIPREMI" && (
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button className="small-action" onClick={() => otvoriIzmjenu(i)}>Izmijeni</button>
-                        <button className="small-action" onClick={() => otvoriPotvrdu(i)}>Potvrdi</button>
-                      </div>
+                    <StatusBadge status={i.status} />
+                    {i.otvorena_odstupanja > 0 && (
+                      <button className="odstupanje-oznaka" onClick={() => navigate("/neusaglasenosti")} title="Otvorena odstupanja na ovoj isporuci">
+                        <AlertTriangle size={11} /> {i.otvorena_odstupanja}
+                      </button>
                     )}
+                  </td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {i.status === "U_PRIPREMI" && (
+                        <>
+                          <button className="small-action" onClick={() => otvoriIzmjenu(i)}>Izmijeni</button>
+                          <button className="small-action" onClick={() => otvoriPotvrdu(i)}>Potvrdi</button>
+                        </>
+                      )}
+                      <button className="small-action odstupanje-dugme" onClick={() => setModalOdstupanje(i)} title="Prijavi odstupanje na ovoj isporuci">
+                        <AlertTriangle size={12} /> Problem
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -210,6 +226,7 @@ export function Isporuka() {
           onSacuvano={ucitaj}
         />
       )}
+      {modalOdstupanje && <OdstupanjeModal isporuka={modalOdstupanje} onClose={() => setModalOdstupanje(null)} onSacuvano={ucitaj} />}
       {modalPotvrda && (
         <PotvrdaModal isporuka={modalPotvrda} stavke={stavke} onClose={() => setModalPotvrda(null)} onCreated={ucitaj} />
       )}
@@ -456,6 +473,85 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
           );
         })}
         {faliTemperatura && <p style={{ fontSize: 10, color: "#8d9ba5", margin: 0 }}>Za robu pod temperaturnim režimom upišite temperaturu pri predaji — to je dokaz da je hladni lanac održan do kupca.</p>}
+      </div>
+    </Modal>
+  );
+}
+
+// Vrste koje se u praksi javljaju na isporuci. Potvrđena isporuka se NE prepravlja (invarijanta #1) —
+// odstupanje je nov zapis vezan za nju, pa inspektor vidi i šta je bilo i šta je urađeno.
+const VRSTE_ODSTUPANJA = [
+  "Kupac odbio robu",
+  "Oštećena roba ili ambalaža",
+  "Pogrešna količina ili artikal",
+  "Temperatura pri predaji",
+  "Reklamacija kupca poslije isporuke",
+  "Kašnjenje isporuke",
+  "Drugo",
+];
+
+function OdstupanjeModal({ isporuka, onClose, onSacuvano }: { isporuka: IsporukaRed; onClose: () => void; onSacuvano: () => void }) {
+  const [vrsta, setVrsta] = useState(VRSTE_ODSTUPANJA[0]);
+  const [opis, setOpis] = useState("");
+  const [ozbiljnost, setOzbiljnost] = useState("SREDNJI");
+  const [greska, setGreska] = useState("");
+  const [poslato, setPoslato] = useState<string | null>(null);
+
+  const posalji = async () => {
+    try {
+      const r = await api<{ broj: string }>("/neusaglasenosti", {
+        telo: { opis: `${vrsta}: ${opis.trim()}`, ozbiljnost, izvorTip: "isporuka", izvorId: isporuka.id },
+      });
+      setPoslato(r.broj);
+      onSacuvano();
+    } catch (e) {
+      setGreska(e instanceof ApiGreska ? e.message : "Odstupanje nije sačuvano.");
+    }
+  };
+
+  if (poslato) {
+    return (
+      <Modal naslov="Odstupanje prijavljeno" onClose={onClose} footer={<button className="primary-button" onClick={onClose}>Zatvori</button>}>
+        <div style={{ padding: 20, fontSize: 12 }}>
+          Upisano kao <strong>{poslato}</strong>, vezano za isporuku {isporuka.broj}. Odgovorno lice je dobilo obavještenje i određuje mjeru —
+          prati se na strani Neusaglašenosti.
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal
+      naslov={`Problem na isporuci ${isporuka.broj}`}
+      podnaslov={isporuka.kupac_naziv}
+      onClose={onClose}
+      greska={greska}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={opis.trim().length < 3}>Prijavi</button></>}
+    >
+      <div className="form-grid">
+        <label style={{ gridColumn: "1 / -1" }}>
+          Šta se desilo
+          <select value={vrsta} onChange={(e) => setVrsta(e.target.value)}>
+            {VRSTE_ODSTUPANJA.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+        <label style={{ gridColumn: "1 / -1" }}>
+          Opis
+          <textarea rows={3} value={opis} onChange={(e) => setOpis(e.target.value)} placeholder="npr. 2 kom jogurta oštećena pri istovaru, kupac ih nije primio" />
+        </label>
+        <label>
+          Koliko je ozbiljno
+          <select value={ozbiljnost} onChange={(e) => setOzbiljnost(e.target.value)}>
+            <option value="NIZAK">Nisko</option>
+            <option value="SREDNJI">Srednje</option>
+            <option value="VISOK">Visoko — bezbjednost hrane</option>
+          </select>
+        </label>
+        <p className="muted-text" style={{ gridColumn: "1 / -1", fontSize: 10, margin: 0 }}>
+          {isporuka.status === "U_PRIPREMI"
+            ? "Isporuka još nije potvrđena — pogrešnu količinu ili artikal ispravite dugmetom „Izmijeni“. Ovdje prijavite ono što treba da vidi odgovorno lice."
+            : "Potvrđena isporuka se ne prepravlja — ispravka ide kao ovaj zapis, vezan za isporuku, da ostane trag šta je bilo i šta je urađeno."}
+        </p>
       </div>
     </Modal>
   );

@@ -58,7 +58,8 @@ export async function zabiljeziKontroluVozila(ulaz: NovaKontrolaVozilaUlaz, kori
         izvorTip: "neusaglasenost",
         izvorId: neusaglasenostId,
       });
-      await obavijestiUlogu(klijent, "bzr", {
+      // Važno za upravu: vidi i direktor, ne samo odgovorno lice.
+      for (const uloga of ["bzr", "uprava"]) await obavijestiUlogu(klijent, uloga, {
         naslov: "Vozilo nije spremno",
         poruka: `Kontrola vozila nije prošla — otvorena neusaglašenost ${broj}.`,
         ozbiljnost: "SREDNJI",

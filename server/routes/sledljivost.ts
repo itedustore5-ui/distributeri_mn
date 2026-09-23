@@ -5,7 +5,10 @@ import { pretraziSledljivost, lanacNaprijedZaLot, lanacNazadZaIsporuku } from ".
 import { str } from "../validacija.js";
 
 export const sledljivostRuter = Router();
-sledljivostRuter.use(requireAuth, requireUloga("bzr", "izvodjac", "uprava"));
+// Provjera važi SAMO za adrese ovog rutera. Ruter je montiran na zajednički "/api", pa bi
+// .use(...) bez putanje važio za SVAKI zahtjev koji prođe kroz njega — i zaključao bi rute
+// registrovane poslije (ovako je uprava dobijala 403 na /api/tabla).
+sledljivostRuter.use("/sledljivost", requireAuth, requireUloga("bzr", "izvodjac", "uprava"));
 
 sledljivostRuter.get(
   "/sledljivost/pretraga",

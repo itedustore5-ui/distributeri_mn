@@ -42,6 +42,22 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
       );
     }
 
+    // Serija pod povlačenjem ne smije dalje u isporuku (čl. 28): lot na HOLD, sve što je od njega
+    // ostalo u magacinu prelazi u karantin. Bez ovoga je sporni lot i dalje bio ponuđen za isporuku.
+    await klijent.query(`update lot set status = 'HOLD', updated_at = now() where id = $1`, [lotId]);
+    await klijent.query(
+      `insert into zaliha (lot_id, artikal_id, kolicina, status)
+       select lot_id, artikal_id, kolicina, 'KARANTIN' from zaliha where lot_id = $1 and status = 'DOSTUPNO' and kolicina > 0
+       on conflict (lot_id, status) do update set kolicina = zaliha.kolicina + excluded.kolicina, updated_at = now()`,
+      [lotId],
+    );
+    await klijent.query(`update zaliha set kolicina = 0, updated_at = now() where lot_id = $1 and status = 'DOSTUPNO'`, [lotId]);
+    await klijent.query(
+      `insert into kretanje_zalihe (lot_id, artikal_id, kolicina_delta, tip, referenca_tip, referenca_id, izvrsio_korisnik_id, napomena)
+       select $1, artikal_id, 0, 'HOLD', 'povlacenje', $2, $3, 'HOLD zbog povlačenja' from lot where id = $1`,
+      [lotId, povlacenjeId, korisnikId],
+    );
+
     const brojNc = `NC-${danasCG().replaceAll("-", "").slice(2)}-P${Math.floor(Math.random() * 900 + 100)}`;
     const nc = await klijent.query<{ id: string }>(
       `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
@@ -55,7 +71,8 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
       izvorTip: "povlacenje",
       izvorId: povlacenjeId,
     });
-    await obavijestiUlogu(klijent, "bzr", {
+    // Važno za upravu: vidi i direktor, ne samo odgovorno lice.
+    for (const uloga of ["bzr", "uprava"]) await obavijestiUlogu(klijent, uloga, {
       naslov: "Pokrenuto povlačenje robe",
       poruka: `${broj} — ${isporuke.rows.length} kupaca treba obavijestiti.`,
       ozbiljnost: "VISOK",
@@ -86,7 +103,7 @@ export async function zavrsiPovlacenje(povlacenjeId: string, korisnikId: string)
     [povlacenjeId],
   );
   if (Number(nekontaktirani.rows[0].broj) > 0) {
-    throw new ApiGreska(409, "NISU_SVI_KONTAKTIRANI", "Ne mogu se zatvoriti povlačenje dok svi kupci nisu obavješteni.");
+    throw new ApiGreska(409, "NISU_SVI_KONTAKTIRANI", "Povlačenje se ne može zatvoriti dok svi kupci nisu obaviješteni.");
   }
   const rezultat = await pool.query(
     `update povlacenje set status = 'ZAVRSENO', zavrseno_at = now(), zavrsio_korisnik_id = $1 where id = $2 and status = 'U_TOKU' returning id`,

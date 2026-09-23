@@ -62,3 +62,28 @@ export async function izveziSve(): Promise<{ podaci: Record<string, Record<strin
   }
   return { podaci, nedostaje };
 }
+
+/** Pregled prije preuzimanja ili štampe: najnovijih `limit` redova, sa ukupnim brojem. Isti izvor
+ * i ista provjera kao CSV — ono što se vidi na ekranu je ono što se preuzme. */
+export async function pregled(kod: string, limit = 500) {
+  const stavka = IZVORI_IZVOZA.find((i) => i.kod === kod);
+  if (!stavka) throw new ApiGreska(404, "IZVOZ_NEPOZNAT", "Traženi izvor izvoza ne postoji.");
+  if (!(await tabelaPostoji(stavka.izvor))) {
+    throw new ApiGreska(409, "IZVOR_NEDOSTAJE", `Izvor "${stavka.naziv}" trenutno nije dostupan u bazi. Pokrenite migracije (npm run migriraj) pa pokušajte ponovo.`);
+  }
+  const prazno = await pool.query(`select * from ${stavka.izvor} limit 0`);
+  const kolone = prazno.fields.map((f) => f.name);
+  const poredak = kolone.includes("created_at") ? "created_at desc" : "1";
+  const [redovi, ukupno] = await Promise.all([
+    pool.query(`select * from ${stavka.izvor} order by ${poredak} limit $1`, [limit]),
+    pool.query<{ n: number }>(`select count(*)::int as n from ${stavka.izvor}`),
+  ]);
+  return { naziv: stavka.naziv, kolone, redovi: redovi.rows, ukupno: ukupno.rows[0].n };
+}
+
+/** Spisak izvora sa oznakom koji nedostaje u bazi (invarijanta #30) — da ekran to kaže unaprijed. */
+export async function spisakIzvora() {
+  return Promise.all(
+    IZVORI_IZVOZA.map(async ({ kod, naziv, izvor }) => ((await tabelaPostoji(izvor)) ? { kod, naziv } : { kod, naziv, nedostaje: true, razlog: `relation "${izvor}" does not exist` })),
+  );
+}

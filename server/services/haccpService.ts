@@ -94,7 +94,8 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
         izvorTip: "neusaglasenost",
         izvorId: neusaglasenostId,
       });
-      await obavijestiUlogu(klijent, "bzr", {
+      // Važno za upravu: vidi i direktor, ne samo odgovorno lice.
+      for (const uloga of ["bzr", "uprava"]) await obavijestiUlogu(klijent, uloga, {
         naslov: "Temperatura van opsega",
         poruka: `${ulaz.vrijednost}°C — otvorena neusaglašenost ${broj}.`,
         ozbiljnost: "VISOK",

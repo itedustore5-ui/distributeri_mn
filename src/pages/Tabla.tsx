@@ -5,6 +5,8 @@ import { api, ApiGreska, preuzmiFajl } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader } from "../components/Zajednicko";
 import { ListaZadataka } from "../components/Zadaci";
+import { AktivnostUzivo } from "../components/Aktivnost";
+import { mozeNa } from "../components/Layout";
 import { useAuth } from "../lib/auth";
 
 type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
@@ -33,6 +35,8 @@ export function Tabla() {
   const navigate = useNavigate();
 
   const mozeBekap = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
+  // Uprava nadgleda: ne rješava zadatke i ne ulazi na operativne strane — vidi stanje i aktivnost.
+  const jeUprava = korisnik?.uloga === "uprava";
 
   useEffect(() => {
     api<TablaPodaci>("/tabla").then(setPodaci);
@@ -64,7 +68,11 @@ export function Tabla() {
     { naslov: "Lotovi na HOLD-u", vrijednost: k.lotoviNaHoldu, ikonica: <PackageX size={18} />, putanja: "/zalihe", tona: k.lotoviNaHoldu > 0 ? "danger" : "warning" },
     { naslov: "Zakašnjeli zadaci", vrijednost: k.zadaciZakasnili, ikonica: <Clock3 size={18} />, putanja: "#zadaci", tona: k.zadaciZakasnili > 0 ? "danger" : "warning" },
     { naslov: "Knjižice ističu/istekle", vrijednost: k.knjizicIstice, ikonica: <BookOpen size={18} />, putanja: "/ljudi", tona: k.knjizicIstice > 0 ? "danger" : "warning" },
-  ];
+  ].filter((kartica) => !(jeUprava && kartica.putanja === "#zadaci"));
+  const otvori = (putanja: string) => {
+    if (putanja.startsWith("#")) document.getElementById(putanja.slice(1))?.scrollIntoView({ behavior: "smooth" });
+    else if (korisnik && mozeNa(korisnik.uloga, putanja)) navigate(putanja);
+  };
 
   return (
     <>
@@ -77,7 +85,7 @@ export function Tabla() {
       </div>
       <div className="alert-grid">
         {kriticneKartice.map((kartica) => (
-          <button key={kartica.naslov} className={`alert-card ${kartica.vrijednost > 0 ? kartica.tona : "neutral"}`} onClick={() => kartica.putanja.startsWith("#") ? document.getElementById(kartica.putanja.slice(1))?.scrollIntoView({ behavior: "smooth" }) : navigate(kartica.putanja)}>
+          <button key={kartica.naslov} className={`alert-card ${kartica.vrijednost > 0 ? kartica.tona : "neutral"}`} onClick={() => otvori(kartica.putanja)} style={korisnik && !kartica.putanja.startsWith("#") && !mozeNa(korisnik.uloga, kartica.putanja) ? { cursor: "default" } : undefined}>
             <div className="alert-card-icon">{kartica.ikonica}</div>
             <div className="alert-card-content">
               <b>{kartica.vrijednost}</b>
@@ -93,7 +101,7 @@ export function Tabla() {
         </div>
       </div>
       <div className="stats-grid">
-        <button className="stat-card" onClick={() => navigate("/prijem")} style={{ textAlign: "left" }}>
+        <button className="stat-card" onClick={() => otvori("/prijem")} style={{ textAlign: "left" }}>
           <div className="stat-icon blue">
             <ArrowDownToLine size={18} />
           </div>
@@ -102,7 +110,7 @@ export function Tabla() {
             <strong>{podaci.operativno.prijemiDanas}</strong>
           </div>
         </button>
-        <button className="stat-card" onClick={() => navigate("/isporuka")} style={{ textAlign: "left" }}>
+        <button className="stat-card" onClick={() => otvori("/isporuka")} style={{ textAlign: "left" }}>
           <div className="stat-icon green">
             <PackageCheck size={18} />
           </div>
@@ -111,7 +119,7 @@ export function Tabla() {
             <strong>{podaci.operativno.isporukeDanas}</strong>
           </div>
         </button>
-        <button className="stat-card" onClick={() => navigate("/haccp")} style={{ textAlign: "left" }}>
+        <button className="stat-card" onClick={() => otvori("/haccp")} style={{ textAlign: "left" }}>
           <div className="stat-icon orange">
             <ClipboardList size={18} />
           </div>
@@ -123,6 +131,16 @@ export function Tabla() {
         </button>
       </div>
 
+      <div className="section-heading" style={{ marginTop: 26 }}>
+        <div>
+          <h2>Šta se dešava</h2>
+          <span>Svaki prijem, isporuka, obrazac, kontrola i problem — ko je i kada. Temperatura van opsega, povlačenje i nespremno vozilo stižu i na zvonce.</span>
+        </div>
+      </div>
+      <AktivnostUzivo />
+
+      {!jeUprava && (
+      <>
       <div className="section-heading" id="zadaci" style={{ marginTop: 26 }}>
         <div>
           <h2>Otvoreni zadaci ({k.zadaciOtvoreni})</h2>
@@ -134,6 +152,8 @@ export function Tabla() {
         </div>
       </div>
       <ListaZadataka samoMoji={false} naslov="Svi otvoreni zadaci" />
+      </>
+      )}
 
       {mozeBekap && (
         <>

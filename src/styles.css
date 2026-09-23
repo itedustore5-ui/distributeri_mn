@@ -365,3 +365,91 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
 .upozorenje-traka svg { flex: 0 0 auto; }
 .kontrole-kartice { display: none; min-height: auto; padding: 4px 16px; }
 @media (max-width: 760px) { .kontrole-kartice { display: block; } .kontrole-tabela { display: none; } }
+/* Štampa po filterima */
+.samo-stampa { display: none; }
+@media print {
+  .samo-stampa { display: block !important; }
+  .filter-bar, .filter-tabs, .page-header, .primary-button, .secondary-button, .small-action, .link-button, .row-action, .zvonce { display: none !important; }
+  .data-table-wrap { overflow: visible !important; }
+  .data-table { font-size: 9pt; }
+  .data-table th, .data-table td { padding: 4px 6px !important; border-bottom: 1px solid #ccc; }
+  .stampa-zaglavlje { display: flex !important; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #222; padding-bottom: 8px; margin-bottom: 12px; }
+  .stampa-zaglavlje h1 { font-size: 16pt; margin: 2px 0 0; }
+  .stampa-zaglavlje strong { font-size: 10pt; }
+  .stampa-meta { display: flex; flex-direction: column; align-items: flex-end; font-size: 8pt; gap: 2px; }
+  .kontrole-kartice { display: none !important; }
+  .kontrole-tabela { display: block !important; }
+}
+.filter-bar label.filter-pretraga span { position: relative; display: flex; align-items: center; }
+.filter-bar label.filter-pretraga svg { position: absolute; left: 9px; color: #9aa5ae; }
+.filter-bar label.filter-pretraga input { padding-left: 28px; min-width: 200px; }
+.rok-oznaka { display: inline-flex; margin-left: 6px; border-radius: 5px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #bc7a1e; background: #fff5e4; }
+.rok-oznaka.istekao { color: #c34e55; background: #fff0f0; }
+.filter-tabs b { font-weight: 700; }
+/* Neusaglašenosti — tok rješavanja */
+.nc-tok { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
+.nc-tok-korak { display: flex; gap: 8px; align-items: flex-start; background: #fff; border: 1px solid var(--line); border-radius: 9px; padding: 10px; }
+.nc-tok-korak > span { flex: 0 0 22px; height: 22px; border-radius: 50%; background: #edf3ff; color: #315fda; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+.nc-tok-korak strong { display: block; font-size: 11px; color: #34454f; }
+.nc-tok-korak small { font-size: 9px; color: #8b98a4; }
+@media (max-width: 760px) { .nc-tok { grid-template-columns: 1fr 1fr; } }
+.nc-row.nc-za-mene { background: #fffaf0; }
+.nc-oznaka-mjera { display: inline-flex; margin-left: 8px; border-radius: 5px; padding: 1px 6px; font-size: 9px; font-weight: 700; color: #fff; background: var(--orange); }
+.nc-koraci { display: flex; gap: 4px; margin-bottom: 12px; }
+.nc-korak { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.nc-korak > span { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: #f1f4f6; color: #8897a4; }
+.nc-korak.uradjen > span { background: var(--green); color: #fff; }
+.nc-korak.trenutni > span { background: var(--blue); color: #fff; box-shadow: 0 0 0 4px #3d72f522; }
+.nc-korak small { font-size: 9px; color: #6d7d88; }
+.nc-sljedeci { background: #f0f4ff; color: #2b4f9e; border-radius: 8px; padding: 10px 12px; font-size: 11px; font-weight: 600; }
+.nc-mjera { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
+.nc-mjera-glava { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.nc-mjera-glava strong { font-size: 11px; color: #34454f; }
+.nc-uradjeno { font-size: 11px; color: #2c6e4f; margin: 2px 0 0; }
+.nc-uradi { display: flex; gap: 8px; align-items: flex-end; margin-top: 4px; }
+.nc-uradi textarea { flex: 1; border: 1px solid #dfe7ed; border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 11px; resize: vertical; }
+.nc-nova-mjera { padding: 12px 0 0 !important; border-top: 1px solid #edf1f3; margin-top: 8px; }
+.nc-provjera { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; border-top: 1px solid #edf1f3; padding-top: 14px; }
+.nc-provjera input { height: 35px; border: 1px solid #dfe7ed; border-radius: 6px; padding: 0 9px; font-size: 11px; }
+@media (max-width: 480px) { .nc-uradi { flex-direction: column; align-items: stretch; } }
+.odstupanje-oznaka { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; border: 0; border-radius: 5px; padding: 2px 6px; font-size: 9px; font-weight: 700; color: #fff; background: var(--orange); cursor: pointer; vertical-align: middle; }
+.small-action.odstupanje-dugme { color: #b8434a; background: #fff0f0; }
+/* Aktivnost uživo */
+.aktivnost-panel { min-height: auto; }
+.aktivnost-lista { padding: 0 20px 12px; max-height: 520px; overflow-y: auto; }
+.aktivnost-red { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px solid #f0f3f6; }
+.aktivnost-red:first-child { border-top: 0; }
+.aktivnost-red.klikabilno { cursor: pointer; }
+.aktivnost-red.klikabilno:hover { background: #f8fafc; }
+.aktivnost-red > div:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.aktivnost-red strong { font-size: 11px; color: #34454f; font-weight: 600; }
+.aktivnost-red small { font-size: 9px; color: #9aa5ae; }
+.aktivnost-ikonica { flex: 0 0 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: #edf3ff; color: var(--blue); }
+.aktivnost-red.upozorenje .aktivnost-ikonica { background: #fff6e8; color: var(--orange); }
+.aktivnost-red.problem .aktivnost-ikonica { background: #fff0f0; color: var(--red); }
+.aktivnost-red.problem strong { color: #b8434a; }
+.uzivo-tacka { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-left: 6px; vertical-align: 2px; animation: uzivo 2s infinite; }
+@keyframes uzivo { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.small-action.selected { background: #315fda; color: #fff; }
+/* Izvještaji: izbor → pregled → štampa */
+.izvjestaji-raspored { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: start; }
+.izvjestaji-spisak { display: flex; flex-direction: column; gap: 4px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.izvjestaj-stavka { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; border-radius: 7px; padding: 8px 10px; text-align: left; font-size: 11px; color: #3d4d59; cursor: pointer; }
+.izvjestaj-stavka:hover { background: #f5f8fb; }
+.izvjestaj-stavka.izabran { background: #edf3ff; color: #2b60d7; font-weight: 600; }
+.izvjestaj-stavka small { margin-left: auto; font-size: 9px; }
+.izvjestaji-pregled { min-width: 0; }
+.izvjestaj-prazno { padding: 40px 20px; text-align: center; color: #9aa5ae; font-size: 12px; min-height: auto; }
+@media (max-width: 760px) { .izvjestaji-raspored { grid-template-columns: 1fr; } }
+@media print { .izvjestaji-raspored { display: block !important; } }
+/* Provjera znanja — skor i prolaz */
+.skor-traka { width: 80px; height: 6px; border-radius: 4px; background: #eef2f5; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
+.skor-traka span { display: block; height: 100%; border-radius: 4px; }
+.skor-traka span.prosao { background: var(--green); }
+.skor-traka span.pao { background: var(--red); }
+.prolaz { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; }
+.prolaz.da { color: var(--green); }
+.prolaz.ne { color: var(--red); }
+.form-grid label.odgovor-red { flex-direction: row; align-items: center; gap: 8px; }
+.form-grid label.odgovor-red input[type="radio"] { width: auto; height: auto; }
+.form-grid label.odgovor-red input:not([type="radio"]) { flex: 1; }
