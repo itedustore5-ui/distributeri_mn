@@ -4,17 +4,20 @@ import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
+import { useAuth } from "../lib/auth";
 
 type Kupac = { id: string; naziv: string; telefon: string };
 type Vozilo = { id: string; registarski_broj: string; status: string };
+type Vozac = { id: string; ime: string };
 type LotDostupan = { lot_id: string; artikal_naziv: string; broj_lota: string; kolicina: string };
-type IsporukaRed = { id: string; broj: string; kupac_naziv: string; datum_isporuke: string; status: string; registarski_broj: string | null };
+type IsporukaRed = { id: string; broj: string; kupac_naziv: string; datum_isporuke: string; status: string; registarski_broj: string | null; vozac_korisnik_id: string | null };
 type StavkaIsporuke = { id: string; artikal_naziv: string; broj_lota: string; planirana_kolicina: string; isporucena_kolicina: string };
 
 export function Isporuka() {
   const [lista, setLista] = useState<IsporukaRed[]>([]);
   const [kupci, setKupci] = useState<Kupac[]>([]);
   const [vozila, setVozila] = useState<Vozilo[]>([]);
+  const [vozaci, setVozaci] = useState<Vozac[]>([]);
   const [zaliha, setZaliha] = useState<LotDostupan[]>([]);
   const [modalNova, setModalNova] = useState(false);
   const [modalIzmjena, setModalIzmjena] = useState<{ isporuka: IsporukaRed; stavke: StavkaIsporuke[] } | null>(null);
@@ -29,7 +32,10 @@ export function Isporuka() {
     ucitaj();
     api<Kupac[]>("/kupci").then(setKupci);
     api<Vozilo[]>("/vozila").then(setVozila);
+    api<Vozac[]>("/vozaci").then(setVozaci);
   }, []);
+
+  const imeVozaca = (id: string | null) => vozaci.find((v) => v.id === id)?.ime ?? "—";
 
   const otvoriPotvrdu = async (i: IsporukaRed) => {
     const detalj = await api<{ stavke: StavkaIsporuke[] }>(`/isporuke/${i.id}`);
@@ -61,6 +67,7 @@ export function Isporuka() {
                 <th>Broj</th>
                 <th>Kupac</th>
                 <th>Vozilo</th>
+                <th>Vozač</th>
                 <th>Datum</th>
                 <th>Status</th>
                 <th></th>
@@ -72,6 +79,7 @@ export function Isporuka() {
                   <td>{i.broj}</td>
                   <td>{i.kupac_naziv}</td>
                   <td className="muted-text">{i.registarski_broj ?? "—"}</td>
+                  <td className="muted-text">{imeVozaca(i.vozac_korisnik_id)}</td>
                   <td className="muted-text">{i.datum_isporuke}</td>
                   <td><StatusBadge status={i.status} /></td>
                   <td>
@@ -90,7 +98,7 @@ export function Isporuka() {
       </div>
 
       {modalNova && (
-        <IsporukaFormaModal kupci={kupci} vozila={vozila} zaliha={zaliha} onClose={() => setModalNova(false)} onSacuvano={ucitaj} />
+        <IsporukaFormaModal kupci={kupci} vozila={vozila} vozaci={vozaci} zaliha={zaliha} onClose={() => setModalNova(false)} onSacuvano={ucitaj} />
       )}
       {modalIzmjena && (
         <IsporukaFormaModal
@@ -98,6 +106,7 @@ export function Isporuka() {
           postojeceStavke={modalIzmjena.stavke}
           kupci={kupci}
           vozila={vozila}
+          vozaci={vozaci}
           zaliha={zaliha}
           onClose={() => setModalIzmjena(null)}
           onSacuvano={ucitaj}
@@ -117,6 +126,7 @@ function IsporukaFormaModal({
   postojeceStavke,
   kupci,
   vozila,
+  vozaci,
   zaliha,
   onClose,
   onSacuvano,
@@ -125,13 +135,19 @@ function IsporukaFormaModal({
   postojeceStavke?: StavkaIsporuke[];
   kupci: Kupac[];
   vozila: Vozilo[];
+  vozaci: Vozac[];
   zaliha: LotDostupan[];
   onClose: () => void;
   onSacuvano: () => void;
 }) {
+  const { korisnik } = useAuth();
   const izmjena = !!postojeca;
   const [kupacId, setKupacId] = useState(kupci[0]?.id ?? "");
-  const [vozilId, setVozilId] = useState(postojeca?.registarski_broj ? vozila.find((v) => v.registarski_broj === postojeca.registarski_broj)?.id ?? "" : vozila[0]?.id ?? "");
+  // Podrazumijevano prvo SPREMNO vozilo — nespremno bi server ionako odbio.
+  const [vozilId, setVozilId] = useState(
+    postojeca ? (vozila.find((v) => v.registarski_broj === postojeca.registarski_broj)?.id ?? "") : (vozila.find((v) => v.status === "SPREMNO")?.id ?? ""),
+  );
+  const [vozacId, setVozacId] = useState(postojeca ? (postojeca.vozac_korisnik_id ?? "") : korisnik?.uloga === "vozac" ? korisnik.id : "");
   const [datum, setDatum] = useState(postojeca?.datum_isporuke ?? lokalniDatum());
   const [redovi, setRedovi] = useState<NovaStavkaRed[]>(
     postojeceStavke && postojeceStavke.length > 0
@@ -149,11 +165,12 @@ function IsporukaFormaModal({
       const telo = {
         kupacId,
         vozilId: vozilId || undefined,
+        vozacKorisnikId: vozacId || undefined,
         datumIsporuke: datum,
         stavke: redovi.map((r) => ({ lotId: r.lotId, planiranaKolicina: Number(r.kolicina) })),
       };
       if (izmjena) {
-        await api(`/isporuke/${postojeca!.id}`, { method: "PATCH", telo: { vozilId: telo.vozilId, datumIsporuke: telo.datumIsporuke, stavke: telo.stavke } });
+        await api(`/isporuke/${postojeca!.id}`, { method: "PATCH", telo: { vozilId: telo.vozilId, vozacKorisnikId: telo.vozacKorisnikId, datumIsporuke: telo.datumIsporuke, stavke: telo.stavke } });
       } else {
         await api("/isporuke", { telo });
       }
@@ -188,14 +205,22 @@ function IsporukaFormaModal({
         <label>
           Vozilo
           <select value={vozilId} onChange={(e) => setVozilId(e.target.value)}>
+            <option value="">— bez vozila —</option>
             {vozila.map((v) => <option key={v.id} value={v.id} disabled={v.status !== "SPREMNO"}>{v.registarski_broj}{v.status !== "SPREMNO" ? " (nije spremno)" : ""}</option>)}
           </select>
         </label>
-        <label style={{ gridColumn: "1 / -1" }}>Datum isporuke<input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} /></label>
+        <label>
+          Vozač
+          <select value={vozacId} onChange={(e) => setVozacId(e.target.value)}>
+            <option value="">— nije dodijeljen —</option>
+            {vozaci.map((v) => <option key={v.id} value={v.id}>{v.ime}</option>)}
+          </select>
+        </label>
+        <label>Datum isporuke<input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} /></label>
       </div>
       <div style={{ padding: "0 20px" }}>
         {redovi.map((red, i) => (
-          <div key={i} className="form-grid" style={{ padding: "10px 0", borderTop: "1px solid #edf1f3", gridTemplateColumns: "1fr auto auto" }}>
+          <div key={i} className="form-grid stavka-red" style={{ padding: "10px 0", borderTop: "1px solid #edf1f3" }}>
             <label>
               Artikal / lot <ZakonskaOznaka clan="27" />
               <select value={red.lotId} onChange={(e) => azurirajRed(i, { lotId: e.target.value })}>

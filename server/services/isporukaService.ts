@@ -74,6 +74,7 @@ export async function kreirajIsporuku(ulaz: NovaIsporukaUlaz, korisnikId: string
 
 export type IzmjenaIsporukeUlaz = {
   vozilId?: string | null;
+  vozacKorisnikId?: string | null;
   datumIsporuke: string;
   stavke: StavkaIsporukeUlaz[];
 };
@@ -123,8 +124,9 @@ export async function izmijeniIsporuku(isporukaId: string, ulaz: IzmjenaIsporuke
         [isporukaId, stavka.lotId, stavka.planiranaKolicina],
       );
     }
-    await klijent.query(`update isporuka set vozilo_id = $1, datum_isporuke = $2, updated_at = now() where id = $3`, [
+    await klijent.query(`update isporuka set vozilo_id = $1, vozac_korisnik_id = $2, datum_isporuke = $3, updated_at = now() where id = $4`, [
       ulaz.vozilId ?? null,
+      ulaz.vozacKorisnikId ?? null,
       ulaz.datumIsporuke,
       isporukaId,
     ]);

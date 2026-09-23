@@ -4,6 +4,7 @@ import { Plus, KeyRound, Printer } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
+import { useAuth } from "../lib/auth";
 
 type Lice = {
   id: string;
@@ -48,6 +49,10 @@ const TABOVI = [
 
 export function Ljudi() {
   const navigate = useNavigate();
+  const { korisnik } = useAuth();
+  // Isto pravilo kao smijeDodijelitiUlogu na serveru — dugme se ne nudi tamo gdje bi server odbio.
+  const smijeDirnutiNalog = (uloga: string) =>
+    korisnik?.uloga === "izvodjac" ? uloga !== "izvodjac" : korisnik?.uloga === "bzr" && (uloga === "operater" || uloga === "vozac");
   const [tab, setTab] = useState<(typeof TABOVI)[number]["kod"]>("zaposleni");
   const [lica, setLica] = useState<Lice[]>([]);
   const [plan, setPlan] = useState<PlanStavka[]>([]);
@@ -287,7 +292,7 @@ export function Ljudi() {
                     </td>
                     <td>{n.aktivan ? <StatusBadge status="VAZI" tekst="Aktivan" /> : <StatusBadge status="ISTEKLA" tekst="Deaktiviran" />}</td>
                     <td>
-                      {n.aktivan && (
+                      {n.aktivan && smijeDirnutiNalog(n.uloga) && (
                         <button className="small-action" onClick={() => api(`/nalozi/${n.id}/deaktiviraj`, { method: "PATCH", telo: {} }).then(ucitaj)}>
                           Deaktiviraj
                         </button>

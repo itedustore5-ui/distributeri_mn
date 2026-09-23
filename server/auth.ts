@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { upit } from "./db.js";
 import { ApiGreska, posalji } from "./greske.js";
+import { danaUnazad, jeDatumUBuducnosti } from "./vrijeme.js";
 
 export type Uloga = "izvodjac" | "bzr" | "operater" | "vozac" | "uprava";
 
@@ -149,6 +150,30 @@ export const NA_TERENU: Uloga[] = ["operater", "vozac"];
 export function ogranicenjeDatuma(uloga: Uloga, kolona: string) {
   const dani = PROZOR[uloga];
   return `${kolona} >= current_date - interval '${dani} days'`;
+}
+
+const KO_UNOSI_STARIJE: Partial<Record<Uloga, string>> = {
+  operater: "odgovorno lice",
+  vozac: "odgovorno lice",
+  bzr: "konsultant",
+  uprava: "konsultant",
+};
+
+/** Invarijanta #9 pri UPISU (ne samo pri čitanju liste): datum ne smije biti u budućnosti
+ * ni stariji od prozora uloge. Bez ovoga je zapis mogao nastati "noć prije inspekcije". */
+export function provjeriProzorUpisa(uloga: Uloga, datum: string) {
+  if (jeDatumUBuducnosti(datum)) {
+    throw new ApiGreska(400, "DATUM_U_BUDUCNOSTI", "Datum ne može biti u budućnosti.");
+  }
+  const dani = PROZOR[uloga];
+  if (danaUnazad(datum) > dani) {
+    const ko = KO_UNOSI_STARIJE[uloga];
+    throw new ApiGreska(
+      400,
+      "DATUM_VAN_PROZORA",
+      `Upis je dozvoljen najviše ${dani} ${dani === 1 ? "dan" : "dana"} unazad${ko ? ` — stariji zapis unosi ${ko}` : ""}.`,
+    );
+  }
 }
 
 /** Operater/vozač ne mogu upisati tuđe ime kao izvršioca — server ga uvijek postavi na njihovo. */

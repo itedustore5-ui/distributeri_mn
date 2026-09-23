@@ -2,9 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, ogranicenjeDatuma, samoMoje, type AuthZahtjev } from "../auth.js";
+import { requireAuth, requireUloga, ogranicenjeDatuma, samoMoje, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
-import { jeDatumUBuducnosti } from "../vrijeme.js";
 import { kreirajIsporuku, izmijeniIsporuku, potvrdiIsporuku } from "../services/isporukaService.js";
 
 export const isporukaRuter = Router();
@@ -14,7 +13,8 @@ isporukaRuter.get(
   "/isporuke",
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ogranicenje = ogranicenjeDatuma(request.korisnik!.uloga, "i.datum_isporuke");
-    const filterMoje = samoMoje(request.korisnik!.uloga) ? "and i.uneo_korisnik_id = $1" : "";
+    // Vozač vidi i isporuke koje je magacioner pripremio i njemu dodijelio, ne samo svoje.
+    const filterMoje = samoMoje(request.korisnik!.uloga) ? "and (i.uneo_korisnik_id = $1 or i.vozac_korisnik_id = $1)" : "";
     const parametri = filterMoje ? [request.korisnik!.id] : [];
     const rezultat = await upit(
       `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj
@@ -60,9 +60,7 @@ isporukaRuter.post(
   requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(novaIsporukaSchema, request.body);
-    if (jeDatumUBuducnosti(ulaz.datumIsporuke)) {
-      throw new ApiGreska(400, "DATUM_U_BUDUCNOSTI", "Datum isporuke ne može biti u budućnosti.");
-    }
+    provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumIsporuke);
     const isporukaId = await kreirajIsporuku(ulaz, request.korisnik!.id);
     response.status(201).json({ id: isporukaId });
   }),
@@ -72,10 +70,8 @@ isporukaRuter.patch(
   "/isporuke/:id",
   requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
-    const ulaz = tijelo(novaIsporukaSchema.omit({ kupacId: true, vozacKorisnikId: true, napomena: true }), request.body);
-    if (jeDatumUBuducnosti(ulaz.datumIsporuke)) {
-      throw new ApiGreska(400, "DATUM_U_BUDUCNOSTI", "Datum isporuke ne može biti u budućnosti.");
-    }
+    const ulaz = tijelo(novaIsporukaSchema.omit({ kupacId: true, napomena: true }), request.body);
+    provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumIsporuke);
     await izmijeniIsporuku(str(request.params.id), ulaz, request.korisnik!.id);
     response.status(204).end();
   }),

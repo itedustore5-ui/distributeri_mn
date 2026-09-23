@@ -72,6 +72,19 @@ ljudiRuter.patch(
   }),
 );
 
+// Samo ime i id aktivnih vozača — za izbor vozača pri pripremi isporuke, bez ostalih podataka o nalozima.
+ljudiRuter.get(
+  "/vozaci",
+  asyncRuta(async (_request, response) => {
+    const rezultat = await upit(
+      `select k.id, coalesce(l.ime, k.korisnicko_ime) as ime
+       from korisnik k left join lice l on l.id = k.lice_id
+       where k.uloga = 'vozac' and k.aktivan order by 2`,
+    );
+    response.json(rezultat.rows);
+  }),
+);
+
 // Godišnji plan obuke — Prilog 13.
 ljudiRuter.get(
   "/plan-obuke",

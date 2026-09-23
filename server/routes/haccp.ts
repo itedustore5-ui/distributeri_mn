@@ -2,9 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool, upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, ogranicenjeDatuma, izvrsilacZa, samoMoje, type AuthZahtjev } from "../auth.js";
+import { requireAuth, requireUloga, ogranicenjeDatuma, izvrsilacZa, samoMoje, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo } from "../validacija.js";
-import { jeDatumUBuducnosti } from "../vrijeme.js";
 import { zabiljeziMjerenje } from "../services/haccpService.js";
 import { logKreiranje } from "../services/auditService.js";
 
@@ -140,9 +139,7 @@ haccpRuter.post(
   requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviZapisSchema, request.body);
-    if (jeDatumUBuducnosti(ulaz.datum)) {
-      throw new ApiGreska(400, "DATUM_U_BUDUCNOSTI", "Datum zapisa ne može biti u budućnosti.");
-    }
+    provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datum);
     if (ulaz.odstupanje && (!ulaz.korektivnaMjera || ulaz.korektivnaMjera.trim() === "")) {
       throw new ApiGreska(400, "MJERA_OBAVEZNA", "Odstupanje bez zapisane mjere je nalaz protiv firme, ne protiv zaposlenog — upišite korektivnu mjeru.");
     }

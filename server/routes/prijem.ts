@@ -2,9 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, ogranicenjeDatuma, type AuthZahtjev } from "../auth.js";
+import { requireAuth, requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
-import { jeDatumUBuducnosti } from "../vrijeme.js";
 import { kreirajPrijem, donesiOdlukuOLotu, izmijeniStavku } from "../services/prijemService.js";
 
 export const prijemRuter = Router();
@@ -62,9 +61,7 @@ prijemRuter.post(
   requireUloga("operater", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviPrijemSchema, request.body);
-    if (jeDatumUBuducnosti(ulaz.datumPrijema)) {
-      throw new ApiGreska(400, "DATUM_U_BUDUCNOSTI", "Datum prijema ne može biti u budućnosti.");
-    }
+    provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumPrijema);
     const prijemId = await kreirajPrijem(ulaz, request.korisnik!.id);
     response.status(201).json({ id: prijemId });
   }),
@@ -83,6 +80,13 @@ prijemRuter.patch(
   requireUloga("operater", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(izmjenaStavkeSchema, request.body);
+    const prijem = await upit<{ datum_prijema: string }>(
+      `select p.datum_prijema from lot l join prijem p on p.id = l.prijem_id where l.id = $1`,
+      [str(request.params.lotId)],
+    );
+    if (!prijem.rows[0]) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Stavka prijema nije pronađena.");
+    // Izmjena je upis — isti prozor kao za novi prijem, inače magacioner mijenja staru stavku koja čeka odluku.
+    provjeriProzorUpisa(request.korisnik!.uloga, prijem.rows[0].datum_prijema);
     await izmijeniStavku(str(request.params.lotId), ulaz, request.korisnik!.id);
     response.status(204).end();
   }),
