@@ -5,6 +5,7 @@ import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { logKreiranje, logIzmjena } from "../services/auditService.js";
+import { uskladiPravilaArtikla } from "../services/pravilaService.js";
 
 export const sifarniciRuter = Router();
 sifarniciRuter.use(requireAuth);
@@ -127,6 +128,8 @@ sifarniciRuter.post(
         [ulaz.sifra ?? null, ulaz.naziv, ulaz.jedinicaMjere, ulaz.zahtijevaLot, ulaz.tempKontrolisano, ulaz.tempMin ?? null, ulaz.tempMax ?? null, ulaz.rokTrajanjaDana ?? null, ulaz.granicaPotvrdio],
       );
       await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "artikal", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
+      // Granica sa artikla postaje pravilo za prijem i predaju — ocjenjuje se samo po pravilu.
+      await uskladiPravilaArtikla(klijent, rezultat.rows[0].id, request.korisnik!.id);
       return rezultat;
     });
     response.status(201).json({ id: rezultat.rows[0].id });
@@ -159,6 +162,7 @@ sifarniciRuter.patch(
         ],
       );
       await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "artikal", entitetId: str(request.params.id), noveVrijednosti: ulaz });
+      await uskladiPravilaArtikla(klijent, str(request.params.id), request.korisnik!.id);
     });
     response.status(204).end();
   }),

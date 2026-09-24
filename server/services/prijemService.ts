@@ -4,10 +4,15 @@ import { ApiGreska } from "../greske.js";
 import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logOdluka, logIzmjena } from "./auditService.js";
 import { evaluirajPravilo, zabiljeziMjerenje } from "./haccpService.js";
-import { kreirajObavjestenje } from "./zadaciService.js";
+import { kreirajObavjestenje, obavijestiUlogu } from "./zadaciService.js";
+import { kljucArtikla } from "./otpremnicaService.js";
+import { danasCG } from "../vrijeme.js";
 import { odrediSkladiste } from "./skladisteService.js";
 
 const KKT1_SIFRA = "KKT1";
+
+/** Stavka kako piše na otpremnici — čuva se uz stavku (manjak, lot koji se ne slaže). */
+export type PoOtpremnici = { sifra?: string | null; naziv?: string | null; kolicina?: number | null; lot?: string | null; rok?: string | null };
 
 export type StavkaUlaz = {
   artikalId: string;
@@ -16,6 +21,7 @@ export type StavkaUlaz = {
   rokTrajanja?: string | null;
   primljenaKolicina: number;
   temperaturaPrijema?: number | null;
+  poOtpremnici?: PoOtpremnici;
 };
 
 export type NoviPrijemUlaz = {
@@ -24,6 +30,8 @@ export type NoviPrijemUlaz = {
   brojDokumenta?: string;
   datumPrijema: string;
   napomena?: string;
+  /** Otpremnica (PDF/slika) poslata na čitanje — veže se za ovaj prijem. */
+  dokumentId?: string;
   stavke: StavkaUlaz[];
 };
 
@@ -34,6 +42,19 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
   for (const stavka of ulaz.stavke) {
     if (!stavka.brojLota || stavka.brojLota.trim() === "") {
       throw new ApiGreska(400, "LOT_OBAVEZAN", "Broj lota je obavezan za svaku stavku — bez njega nema sledljivosti.");
+    }
+  }
+
+  // KKT 1 se prati uz SVAKI prijem robe pod temperaturnim režimom — bez temperature nema dokaza da
+  // je hladni lanac održan do magacina (isto kao KKT 3 pri predaji kupcu).
+  const podRezimom = await upit<{ id: string; naziv: string }>(
+    `select id, naziv from artikal where temp_kontrolisano and id = any($1)`,
+    [ulaz.stavke.map((s) => s.artikalId)],
+  );
+  for (const s of ulaz.stavke) {
+    const a = podRezimom.rows.find((r) => r.id === s.artikalId);
+    if (a && (s.temperaturaPrijema === null || s.temperaturaPrijema === undefined)) {
+      throw new ApiGreska(400, "TEMPERATURA_OBAVEZNA", `Upišite temperaturu pri prijemu za "${a.naziv}" — roba je pod temperaturnim režimom (KKT 1).`);
     }
   }
 
@@ -63,12 +84,49 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
       await emituj(klijent, { tipDogadjaja: "EVT-011", entitetTip: "lot", entitetId: lotId, korisnikId });
 
       await klijent.query(
-        `insert into prijem_stavka (prijem_id, artikal_id, lot_id, primljena_kolicina, temperatura_prijema)
-         values ($1, $2, $3, $4, $5)`,
-        [prijemId, stavka.artikalId, lotId, stavka.primljenaKolicina, stavka.temperaturaPrijema ?? null],
+        `insert into prijem_stavka (prijem_id, artikal_id, lot_id, primljena_kolicina, temperatura_prijema, po_otpremnici)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [prijemId, stavka.artikalId, lotId, stavka.primljenaKolicina, stavka.temperaturaPrijema ?? null, stavka.poOtpremnici ? JSON.stringify(stavka.poOtpremnici) : null],
       );
 
+      // "Njihov" artikal → naš artikal, zapamćeno za ovog dobavljača: sljedeća otpremnica se
+      // prepozna sama. Pamti se ono što je čovjek potvrdio, ne ono što je aplikacija pogodila.
+      const nj = stavka.poOtpremnici;
+      if (nj && (nj.sifra?.trim() || nj.naziv?.trim())) {
+        await klijent.query(
+          `insert into artikal_dobavljaca (dobavljac_id, kljuc, sifra, naziv, artikal_id, potvrdio_korisnik_id)
+           values ($1, $2, $3, $4, $5, $6)
+           on conflict (dobavljac_id, kljuc) do update
+             set artikal_id = excluded.artikal_id, sifra = excluded.sifra, naziv = excluded.naziv,
+                 potvrdio_korisnik_id = excluded.potvrdio_korisnik_id, updated_at = now()`,
+          [ulaz.dobavljacId, kljucArtikla(nj.sifra, nj.naziv), nj.sifra ?? null, nj.naziv ?? null, stavka.artikalId, korisnikId],
+        );
+      }
+
       lotoviZaProvjeru.push({ lotId, artikalId: stavka.artikalId, temperatura: stavka.temperaturaPrijema ?? null });
+    }
+
+    if (ulaz.dokumentId) {
+      const vezano = await klijent.query(
+        `update prijem_dokument set prijem_id = $1 where id = $2 and prijem_id is null returning id`,
+        [prijemId, ulaz.dokumentId],
+      );
+      if (!vezano.rows[0]) {
+        throw new ApiGreska(409, "OTPREMNICA_VEC_VEZANA", "Ova otpremnica je već vezana za prijem ili je istekla — učitajte je ponovo.");
+      }
+    }
+
+    // Roba sa isteklim rokom se upisuje (to je ono što je stiglo), ali odgovorno lice odmah saznaje
+    // — i takva stavka se ne može prihvatiti (donesiOdlukuOLotu).
+    const istekli = ulaz.stavke.filter((s) => s.rokTrajanja && s.rokTrajanja < ulaz.datumPrijema);
+    if (istekli.length > 0) {
+      await obavijestiUlogu(klijent, "bzr", {
+        naslov: `Primljena roba sa isteklim rokom — ${istekli.length === 1 ? "1 stavka" : `${istekli.length} stavke`}`,
+        poruka: `${istekli.map((s) => `lot ${s.brojLota.trim()} (rok ${s.rokTrajanja})`).join(", ")}. Ne može se prihvatiti — odbijte je (povrat ili uništenje).`,
+        ozbiljnost: "VISOK",
+        izvorTip: "prijem",
+        izvorId: prijemId,
+      });
     }
 
     return { prijemId, lotoviZaProvjeru };
@@ -213,6 +271,13 @@ export async function donesiOdlukuOLotu(lotId: string, odluka: Odluka, kolicina:
     if (odHolda && odluka === "HOLD") throw new ApiGreska(409, "VEC_NA_HOLDU", "Lot je već zadržan — pustite ga ili odbijte.");
     if (!odHolda && lot.status !== "PRIMLJEN") {
       throw new ApiGreska(409, "ODLUKA_VEC_DONESENA", "Odluka o ovom lotu je već donesena.");
+    }
+    if (odluka === "PRIHVATI") {
+      const rok = await klijent.query<{ rok_trajanja: string | null }>(`select rok_trajanja from lot where id = $1`, [lotId]);
+      const r = rok.rows[0]?.rok_trajanja;
+      if (r && r < danasCG()) {
+        throw new ApiGreska(409, "ROK_ISTEKAO", `Rok trajanja je istekao (${r}) — roba se ne prihvata. Odbijte je: povrat dobavljaču ili uništenje.`);
+      }
     }
     if (odluka === "ODBIJI" && (!napomena || napomena.trim() === "")) {
       throw new ApiGreska(400, "RAZLOG_OBAVEZAN", "Odbijanje robe mora imati zapisan razlog.");

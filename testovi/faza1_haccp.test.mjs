@@ -143,7 +143,9 @@ export async function pokreni({ provjeri }) {
       const ncIds = izvori.length ? (await k.query(`select id from neusaglasenost where izvor_id = any($1)`, [izvori])).rows.map((r) => r.id) : [];
       const mjere = ncIds.length ? (await k.query(`select id from korektivna_mjera where neusaglasenost_id = any($1)`, [ncIds])).rows.map((r) => r.id) : [];
       const prijemi = trag.prijemi.filter(Boolean);
-      const sve = [...artikli, ...trag.pravila.filter(Boolean), ...lotovi, ...prijemi, ...izvori, ...ncIds, ...mjere];
+      // Šifarnik sam pravi pravila za KKT 1 / KKT 3 iz granice artikla (pravilaService) — i njih.
+      const pravila = artikli.length ? (await k.query(`select id from pravilo_kontrole where artikal_id = any($1)`, [artikli])).rows.map((r) => r.id) : [];
+      const sve = [...artikli, ...pravila, ...lotovi, ...prijemi, ...izvori, ...ncIds, ...mjere];
       await k.query(`delete from obavjestenje where izvor_id = any($1)`, [sve]);
       await k.query(`delete from audit_log where entitet_id = any($1)`, [sve]);
       await k.query(`delete from dogadjaj where entitet_id = any($1)`, [sve]);

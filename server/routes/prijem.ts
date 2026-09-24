@@ -1,10 +1,11 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import { z } from "zod";
-import { upit } from "../db.js";
+import { upit, pool } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireAuth, requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajPrijem, donesiOdlukuOLotu, izmijeniStavku } from "../services/prijemService.js";
+import { prepoznajVrstu, procitajOtpremnicu } from "../services/otpremnicaService.js";
 
 export const prijemRuter = Router();
 prijemRuter.use(requireAuth);
@@ -17,6 +18,10 @@ prijemRuter.get(
     const rezultat = await upit(
       `select p.*, d.naziv as dobavljac_naziv, s.naziv as skladiste_naziv,
               (select count(*) from lot l where l.prijem_id = p.id) as broj_stavki,
+              exists (select 1 from prijem_dokument pd where pd.prijem_id = p.id) as ima_otpremnicu,
+              exists (select 1 from prijem_stavka ps join lot l on l.id = ps.lot_id where ps.prijem_id = p.id and ps.po_otpremnici is not null
+                        and ((ps.po_otpremnici->>'kolicina')::numeric is distinct from ps.primljena_kolicina
+                             or coalesce(ps.po_otpremnici->>'lot', l.broj_lota) <> l.broj_lota)) as odstupa_od_otpremnice,
               ((p.created_at at time zone 'Europe/Podgorica')::date - p.datum_prijema) as naknadno_dana
        from prijem p join dobavljac d on d.id = p.dobavljac_id left join skladiste s on s.id = p.skladiste_id
        where ${ogranicenje}
@@ -42,7 +47,11 @@ prijemRuter.get(
        where ps.prijem_id = $1 order by a.naziv`,
       [request.params.id],
     );
-    response.json({ ...prijem.rows[0], stavke: stavke.rows });
+    const dokumenti = await upit(
+      `select id, vrsta, naziv_fajla, mime, velicina, created_at from prijem_dokument where prijem_id = $1 order by created_at`,
+      [request.params.id],
+    );
+    response.json({ ...prijem.rows[0], stavke: stavke.rows, dokumenti: dokumenti.rows });
   }),
 );
 
@@ -53,6 +62,15 @@ const stavkaSchema = z.object({
   rokTrajanja: z.string().optional(),
   primljenaKolicina: z.number().positive(),
   temperaturaPrijema: z.number().optional(),
+  poOtpremnici: z
+    .object({
+      sifra: z.string().nullable().optional(),
+      naziv: z.string().nullable().optional(),
+      kolicina: z.number().nullable().optional(),
+      lot: z.string().nullable().optional(),
+      rok: z.string().nullable().optional(),
+    })
+    .optional(),
 });
 
 const noviPrijemSchema = z.object({
@@ -61,8 +79,55 @@ const noviPrijemSchema = z.object({
   brojDokumenta: z.string().optional(),
   datumPrijema: z.string(),
   napomena: z.string().optional(),
+  dokumentId: z.string().uuid().optional(),
   stavke: z.array(stavkaSchema).min(1),
 });
+
+// Otpremnica (PDF ili fotografija) → prijedlog prijema. Čita se NA OVOM SERVERU — PDF direktno,
+// slika lokalnim OCR-om; ništa ne ide spoljnim servisima. Fajl se čuva (dokaz uz prijem), a veže
+// se za prijem tek kad magacioner provjeri i potvrdi. Nepotvrđeni se brišu posle 2 dana.
+prijemRuter.post(
+  "/prijem/otpremnica",
+  requireUloga("operater", "bzr", "izvodjac"),
+  express.raw({ type: () => true, limit: "12mb" }),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const sadrzaj = request.body;
+    if (!Buffer.isBuffer(sadrzaj) || sadrzaj.length === 0) throw new ApiGreska(400, "FAJL_PRAZAN", "Nije poslat fajl otpremnice.");
+    const vrsta = prepoznajVrstu(sadrzaj);
+    if (!vrsta) throw new ApiGreska(415, "NEPOZNAT_FAJL", "Pošaljite PDF ili sliku otpremnice (JPG, PNG).");
+    let nazivFajla: string | null = null;
+    try {
+      nazivFajla = decodeURIComponent(String(request.headers["x-naziv-fajla"] ?? "")).slice(0, 200) || null;
+    } catch {
+      nazivFajla = null;
+    }
+    await pool.query(`delete from prijem_dokument where prijem_id is null and created_at < now() - interval '2 days'`);
+    const procitano = await procitajOtpremnicu(sadrzaj, vrsta.vrsta);
+    const dokument = await pool.query<{ id: string }>(
+      `insert into prijem_dokument (vrsta, naziv_fajla, mime, velicina, sadrzaj, procitano, uneo_korisnik_id)
+       values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+      [vrsta.vrsta, nazivFajla, vrsta.mime, sadrzaj.length, sadrzaj, JSON.stringify(procitano), request.korisnik!.id],
+    );
+    response.status(201).json({ dokumentId: dokument.rows[0].id, vrsta: vrsta.vrsta, ...procitano });
+  }),
+);
+
+// Otpremnica uz prijem — preuzima se kroz fetch (invarijanta #31).
+prijemRuter.get(
+  "/prijem/:id/dokument/:dokumentId",
+  requireUloga("operater", "bzr", "izvodjac"),
+  asyncRuta(async (request, response) => {
+    const r = await upit<{ mime: string; naziv_fajla: string | null; sadrzaj: Buffer }>(
+      `select mime, naziv_fajla, sadrzaj from prijem_dokument where id = $1 and prijem_id = $2`,
+      [request.params.dokumentId, request.params.id],
+    );
+    const d = r.rows[0];
+    if (!d) throw new ApiGreska(404, "DOKUMENT_NE_POSTOJI", "Otpremnica nije pronađena.");
+    response.setHeader("Content-Type", d.mime);
+    response.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(d.naziv_fajla ?? "otpremnica")}`);
+    response.send(d.sadrzaj);
+  }),
+);
 
 prijemRuter.post(
   "/prijem",

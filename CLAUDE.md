@@ -211,6 +211,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Ljudi | `/ljudi` (zaposleni, plan obuke, provjera znanja, nalozi) | `ljudi.ts`, `provjeraZnanja.ts` | — | `lice`, `korisnik`, `plan_obuke`, `pitanje`, `sesija_znanja`, `ucesnik_znanja`, `odgovor_znanja` |
 | Šifarnici | `/sifarnici` | `sifarnici.ts` | `skladisteService` | `kupac`, `dobavljac`, `artikal`, `skladiste` |
 | Prijem — KKT 1 | `/prijem` | `prijem.ts` | `prijemService`, `haccpService` | `prijem`, `prijem_stavka`, `lot`, `zaliha`, `kretanje_zalihe` |
+| Otpremnica (PDF / fotografija) | `/prijem` → Novi prijem | `prijem.ts` (`/prijem/otpremnica`) | `otpremnicaService` | `prijem_dokument`, `artikal_dobavljaca`, `prijem_stavka.po_otpremnici` |
 | Zalihe, otpis | `/zalihe` | `zaliha.ts` | `otpisService` | `zaliha`, `kretanje_zalihe` |
 | HACCP — KKT 2, obrasci | `/haccp` | `haccp.ts` | `haccpService` | `kontrolna_tacka`, `pravilo_kontrole`, `mjerenje_temperature`, `zapis` (+ `public/obrasci-cg.json`) |
 | Neusaglašenosti | `/neusaglasenosti` | `neusaglasenosti.ts` | `ncService` | `neusaglasenost`, `korektivna_mjera`, `verifikacija` |
@@ -245,8 +246,9 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 
 | Tačka | Šta se upisuje | Van granice → |
 |---|---|---|
+| **otpremnica** | PDF ili fotografija → server pročita (PDF tekst / lokalni OCR) i POPUNI formu; magacioner upoređuje sa robom i potvrđuje kvačicom | nesigurna polja žuta; dobavljač po PIB-u; artikal po zapamćenoj vezi sa dobavljačem; manjak i drugi lot se vide uz stavku |
 | **KKT 1 — prijem** | stavke sa lotom (bez lota odbijeno), temperatura po `pravilo_kontrole` KKT1 | mjerenje FAIL → neusaglašenost + zadatak + obavještenje `bzr` i uprava + **lot na HOLD**. Artikal sa NEPOTVRĐENOM granicom → samo WARNING i obavještenje `bzr`, bez HOLD-a (invarijanta #5) |
-| odluka o lotu | `bzr`: prihvati / HOLD / odbij (odbijanje traži razlog) | prihvaćeno → zaliha DOSTUPNO + kretanje PRIJEM; HOLD → KARANTIN + kretanje PRIJEM; magacioner dobija obavještenje |
+| odluka o lotu | `bzr`: prihvati / HOLD / odbij (odbijanje traži razlog). **Istekao rok se ne prihvata i ne pušta** (`ROK_ISTEKAO`); pri prijemu takve robe `bzr` odmah dobija obavještenje | prihvaćeno → zaliha DOSTUPNO + kretanje PRIJEM; HOLD → KARANTIN + kretanje PRIJEM; magacioner dobija obavještenje |
 | **lot na HOLD-u** | `bzr`: **pusti** (razlog obavezan) ili **odbij** — na `/zalihe` i `/prijem` | pušteno iz karantina → DOSTUPNO, kretanje RELEASE 0; odbijeno → karantin 0, kretanje OTPIS. Zadržan pri prijemu (zaliha još ne postoji) → pušten = PRIJEM. **Ne pušta se dok je povlačenje U_TOKU** |
 | **KKT 2 — skladištenje** | ručno mjerenje na `/haccp` | kao KKT 1 (ako je vezano za lot — HOLD) |
 | obrasci P3–P10 | `zapis` iz `public/obrasci-cg.json`; odstupanje traži korektivnu mjeru (tekst) | neusaglašenost odmah u „čeka provjeru" — mjera iz obrasca je upisana kao urađena, potpisuje je ko je unio zapis; zadatak + obavještenje `bzr`. Ispravka zapisa ne otvara drugu |
@@ -282,6 +284,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `20_sesije_prijave_cg` | `sesija_prijave` (heš tokena); server je pravi i sam pri startu |
 | `21_pitanja_firme_cg` | `pitanje.izvor` (konsultant/firma), prag i izvor pitanja na terminu |
 | `22_integritet_cg` | CHECK na `izvor_tip` u `neusaglasenost`, `zadatak`, `obavjestenje` (nalaz B2); isti spisak kao `IZVORI_*` u `zadaciService.ts` |
+| `23_otpremnice_cg` | `prijem_dokument` (PDF/slika u bazi — ulazi u bekap), `artikal_dobavljaca` (zapamćena veza „njihov → naš artikal"), `prijem_stavka.po_otpremnici` |
 
 Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim brojem.
 
@@ -298,12 +301,14 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 
 ### Testovi (`testovi/`, `npm run test:e2e`)
 
-12 testova, 222 provjere, kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+13 testova, 252 provjere, kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
 jednoj transakciji, početna i nova lozinka, čitanje po ulogama, kartice direktora, nepoznat izvor
-odbijen u bazi — `faza2_integritet`). **Rade samo na demo bazi** (`testovi/pomoc.mjs` to provjeri
+odbijen u bazi — `faza2_integritet`), i otpremnice (10 probnih u PDF-u tačno do slova, fotografija
+nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamćen artikal, manjak,
+istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni). **Rade samo na demo bazi** (`testovi/pomoc.mjs` to provjeri
 preko pet demo naloga sa fiksnim ID-jevima) i brišu sve što naprave. Server mora raditi
 (`npm run dev` ili `APP_URL=`). Nov tok u aplikaciji = nov test.
 
@@ -396,6 +401,15 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
 36. **`izvor_tip` samo sa spiska** — `IZVORI_ZADATKA` / `IZVORI_OBAVJESTENJA` u `zadaciService.ts`
     (tip, pada pri typecheck-u) i CHECK u bazi (`22_integritet_cg.sql`). Nov izvor: na oba mjesta,
     novom dopunom.
+37. **Otpremnica samo POPUNJAVA formu — ništa se ne snima bez čovjeka.** Prijem iz otpremnice traži
+    kvačicu „uporedio/la sa robom i etiketom"; nesigurna polja su žuta; nepoznat dobavljač ostaje
+    PRAZAN (nikad prvi sa spiska). Čita se **na našem serveru** — PDF tekst direktno, slika lokalnim
+    OCR-om (Tesseract, `srp_latn`). **Nikakav spoljni servis** (vlasnica je to izričito odlučila
+    24.09.2026: bez Anthropica i sličnih). Temperatura sa otpremnice je podatak dobavljača — prikazuje se,
+    ne upisuje; KKT 1 mjeri magacioner.
+38. **Roba sa isteklim rokom se upisuje, ali se ne prihvata ni pušta** (`ROK_ISTEKAO` u
+    `donesiOdlukuOLotu`). Upisuje se jer je stigla (trag za povrat i ocjenu dobavljača); ne HOLD-uje
+    se automatski, da greška u kucanju datuma ostane ispravljiva dok odluka nije donesena.
 
 ---
 
@@ -457,7 +471,7 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | ~~**2 — Integritet baze**~~ ✓ 24.09.2026 | Brojevi iz `sljedeciBroj()`. 26 višekoračnih upisa u transakciji. CHECK liste za `izvor_tip` (dopuna 22). Uloge na svim GET rutama. Test `faza2_integritet` (30 provjera). Uz to: nalog i početna lozinka pri unosu zaposlenog, „Nova lozinka", kartice direktora, ulaz u provjeru znanja sa prijave. | B1, A2, B2, U1 | urađeno |
 | **3 — HACCP kao sistem** | Plan monitoringa (šta, koliko često, ko) + „šta danas fali" na tabli i Mojoj strani. Kalibracija termometara, godišnja revizija, štampa HACCP plana. Izlaz za malu firmu kod četiri oka. Jedan izvor granica (pravilo, ne artikal). | H5, H6, H7, U2, ostatak H4 | 2–3 dana |
 | **4 — Arhitektura i pogon** | Ruteri pod svojim prefiksom. SQL iz ruta u servise. Zasebna test baza + automatsko pokretanje testova. Odluka o `dogadjaj`. Push obavještenja (PWA). | A3, A4, A5, B4, A6 | 2–3 dana |
-| **5 — Po potražnji klijenata** | Premještanje robe među skladištima, skeniranje otpremnica, straničenje, više konsultantskih naloga. | B3, A7, U3 | po stavci |
+| **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
 **Pilot sa prvim klijentom ide paralelno od faze 1** — pravi magacioner nađe ono što test ne nađe.
 
@@ -488,6 +502,11 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | direktoru se kartice na Kontrolnom centru „ne otvaraju" | klik je vodio na strane na koje uprava ne smije, pa `mozeNa()` nije radio ništa | lista iza broja u prozoru (`/tabla/detalj`), ISTI uslov kao brojanje |
 | „Lotovi na HOLD-u" vodi na Zalihe, a tamo ih nema | Zalihe se otvaraju na „Prihvaćeni" | kartica šalje izabran status (`navigate(…, { state })`) |
 | Moja strana je čitala spisak SVIH zaposlenih da nađe svoje ime | `/lica` bez uloga, filtriranje u pregledaču | `/lica/ja`; `/lica` samo vodstvo |
+| OCR fotografije gubi red tabele | `tesseract.js` podrazumijevano čita stranicu kao JEDAN blok (PSM 6) | `tessedit_pageseg_mode: 3` + Sauvola prag (`thresholding_method: 2`) — sjenka više ne briše pola papira (pouzdanost 67 → 90 %) |
+| ista fotografija: u testu tačna, iz pregledača smeće | pregledač je smanji i ponovo kompresuje, a OCR je osjetljiv na razmjeru; zaglavlje nakrivljene tabele pada u dva reda | polja se prepoznaju po OBLIKU s desna (datum, lot, broj, jedinica), naziv je ostatak; slanje do 3200 px; test sa obje verzije slike |
+| rečenica „…količinski manjak, … istekao rok, LOT" prepoznata kao zaglavlje tabele | tri riječi kolona u jednoj rečenici | zaglavlje = kratak red u kom su labele većina, i uzima se prvi kandidat ISPOD kog ima stavki |
+| forma prijema ostavila prvog dobavljača sa spiska kad sa otpremnice nije prepoznat | početna vrijednost polja | nepoznat → prazno („— izaberite dobavljača —") |
+| `pdfjs-dist` na starijem Node-u ne radi | traži Node ≥ 22.13 | `engines.node` u `package.json` — Render bira verziju po njemu |
 | zaposleni nisu znali gdje se ulazi u provjeru znanja | adresa `/provjera-znanja` je stajala samo kao tekst kod Ane | dugme na strani za prijavu i na Mojoj strani (sa šifrom); kartica javlja kad nema otvorenog termina |
 
 ### Gdje se zapravo testira
@@ -502,6 +521,10 @@ nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git lo
 - **Supabase: Session pooler, port 5432.** Direct connection radi samo preko IPv6, Render ga ne dohvata.
 - **Render besplatni plan spava poslije 15 min** — za demo i pravi rad plaćeni plan.
 - Server ne učitava izmjene sam (`tsx` bez watch): poslije izmjene u `server/` — restart.
+- **Node ≥ 22.13** (`engines` u `package.json`) — zbog `pdfjs-dist`.
+- OCR: jedan Tesseract radnik za cijeli server, poslovi idu jedan za drugim, gasi se posle 5 min bez
+  posla (oko 150 MB dok radi). Jezik `srp_latn` je u `node_modules` (`@tesseract.js-data/srp_latn`) —
+  ništa se ne preuzima sa interneta. Slika: 3–5 s na računaru; na Render besplatnom planu sporije.
 
 ---
 
@@ -523,6 +546,10 @@ temperaturom, „Prijavi problem".
 
 Tehnički nalozi i plan su u „Nalazi" i „Plan izmjena po fazama" iznad. Od ranijih stavki i dalje
 važi: broj Sl. lista Uredbe o higijeni hrane nije provjeren (vidi pravni okvir).
+
+**Otpremnice — OCR je provjeren samo na izmišljenim i simuliranim fotografijama.** Prve prave
+otpremnice pilot klijenta (više dobavljača, pravi telefon, loše svjetlo) će pokazati šta još ne
+valja. Rukopis se ne čita. Skeniran PDF (samo slika, bez teksta) se odbija uz poruku da se slika.
 
 **Bekap se ne pokreće sam** dok `npm run bekap` nije u Task Scheduleru na računaru
 konsultantkinje. Skripta postoji i radi; raspored je odluka vlasnice (računar mora biti uključen

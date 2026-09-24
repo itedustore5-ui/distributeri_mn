@@ -40,6 +40,38 @@ export async function api<T = unknown>(putanja: string, opcije: Opcije = {}): Pr
   return podaci as T;
 }
 
+/** Šalje fajl (PDF, slika) kao sirovo tijelo zahtjeva — bez base64 naduvavanja. */
+export async function posaljiFajl<T = unknown>(putanja: string, fajl: Blob, nazivFajla: string): Promise<T> {
+  const odgovor = await fetch(`/api${putanja}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "x-zahtjev-app": "1", "Content-Type": fajl.type || "application/octet-stream", "x-naziv-fajla": encodeURIComponent(nazivFajla) },
+    body: fajl,
+  });
+  const tekst = await odgovor.text();
+  const podaci = tekst ? JSON.parse(tekst) : null;
+  if (!odgovor.ok) {
+    const greska = podaci?.error;
+    throw new ApiGreska(odgovor.status, greska?.code ?? "GRESKA", greska?.message ?? `Slanje nije uspjelo (${odgovor.status}).`, greska?.details ?? {});
+  }
+  return podaci as T;
+}
+
+/** Otvara dokument (PDF, sliku) u novoj kartici — kroz fetch, da se greška vidi (invarijanta #31). */
+export async function otvoriFajl(putanja: string) {
+  const prozor = window.open("", "_blank");
+  const odgovor = await fetch(`/api${putanja}`, { credentials: "include", headers: { "x-zahtjev-app": "1" } });
+  if (!odgovor.ok) {
+    prozor?.close();
+    const podaci = await odgovor.json().catch(() => null);
+    throw new ApiGreska(odgovor.status, podaci?.error?.code ?? "GRESKA", podaci?.error?.message ?? `Otvaranje nije uspjelo (${odgovor.status}).`);
+  }
+  const url = URL.createObjectURL(await odgovor.blob());
+  if (prozor) prozor.location.href = url;
+  else window.location.href = url;
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 /** Preuzimanje ide kroz fetch, ne kroz <a href> — obično preuzimanje koje padne ne prikaže
  * ništa (izgleda kao pokvareno dugme), a server je vratio 401/409/500 (invarijanta #31). */
 export async function preuzmiFajl(putanja: string, nazivFajla: string) {

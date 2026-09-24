@@ -43,8 +43,10 @@ export async function prijava(nalog) {
     body: JSON.stringify({ korisnickoIme: nalog.ime, lozinka: nalog.lozinka }),
   });
   if (r.status !== 200) throw new Error(`Prijava ${nalog.ime} nije uspjela (${r.status})`);
-  const k = zahtjev(r.headers.get("set-cookie").split(";")[0]);
+  const kolacic = r.headers.get("set-cookie").split(";")[0];
+  const k = zahtjev(kolacic);
   k.id = nalog.id;
+  k.kolacic = kolacic;
   return k;
 }
 
@@ -64,6 +66,29 @@ function zahtjev(kolacic) {
     }
     return { status: odg.status, tijelo };
   };
+}
+
+/** Šalje fajl (PDF, slika) kao sirovo tijelo, sa sesijom prijavljenog klijenta `k`. */
+export async function posaljiFajl(k, putanja, sadrzaj, tip, naziv = "fajl") {
+  const odg = await fetch(`${BAZA}${putanja}`, {
+    method: "POST",
+    headers: { "x-zahtjev-app": "1", "Content-Type": tip, "x-naziv-fajla": encodeURIComponent(naziv), cookie: k.kolacic },
+    body: sadrzaj,
+  });
+  const tekst = await odg.text();
+  let tijelo = null;
+  try {
+    tijelo = tekst ? JSON.parse(tekst) : null;
+  } catch {
+    tijelo = tekst;
+  }
+  return { status: odg.status, tijelo };
+}
+
+/** Sirov odgovor (za preuzimanje fajla). */
+export async function preuzmi(k, putanja) {
+  const odg = await fetch(`${BAZA}${putanja}`, { headers: { "x-zahtjev-app": "1", cookie: k.kolacic } });
+  return { status: odg.status, tip: odg.headers.get("content-type"), sadrzaj: Buffer.from(await odg.arrayBuffer()) };
 }
 
 /** Sakupljač rezultata jednog testa. */

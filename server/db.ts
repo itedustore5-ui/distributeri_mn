@@ -13,6 +13,8 @@ if (!connectionString) {
 export const pool = new Pool({
   connectionString,
   ssl: connectionString.includes("localhost") ? undefined : { rejectUnauthorized: false },
+  // Nedostupna baza: zahtjev dobija grešku posle 10 s umjesto da visi beskonačno.
+  connectionTimeoutMillis: 10_000,
 });
 
 export const upit = <T extends Record<string, unknown> = Record<string, unknown>>(
@@ -20,18 +22,35 @@ export const upit = <T extends Record<string, unknown> = Record<string, unknown>
   params: unknown[] = [],
 ) => pool.query<T>(text, params);
 
+// Prekinuta veza (Supabase pooler je zatvori, mreža pukne) ne smije oboriti cijeli server. Za veze
+// u mirovanju grešku javlja pool; veza izdata za transakciju nema svoj osluškivač (pg ga skida pri
+// izdavanju) — zato ga transakcija dodaje sama. Bez ovoga je jedan prekid rušio proces
+// ("Connection terminated unexpectedly", Unhandled 'error' event).
+pool.on("error", (greska) => {
+  console.error("Baza: veza u mirovanju je prekinuta —", greska.message);
+});
+
 export async function transakcija<T>(rad: (klijent: PoolClient) => Promise<T>): Promise<T> {
   const klijent = await pool.connect();
+  let prekinuta: Error | null = null;
+  const naPrekid = (greska: Error) => {
+    prekinuta = greska;
+    console.error("Baza: veza je prekinuta usred transakcije —", greska.message);
+  };
+  klijent.on("error", naPrekid);
   try {
     await klijent.query("BEGIN");
     const rezultat = await rad(klijent);
     await klijent.query("COMMIT");
     return rezultat;
   } catch (greska) {
-    await klijent.query("ROLLBACK");
+    // Na prekinutoj vezi ROLLBACK ne može proći — transakciju je baza već poništila.
+    if (!prekinuta) await klijent.query("ROLLBACK").catch(() => undefined);
     throw greska;
   } finally {
-    klijent.release();
+    klijent.off("error", naPrekid);
+    // Prekinuta veza se ne vraća u pool, nego zatvara.
+    klijent.release(prekinuta ?? undefined);
   }
 }
 

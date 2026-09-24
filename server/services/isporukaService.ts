@@ -172,7 +172,7 @@ export type StavkaPotvrdeUlaz = {
   temperaturaPredaje?: number | null;
 };
 
-type MjerenjePredaje = { lotId: string; artikalId: string; temperatura: number; granica: { min: string | null; max: string | null; potvrdjena: boolean } };
+type MjerenjePredaje = { lotId: string; artikalId: string; temperatura: number };
 
 const KKT3_SIFRA = "KKT3";
 
@@ -236,12 +236,7 @@ export async function potvrdiIsporuku(isporukaId: string, stavke: StavkaPotvrdeU
         [isporuceno, odbijeno, stavka.razlogOdbijanja ?? null, temperatura, stavka.stavkaId],
       );
       if (temperatura !== null) {
-        mjerenjaPredaje.push({
-          lotId: red.lot_id,
-          artikalId: red.artikal_id,
-          temperatura,
-          granica: { min: red.temp_min, max: red.temp_max, potvrdjena: red.granica_potvrdio },
-        });
+        mjerenjaPredaje.push({ lotId: red.lot_id, artikalId: red.artikal_id, temperatura });
       }
 
       if (isporuceno > 0) {
@@ -276,9 +271,9 @@ export async function potvrdiIsporuku(isporukaId: string, stavke: StavkaPotvrdeU
   return { status: potvrda.status, vanGranice: rezultati.filter((r) => r === "FAIL").length };
 }
 
-/** Granica se uzima redom: pravilo za KKT 3 postavljeno baš za taj artikal, pa granica sa samog
- * artikla — ali SAMO ako ju je klijent potvrdio (invarijanta #5). Nepotvrđena granica je
- * pretpostavka konsultanta: temperatura se tada čuva na stavci, ali se ne ocjenjuje.
+/** Granica je pravilo KKT 3 za taj artikal — pravi ga Šifarnik iz granice artikla
+ * (pravilaService, jedan izvor granica). Nepotvrđenu granicu zabiljeziMjerenje ocjenjuje samo kao
+ * upozorenje (invarijanta #5). Artikal bez granice se ne ocjenjuje; temperatura ostaje na stavci.
  * Opšte pravilo KKT 3 (rashladni režim vozila, 0–5 °C) se ovdje namjerno NE koristi — po njemu
  * bi svaki smrznuti artikal na −18 °C ispao "van opsega". Lot se ne stavlja na HOLD: problem
  * je nastao u prevozu, a roba koja je ostala u magacinu nije bila u tom vozilu. */
@@ -295,16 +290,13 @@ async function zabiljeziTemperaturePredaje(mjerenja: MjerenjePredaje[], voziloId
        where kontrolna_tacka_id = $1 and artikal_id = $2 and aktivan order by created_at desc limit 1`,
       [kkt3Id, m.artikalId],
     );
+    // Samo pravilo artikla (jedan izvor granica — pravilaService). Nepotvrđenu granicu ocjenjuje
+    // zabiljeziMjerenje kao upozorenje (invarijanta #5), ali se mjerenje ipak zapiše.
     const p = pravilo.rows[0];
-    const granica = p
-      ? { id: p.id as string | null, min_vrijednost: p.min_vrijednost, max_vrijednost: p.max_vrijednost }
-      : m.granica.potvrdjena && (m.granica.min !== null || m.granica.max !== null)
-        ? { id: null, min_vrijednost: m.granica.min, max_vrijednost: m.granica.max }
-        : null;
-    if (!granica) continue;
-    const r = await zabiljeziMjerenje(granica, {
+    if (!p) continue;
+    const r = await zabiljeziMjerenje(p, {
       kontrolnaTackaId: kkt3Id,
-      praviloKontroleId: granica.id,
+      praviloKontroleId: p.id,
       lotId: m.lotId,
       vozilId: voziloId,
       vrijednost: m.temperatura,

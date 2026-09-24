@@ -4,6 +4,23 @@ import { asyncRuta, ApiGreska } from "../greske.js";
 import { IZVOR_OZNAKA, IME } from "./neusaglasenosti.js";
 import { requireAuth, requireUloga } from "../auth.js";
 import { danasCG } from "../vrijeme.js";
+import { stanjeDanas } from "../services/monitoringService.js";
+import { listaUredjaja, stanjeVerifikacije } from "../services/haccpPlanService.js";
+
+const NAZIV_UCESTALOSTI: Record<string, string> = { DNEVNO: "svaki dan", RADNIM_DANIMA: "radnim danima", SEDMICNO: "sedmično", MJESECNO: "mjesečno" };
+
+/** HACCP rokovi: termometri kojima je istekla provjera ili su neispravni, i verifikacija sistema
+ * koja kasni ili nije rađena. Isti spisak za broj na kartici i za listu iza njega. */
+async function haccpRokovi() {
+  const [uredjaji, verif] = await Promise.all([listaUredjaja(true), stanjeVerifikacije()]);
+  return [
+    ...uredjaji
+      .filter((u) => u.stanje !== "VAZI")
+      .map((u) => ({ sta: `Termometar: ${u.naziv}${u.oznaka ? ` (${u.oznaka})` : ""}`, stanje: u.stanje as string, rok: u.kalibracija_do && (!u.provjera_do || u.kalibracija_do < u.provjera_do) ? u.kalibracija_do : u.provjera_do })),
+    ...verif.filter((v) => v.stanje !== "VAZI").map((v) => ({ sta: v.naziv, stanje: v.stanje as string, rok: v.sljedecaDo })),
+  ];
+}
+const HITNO = ["ISTEKLA", "NEISPRAVAN", "KASNI", "NIJE_RADJENO"];
 
 export const tablaRuter = Router();
 tablaRuter.use(requireAuth);
@@ -15,6 +32,7 @@ tablaRuter.get(
     // Dan po podgoričkom vremenu (invarijanta #11) — current_date u bazi je UTC, pa bi između
     // ponoći i 1–2h tabla pokazivala jučerašnje brojke.
     const danas = danasCG();
+    const [monitoring, rokovi] = await Promise.all([stanjeDanas(), haccpRokovi()]);
     const [nc, temp, vozila, lotovi, zadaci, zadaciOtvoreni, prijemi, isporuke, knjizice, povlacenja, zapisi] = await Promise.all([
       upit(`select ozbiljnost, count(*)::int as broj from neusaglasenost where status not in ('ZATVORENA') group by ozbiljnost`),
       upit(`select count(*)::int as broj from mjerenje_temperature where rezultat = 'FAIL' and izmjereno_at > now() - interval '24 hours'`),
@@ -40,6 +58,10 @@ tablaRuter.get(
         zadaciOtvoreni: zadaciOtvoreni.rows[0]?.broj ?? 0,
         knjizicIstice: knjizice.rows[0]?.broj ?? 0,
         povlacenjaUToku: povlacenja.rows[0]?.broj ?? 0,
+        // Plan monitoringa (faza 3): šta u tekućem periodu još nije urađeno, šta je juče propušteno.
+        monitoringFali: monitoring.stavke.filter((s) => s.fali > 0).length,
+        monitoringJuce: monitoring.juce.length,
+        haccpRokovi: rokovi.filter((r) => HITNO.includes(r.stanje)).length,
       },
       operativno: {
         prijemiDanas: prijemi.rows[0]?.broj ?? 0,
@@ -216,7 +238,32 @@ tablaRuter.get(
   "/tabla/detalj/:kartica",
   requireUloga("bzr", "izvodjac", "uprava"),
   asyncRuta(async (request, response) => {
-    const detalj = DETALJ[String(request.params.kartica)];
+    const kartica = String(request.params.kartica);
+    // Dvije kartice se ne čitaju jednim upitom nego iz plana monitoringa i rokova.
+    if (kartica === "monitoring") {
+      const m = await stanjeDanas();
+      const redovi = [
+        ...m.stavke.filter((s) => s.fali > 0).map((s) => ({ sta: s.naziv, ucestalost: `${NAZIV_UCESTALOSTI[s.ucestalost] ?? s.ucestalost}${s.puta > 1 ? `, ${s.puta}×` : ""}`, ko: s.uloga ?? "—", uradjeno: `${s.uradjeno} / ${s.puta}`, rok: s.rok })),
+        ...m.juce.map((s) => ({ sta: s.naziv, ucestalost: NAZIV_UCESTALOSTI[s.ucestalost] ?? s.ucestalost, ko: s.uloga ?? "—", uradjeno: `${s.uradjeno} / ${s.puta}`, rok: "juče — propušteno" })),
+      ];
+      response.json({
+        naslov: "Plan monitoringa — šta danas fali",
+        prazno: "Sve iz plana za danas je urađeno.",
+        kolone: [{ kljuc: "sta", naziv: "Šta" }, { kljuc: "ucestalost", naziv: "Koliko često" }, { kljuc: "ko", naziv: "Ko" }, { kljuc: "uradjeno", naziv: "Urađeno" }, { kljuc: "rok", naziv: "Rok" }],
+        redovi,
+      });
+      return;
+    }
+    if (kartica === "rokovi") {
+      response.json({
+        naslov: "HACCP rokovi — termometri i verifikacija sistema",
+        prazno: "Svi rokovi su u redu.",
+        kolone: [{ kljuc: "sta", naziv: "Šta" }, { kljuc: "stanje", naziv: "Stanje", vrsta: "status" }, { kljuc: "rok", naziv: "Rok" }],
+        redovi: (await haccpRokovi()).map((r) => ({ ...r, rok: r.rok ? r.rok.split("-").reverse().join(".") + "." : "—" })),
+      });
+      return;
+    }
+    const detalj = DETALJ[kartica];
     if (!detalj) throw new ApiGreska(404, "KARTICA_NE_POSTOJI", "Za ovu karticu nema pregleda.");
     const rezultat = await upit(detalj.sql, detalj.saDanom ? [danasCG()] : []);
     response.json({ naslov: detalj.naslov, kolone: detalj.kolone, redovi: rezultat.rows, prazno: detalj.prazno ?? "Nema ništa — sve je u redu." });

@@ -17,6 +17,8 @@ export const IZVOR_OZNAKA = `
     when 'kontrola_vozila' then (select 'Vozilo ' || v.registarski_broj from kontrola_vozila kv join vozilo v on v.id = kv.vozilo_id where kv.id = nc.izvor_id)
     when 'povlacenje' then (select 'Povlačenje ' || p.broj from povlacenje p where p.id = nc.izvor_id)
     when 'zapis' then (select 'Obrazac ' || z.obrazac_kod || ' · ' || to_char(z.datum, 'DD.MM.YYYY.') from zapis z where z.id = nc.izvor_id)
+    when 'mjerni_uredjaj' then (select 'Mjerni uređaj ' || u.naziv || coalesce(' (' || u.oznaka || ')', '') from mjerni_uredjaj u where u.id = nc.izvor_id)
+    when 'prijem' then (select 'Prijem ' || coalesce(p.broj_dokumenta || ' · ', '') || d.naziv from prijem p join dobavljac d on d.id = p.dobavljac_id where p.id = nc.izvor_id)
     else 'Prijava sa terena'
   end`;
 
@@ -116,6 +118,7 @@ const verifikacijaSchema = z.object({
   korektivnaMjeraId: z.string().uuid().optional(),
   rezultat: z.enum(["POTVRDJENO", "ODBIJENO"]),
   napomena: z.string().optional(),
+  izuzetak: z.boolean().optional(),
 });
 
 ncRuter.post(
@@ -123,7 +126,7 @@ ncRuter.post(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(verifikacijaSchema, request.body);
-    const rezultat = await verifikuj(str(request.params.id), ulaz, request.korisnik!.id);
+    const rezultat = await verifikuj(str(request.params.id), ulaz, request.korisnik!.id, request.korisnik!.uloga);
     response.json(rezultat);
   }),
 );

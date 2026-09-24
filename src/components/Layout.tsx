@@ -21,6 +21,7 @@ import {
   LogOut,
   Bell,
   MessageSquare,
+  ClipboardCheck,
 } from "lucide-react";
 import { useAuth, NAZIV_ULOGE, type Uloga } from "../lib/auth";
 import { api } from "../lib/api";
@@ -33,6 +34,7 @@ const STAVKE: StavkaMenija[] = [
   { putanja: "/prijem", naziv: "Prijem robe", ikonica: <ArrowDownToLine size={18} />, uloge: ["operater", "bzr", "izvodjac"] },
   { putanja: "/zalihe", naziv: "Zalihe", ikonica: <Boxes size={18} />, uloge: ["operater", "bzr", "izvodjac", "uprava"] },
   { putanja: "/haccp", naziv: "HACCP / DHP", ikonica: <Gauge size={18} />, uloge: ["operater", "bzr", "izvodjac"] },
+  { putanja: "/haccp-plan", naziv: "HACCP plan", ikonica: <ClipboardCheck size={18} />, uloge: ["bzr", "izvodjac", "uprava"] },
   { putanja: "/isporuka", naziv: "Isporuka", ikonica: <PackageCheck size={18} />, uloge: ["vozac", "operater", "bzr", "izvodjac"] },
   { putanja: "/vozila", naziv: "Vozila", ikonica: <Truck size={18} />, uloge: ["vozac", "bzr", "izvodjac"] },
   { putanja: "/neusaglasenosti", naziv: "Neusaglašenosti", ikonica: <AlertTriangle size={18} />, uloge: ["operater", "vozac", "bzr", "izvodjac"] },

@@ -50,6 +50,12 @@ const TON_PO_STATUSU: Record<string, Ton> = {
   OTKAZANA: "neutral",
   NIZAK: "neutral",
   PONOVO_OTVORENA: "warning",
+  // faza 3: termometri i verifikacija sistema
+  NEISPRAVAN: "danger",
+  NIJE_RADJENO: "danger",
+  ISPRAVAN: "success",
+  USAGLASENO: "success",
+  POTREBNE_IZMJENE: "warning",
 };
 
 export const NAZIVI: Record<string, string> = {
@@ -100,6 +106,11 @@ export const NAZIVI: Record<string, string> = {
   VISOK: "Visoka",
   SREDNJI: "Srednja",
   NIZAK: "Niska",
+  NEISPRAVAN: "Neispravan",
+  NIJE_RADJENO: "Nije rađeno",
+  ISPRAVAN: "Ispravan",
+  USAGLASENO: "Usaglašeno",
+  POTREBNE_IZMJENE: "Potrebne izmjene",
 };
 
 export function StatusBadge({ status, tekst }: { status: string; tekst?: string }) {

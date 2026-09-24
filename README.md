@@ -56,10 +56,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`22_integritet_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`23_otpremnice_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -232,6 +232,34 @@ Ništa se ne briše iz baze kroz aplikaciju. Umjesto toga:
   već umanjena.
 - **Vozila** (`/vozila`): svaka D1 kontrola ostaje trajno u „Evidencija kontrola" ispod spiska
   vozila — ne može se izmijeniti ni obrisati, samo se doda nova.
+
+### Otpremnica — slikaj ili učitaj
+
+Prijem → Novi prijem → **„Slikaj otpremnicu"** (telefon otvara kameru) ili **„Učitaj PDF ili sliku"**.
+Otpremnica se čita **na vašem serveru, bez ikakvog spoljnog servisa**:
+
+- **PDF** od dobavljača — tekst se čita direktno iz fajla, tačno do slova. PDF sa više otpremnica
+  nudi izbor.
+- **Fotografija** — lokalni OCR (Tesseract, srpska latinica), uz ispravljanje nagiba i sjenke. Polja
+  koja je pročitao nesigurno (npr. „J" pročitano kao „)") su **žuta**.
+
+Aplikacija samo **popuni formu**: dobavljač (po PIB-u), broj i datum dokumenta, stavke (artikal,
+lot, rok, količina). Magacioner sve upoređuje sa robom i etiketom i to potvrđuje kvačicom — bez nje
+se ne snima. Nepoznat dobavljač ostaje prazan (odgovorno lice ga doda jednim klikom, sa PIB-om).
+Artikal sa otpremnice („J-010 Jogurt 1 kg") se prvi put bira ručno, a aplikacija ga **zapamti za tog
+dobavljača** — sljedeći put ga prepozna sama.
+
+Uz stavku ostaje šta piše na otpremnici: **manjak** („po otpremnici 50, primljeno 47") i **drugi lot**
+se vide u prijemu i na listi („odstupa od otpremnice"). Otpremnica (PDF/slika) se čuva uz prijem i
+otvara iz njega; ulazi i u bekap. Temperaturu sa otpremnice aplikacija samo prikaže — to je podatak
+dobavljača; KKT 1 mjeri magacioner.
+
+**Istekao rok:** takva roba se upisuje (stigla je), odgovorno lice odmah dobija obavještenje, a
+stavka se **ne može prihvatiti** — samo odbiti (povrat ili uništenje).
+
+Ograničenja: rukopis se ne čita; skeniran PDF bez teksta se odbija (slikajte ga); OCR je do sada
+provjeren na izmišljenim otpremnicama i simuliranim fotografijama — prve prave otpremnice pilot
+klijenta su pravi test.
 
 ### Otpis zaliha
 
@@ -477,7 +505,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 npm run typecheck
 npm run build
 npm run dev          # u drugom prozoru — testovi rade protiv servera koji radi
-npm run test:e2e     # 222 provjere kroz svih pet uloga; izlazni kod 1 ako išta padne
+npm run test:e2e     # 252 provjere kroz svih pet uloga; izlazni kod 1 ako išta padne
 ```
 
 `npm run test:e2e` (fajlovi u `testovi/`) radi **samo na demo bazi** — prije prvog koraka provjeri
@@ -497,6 +525,7 @@ testovi prave i brišu podatke. Server i test moraju gledati istu bazu (`DATABAS
 | `neusaglasenosti_teren` | vozač prijavi problem na isporuci → mjera njemu → samo on je završava, uz opis → provjera; uprava i aktivnost |
 | `znanje_firme` | pitanja firme, termin sa pragom, rezultat „položeno", statistika po pitanju |
 | `faza1_haccp` | HOLD → pusti/odbij sa razlogom, povlačenje blokira puštanje, provjera tek uz urađenu mjeru, odstupanje iz obrasca → neusaglašenost, nepotvrđena granica ne zadržava robu |
+| `otpremnice` | 10 probnih otpremnica iz PDF-a tačno do slova, fotografija (i smanjena kao iz pregledača) sa tačnim lotovima, dobavljač po PIB-u, zapamćen artikal, manjak, istekao rok se ne prihvata |
 | `faza2_integritet` | istovremeni unosi ne dobijaju isti broj, lice + nalog ili oba ili ništa, početna i nova lozinka, terenske uloge ne čitaju tuđe, kartice direktora, baza odbija nepoznat izvor |
 
 Svaki test briše sve što napravi. Nov tok u aplikaciji = nov test u `testovi/` — dvije greške koje

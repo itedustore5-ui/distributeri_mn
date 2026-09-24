@@ -23,6 +23,7 @@ import { auditRuter } from "./routes/audit.js";
 import { tablaRuter } from "./routes/tabla.js";
 import { provjeraZnanjaRuter } from "./routes/provjeraZnanja.js";
 import { firmaRuter } from "./routes/firma.js";
+import { haccpPlanRuter } from "./routes/haccpPlan.js";
 import { povlacenjeRuter } from "./routes/povlacenje.js";
 import { bekapRuter } from "./routes/bekap.js";
 import { pokreniSedmicniBekap } from "./services/bekapService.js";
@@ -75,6 +76,7 @@ app.use("/api", izvozRuter);
 app.use("/api", auditRuter);
 app.use("/api", tablaRuter);
 app.use("/api", firmaRuter);
+app.use("/api", haccpPlanRuter);
 app.use("/api", povlacenjeRuter);
 app.use("/api", bekapRuter);
 

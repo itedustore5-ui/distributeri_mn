@@ -11,6 +11,7 @@ import { Sifarnici } from "./pages/Sifarnici";
 import { Prijem } from "./pages/Prijem";
 import { Zalihe } from "./pages/Zalihe";
 import { Haccp } from "./pages/Haccp";
+import { HaccpPlan } from "./pages/HaccpPlan";
 import { Neusaglasenosti } from "./pages/Neusaglasenosti";
 import { Vozila } from "./pages/Vozila";
 import { Isporuka } from "./pages/Isporuka";
@@ -55,6 +56,7 @@ function Rute() {
       <Route path="/prijem" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Prijem /></Zasticeno>} />
       <Route path="/zalihe" element={<Zasticeno uloge={["operater", "bzr", "izvodjac", "uprava"]}><Zalihe /></Zasticeno>} />
       <Route path="/haccp" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Haccp /></Zasticeno>} />
+      <Route path="/haccp-plan" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><HaccpPlan /></Zasticeno>} />
       <Route path="/neusaglasenosti" element={<Zasticeno uloge={["operater", "vozac", "bzr", "izvodjac"]}><Neusaglasenosti /></Zasticeno>} />
       <Route path="/vozila" element={<Zasticeno uloge={["vozac", "bzr", "izvodjac"]}><Vozila /></Zasticeno>} />
       <Route path="/isporuka" element={<Zasticeno uloge={["vozac", "operater", "bzr", "izvodjac"]}><Isporuka /></Zasticeno>} />
