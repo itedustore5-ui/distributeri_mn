@@ -1,5 +1,4 @@
 import { transakcija, upit } from "../db.js";
-import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
@@ -74,15 +73,7 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
       });
     }
 
-    const dogadjajId = await emituj(klijent, {
-      tipDogadjaja: rezultat === "FAIL" ? "EVT-006" : "EVT-005",
-      entitetTip: "mjerenje_temperature",
-      entitetId: mjerenjeId,
-      korisnikId: ulaz.izmjerioKorisnikId,
-      podaci: { vrijednost: ulaz.vrijednost, rezultat },
-    });
     await logKreiranje(klijent, {
-      dogadjajId,
       korisnikId: ulaz.izmjerioKorisnikId,
       entitetTip: "mjerenje_temperature",
       entitetId: mjerenjeId,

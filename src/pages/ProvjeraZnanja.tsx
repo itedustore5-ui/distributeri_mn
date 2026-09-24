@@ -50,6 +50,9 @@ export function ProvjeraZnanja() {
           <CheckCircle2 size={32} color="#20a477" style={{ margin: "0 auto 12px" }} />
           <h1>Provjera je završena</h1>
           <p style={{ marginTop: 10 }}>Tačno {rezultat.brojTacnih} od {rezultat.brojPitanja} pitanja. Hvala, {ime ?? "kolega"}.</p>
+          <Link to="/" className="secondary-button" style={{ display: "inline-flex", marginTop: 16, textDecoration: "none" }}>
+            ← Nazad u aplikaciju
+          </Link>
         </div>
       </div>
     );
@@ -99,8 +102,8 @@ export function ProvjeraZnanja() {
         <button className="primary-button auth-submit" onClick={uci} disabled={!sifra.trim() || ucitavanje} style={{ marginTop: 14 }}>
           {ucitavanje ? "Provjera..." : "Uđi"}
         </button>
-        <Link to="/prijava" className="muted-text" style={{ display: "block", textAlign: "center", marginTop: 16, fontSize: 11 }}>
-          ← Prijava u aplikaciju (korisničko ime i lozinka)
+        <Link to="/" className="muted-text" style={{ display: "block", textAlign: "center", marginTop: 16, fontSize: 11 }}>
+          ← Nazad u aplikaciju
         </Link>
       </div>
     </div>

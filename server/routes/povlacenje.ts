@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
+import { requireUloga, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { pokreniPovlacenje, oznaciKontaktiran, zavrsiPovlacenje } from "../services/povlacenjeService.js";
 
@@ -11,10 +11,10 @@ export const povlacenjeRuter = Router();
 // .use(...) bez putanje važio za SVAKI zahtjev koji prođe kroz njega — i zaključao bi rute
 // registrovane poslije (ovako je uprava dobijala 403 na /api/tabla).
 // Uprava ČITA povlačenja (Kontrolni centar vodi na Sledljivost); pokreće, zove i zatvara samo vodstvo.
-povlacenjeRuter.use(["/povlacenja", "/sledljivost/lot/:id/povlacenje"], requireAuth, requireUloga("bzr", "izvodjac", "uprava"));
 
 povlacenjeRuter.get(
   "/povlacenja",
+  requireUloga("bzr", "izvodjac", "uprava"),
   asyncRuta(async (_request, response) => {
     const rezultat = await upit(
       `select p.*, l.broj_lota, a.naziv as artikal_naziv,
@@ -29,6 +29,7 @@ povlacenjeRuter.get(
 
 povlacenjeRuter.get(
   "/povlacenja/:id",
+  requireUloga("bzr", "izvodjac", "uprava"),
   asyncRuta(async (request, response) => {
     const povlacenje = await upit(
       `select p.*, l.broj_lota, a.naziv as artikal_naziv from povlacenje p join lot l on l.id = p.lot_id join artikal a on a.id = l.artikal_id where p.id = $1`,

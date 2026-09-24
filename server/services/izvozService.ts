@@ -25,9 +25,11 @@ function csvVrijednost(v: unknown): string {
   return tekst;
 }
 
-export function nizUCsv(redovi: Record<string, unknown>[]): string {
-  if (redovi.length === 0) return "";
-  const kolone = Object.keys(redovi[0]);
+/** `sveKolone`: nazivi kolona iz upita — prazna tabela se izvozi SA zaglavljem, ne kao prazan fajl
+ * (inspektor inače ne vidi ni koje se kolone vode). */
+export function nizUCsv(redovi: Record<string, unknown>[], sveKolone?: string[]): string {
+  const kolone = sveKolone ?? (redovi[0] ? Object.keys(redovi[0]) : []);
+  if (kolone.length === 0) return "";
   const zaglavlje = kolone.join(";");
   const tijelo = redovi.map((red) => kolone.map((k) => csvVrijednost(red[k])).join(";")).join("\n");
   return `﻿${zaglavlje}\n${tijelo}`;
@@ -43,7 +45,7 @@ export async function izvezi(kod: string): Promise<{ naziv: string; csv: string 
     });
   }
   const rezultat = await pool.query(`select * from ${stavka.izvor} order by 1`);
-  return { naziv: stavka.naziv, csv: nizUCsv(rezultat.rows) };
+  return { naziv: stavka.naziv, csv: nizUCsv(rezultat.rows, rezultat.fields.map((f) => f.name)) };
 }
 
 /** Ne smije da padne zbog jednog nedostajućeg izvora — nedostajući se prijavi poimence,

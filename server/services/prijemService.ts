@@ -1,7 +1,6 @@
 import type { PoolClient } from "pg";
 import { transakcija, upit, pool } from "../db.js";
 import { ApiGreska } from "../greske.js";
-import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logOdluka, logIzmjena } from "./auditService.js";
 import { evaluirajPravilo, zabiljeziMjerenje } from "./haccpService.js";
 import { kreirajObavjestenje, obavijestiUlogu } from "./zadaciService.js";
@@ -69,7 +68,6 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
       [ulaz.dobavljacId, ulaz.brojDokumenta ?? null, ulaz.datumPrijema, korisnikId, ulaz.napomena ?? null, skladisteId],
     );
     const prijemId = prijem.rows[0].id;
-    await emituj(klijent, { tipDogadjaja: "EVT-009", entitetTip: "prijem", entitetId: prijemId, korisnikId });
     await logKreiranje(klijent, { korisnikId, entitetTip: "prijem", entitetId: prijemId, noveVrijednosti: { dobavljacId: ulaz.dobavljacId } });
 
     const lotoviZaProvjeru: { lotId: string; artikalId: string; temperatura: number | null }[] = [];
@@ -81,7 +79,6 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
         [stavka.artikalId, ulaz.dobavljacId, prijemId, stavka.brojLota.trim(), stavka.proizvodniDatum ?? null, stavka.rokTrajanja ?? null, stavka.primljenaKolicina],
       );
       const lotId = lot.rows[0].id;
-      await emituj(klijent, { tipDogadjaja: "EVT-011", entitetTip: "lot", entitetId: lotId, korisnikId });
 
       await klijent.query(
         `insert into prijem_stavka (prijem_id, artikal_id, lot_id, primljena_kolicina, temperatura_prijema, po_otpremnici)
@@ -349,9 +346,7 @@ export async function donesiOdlukuOLotu(lotId: string, odluka: Odluka, kolicina:
       await kretanje(-uKarantinu, "OTPIS", `Odbijeno iz karantina: ${razlogKretanja}`);
     }
 
-    const dogadjajTip = odluka === "PRIHVATI" ? "EVT-014" : odluka === "HOLD" ? "EVT-015" : "EVT-016";
-    const dogadjajId = await emituj(klijent, { tipDogadjaja: dogadjajTip, entitetTip: "lot", entitetId: lotId, korisnikId, podaci: { odluka, kolicina: kolicinaOdluke, napomena, izHolda: odHolda } });
-    await logOdluka(klijent, { dogadjajId, korisnikId, entitetTip: "lot", entitetId: lotId, noveVrijednosti: { status: noviStatus, kolicina: kolicinaOdluke, napomena, izHolda: odHolda } });
+    await logOdluka(klijent, { korisnikId, entitetTip: "lot", entitetId: lotId, noveVrijednosti: { status: noviStatus, kolicina: kolicinaOdluke, napomena, izHolda: odHolda } });
 
     const preostaliRed = await klijent.query<{ status: string }>(`select status from lot where prijem_id = $1`, [lot.prijem_id]);
     const statusi = preostaliRed.rows.map((r) => r.status);

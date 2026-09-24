@@ -1,6 +1,5 @@
 import { transakcija } from "../db.js";
 import { ApiGreska } from "../greske.js";
-import { emituj } from "./dogadjajService.js";
 import { logKreiranje } from "./auditService.js";
 
 export type OtpisUlaz = { kolicina: number; razlog: string };
@@ -31,13 +30,6 @@ export async function otpisiZalihu(lotId: string, ulaz: OtpisUlaz, korisnikId: s
     );
     const kretanjeId = kretanje.rows[0].id;
 
-    await emituj(klijent, {
-      tipDogadjaja: "EVT-043",
-      entitetTip: "kretanje_zalihe",
-      entitetId: kretanjeId,
-      korisnikId,
-      podaci: { lotId, kolicina: ulaz.kolicina, razlog: ulaz.razlog },
-    });
     await logKreiranje(klijent, {
       korisnikId,
       entitetTip: "kretanje_zalihe",

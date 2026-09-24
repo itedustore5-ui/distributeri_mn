@@ -2,15 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool, upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, ogranicenjeDatuma, izvrsilacZa, samoMoje, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
+import { requireUloga, ogranicenjeDatuma, izvrsilacZa, samoMoje, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo } from "../validacija.js";
 import { zabiljeziMjerenje } from "../services/haccpService.js";
 import { logKreiranje } from "../services/auditService.js";
 import { neusaglasenostIzZapisa } from "../services/ncService.js";
 
 export const haccpRuter = Router();
-haccpRuter.use(requireAuth);
-
 haccpRuter.get("/kontrolne-tacke", requireUloga("operater", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
   response.json((await upit(`select * from kontrolna_tacka where aktivan order by sifra`)).rows);
 }));

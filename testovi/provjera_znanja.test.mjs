@@ -17,6 +17,11 @@ export async function pokreni({ provjeri }) {
     const lice = (await ana("/lica")).tijelo.find((l) => l.sifra && l.aktivan !== false && /Marko/.test(l.ime));
     if (!lice) throw new Error("U demo bazi nema Markove šifre na spisku zaposlenih.");
 
+    // Ulaz se nudi na početnoj strani prijavljenog (ne na strani za prijavu).
+    const marko = await prijava(NALOZI.marko);
+    const mojPrije = (await marko("/provjera-znanja/moj-termin")).tijelo;
+    provjeri("Magacioner na svojoj strani vidi otvoren termin i svoju šifru", mojPrije?.otvoren === true && mojPrije.naziv === "E2E provjera" && mojPrije.sifra === lice.sifra && mojPrije.zavrseno === false, JSON.stringify(mojPrije));
+
     provjeri("Nepoznata šifra se odbija (404)", (await anon("/provjera-znanja/uci", { telo: { sifra: "NEMA-TAKVE" } })).tijelo?.error?.code === "SIFRA_NIJE_PREPOZNATA");
     const ulaz = await anon("/provjera-znanja/uci", { telo: { sifra: lice.sifra } });
     provjeri("Ulazak šifrom sa spiska, bez prijave", ulaz.status === 200 && ulaz.tijelo.pitanja.length === 3, `${ulaz.status} ${ulaz.tijelo?.error?.message ?? ""}`);
@@ -38,6 +43,8 @@ export async function pokreni({ provjeri }) {
     provjeri("Rezultat: 2 od 3", kraj.status === 200 && kraj.tijelo.brojTacnih === 2 && kraj.tijelo.brojPitanja === 3, JSON.stringify(kraj.tijelo));
     const poslije = await odgovori(pitanja[1], true);
     provjeri("Poslije završetka se ne odgovara (409)", poslije.status === 409 && poslije.tijelo.error.code === "VEC_ZAVRSENO");
+    const mojPoslije = (await marko("/provjera-znanja/moj-termin")).tijelo;
+    provjeri("…a poslije završetka piše da je završio", mojPoslije?.zavrseno === true, JSON.stringify(mojPoslije));
     const opet = await anon("/provjera-znanja/zavrsi", { telo: { ucesnikId } });
     provjeri("Ponovljeno 'završi' vraća isti rezultat", opet.tijelo?.brojTacnih === 2 && opet.tijelo?.brojPitanja === 3);
     provjeri("Ponovni ulazak istom šifrom se odbija (409)", (await anon("/provjera-znanja/uci", { telo: { sifra: lice.sifra } })).tijelo?.error?.code === "VEC_ZAVRSENO");

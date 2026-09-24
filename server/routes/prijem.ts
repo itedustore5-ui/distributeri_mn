@@ -2,14 +2,12 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { upit, pool } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
+import { requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajPrijem, donesiOdlukuOLotu, izmijeniStavku } from "../services/prijemService.js";
 import { prepoznajVrstu, procitajOtpremnicu } from "../services/otpremnicaService.js";
 
 export const prijemRuter = Router();
-prijemRuter.use(requireAuth);
-
 prijemRuter.get(
   "/prijem",
   requireUloga("operater", "bzr", "izvodjac"),

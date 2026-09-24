@@ -1,12 +1,10 @@
 import { Router } from "express";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
+import { requireUloga, type AuthZahtjev } from "../auth.js";
 import { napraviBekap, poslednjiBekap, istorijaBekapa, preuzmiBekap } from "../services/bekapService.js";
 import { str } from "../validacija.js";
 
 export const bekapRuter = Router();
-bekapRuter.use(requireAuth);
-
 bekapRuter.get(
   "/bekap/poslednji",
   requireUloga("bzr", "izvodjac"),

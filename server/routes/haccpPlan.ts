@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, izvrsilacZa, NA_TERENU, type AuthZahtjev } from "../auth.js";
+import { requireUloga, izvrsilacZa, NA_TERENU, type AuthZahtjev, sviPrijavljeni } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { logKreiranje, logIzmjena } from "../services/auditService.js";
 import { UCESTALOSTI, stavkePlana, stanjeDanas, pregledRupa, osnovniPlan } from "../services/monitoringService.js";
@@ -11,8 +11,6 @@ import { listaUredjaja, zabiljeziProvjeru, stanjeVerifikacije, zabiljeziVerifika
 // HACCP kao sistem (faza 3): plan monitoringa, "šta danas fali", mjerni uređaji, verifikacija
 // sistema, HACCP plan za štampu. Svaka ruta nosi svoje uloge (invarijanta #26).
 export const haccpPlanRuter = Router();
-haccpPlanRuter.use(requireAuth);
-
 const VODSTVO = ["bzr", "izvodjac"] as const;
 const VODSTVO_I_UPRAVA = ["bzr", "izvodjac", "uprava"] as const;
 
@@ -20,6 +18,7 @@ const VODSTVO_I_UPRAVA = ["bzr", "izvodjac", "uprava"] as const;
 // Magacioner i vozač vide svoje stavke (po ulozi i matičnom magacinu); ostali sve.
 haccpPlanRuter.get(
   "/monitoring/danas",
+  sviPrijavljeni(),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const { uloga, id } = request.korisnik!;
     let filter = {};

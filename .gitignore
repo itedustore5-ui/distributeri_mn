@@ -7,6 +7,7 @@ dist/
 
 alati/klijenti.txt
 bekap/
+.testbaza/
 
 npm-debug.log*
 .DS_Store

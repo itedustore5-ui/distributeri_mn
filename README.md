@@ -44,6 +44,9 @@ Vidi [`.env.example`](.env.example). Najvažnije:
   preko IPv6 i Render ga ne dohvata — ako se koristi, aplikacija se neće moći povezati u
   produkciji.
 - `NODE_ENV` — `development` lokalno, `production` na Renderu.
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` — **nisu potrebni**. Ključ za push
+  obavještenja server pravi sam pri prvom pokretanju i čuva ga u bazi klijenta (`web_push_kljuc`);
+  kontakt je javna adresa servisa na Renderu (`RENDER_EXTERNAL_URL`, Render ga sam postavlja).
 
 Nema `SESSION_SECRET` ni `ADMIN_TOKEN` — sesije su nasumični 256-bitni tokeni; u bazi
 (`sesija_prijave`, `db/20_sesije_prijave_cg.sql`) stoji samo njihov sha256 heš, pa deploy i restart
@@ -56,10 +59,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`24_haccp_sistem_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`25_push_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`, `25_push_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -163,16 +166,19 @@ Pa `npm run migriraj` na toj bazi (preskače već primijenjeno) i provjera jedno
 ```
 db/                    SQL šema (01-12) + demo podaci (13) + migracioni runner
 server/
-  index.ts             bootstrap: Express, CSRF zaglavlje, montiranje ruta, Vite (dev) / static (prod)
+  index.ts             bootstrap: Express, CSRF zaglavlje, javne rute → GRANICA PRIJAVE → ostale rute,
+                        Vite (dev) / static (prod), provjera ruta pri startu
+  provjeraRuta.ts      javniRuter() i provjeriRute(): ruta bez uloga ili ruter sa .use → server ne kreće
   db.ts                pg Pool, transakcije, provjera postojanja pogleda/tabele
-  auth.ts              sesije, uloge, PROZOR (koliko dana unazad koja uloga smije), CSRF
+  auth.ts              sesije, uloge (requireUloga, sviPrijavljeni), PROZOR, CSRF
   lozinke.ts           scrypt heš, provjera dužine
   vrijeme.ts           datum po podgoričkom vremenu (Europe/Podgorica), ne UTC
   validacija.ts        Zod helper
   greske.ts            konzistentan format greške { error: { code, message, details } }
-  services/            poslovna logika: haccp (evaluacija pravila), prijem, isporuka, zaliha,
-                        neusaglašenosti, vozila, sledljivost, izvoz, događaji, audit, zadaci
-  routes/               REST rute po modulu, montirane pod /api
+  services/            SQL i poslovna pravila: haccp (evaluacija pravila), prijem, isporuka, zaliha,
+                        neusaglašenosti, vozila, sledljivost, izvoz, audit, zadaci, poruke, tabla,
+                        ljudi, provjera znanja, push
+  routes/               REST rute po modulu, montirane pod /api — šema, uloga, poziv servisa, odgovor
 src/
   pages/               po jedna strana po ulozi/modulu (Tabla, Ljudi, Prijem, Zalihe, HACCP,
                         Neusaglašenosti, Vozila, Isporuka, Moja, Sledljivost, Prilozi,
@@ -180,6 +186,10 @@ src/
   components/          Layout (sidebar+topbar), StatusBadge, Modal, StatCard
   lib/                 api.ts (fetch wrapper + CSRF zaglavlje), auth.tsx (AuthContext)
 public/obrasci-cg.json definicija dnevnih obrazaca (P3/P7/P8) — nov obrazac se dodaje ovdje
+public/sw.js           service worker SAMO za push obavještenja (ništa ne kešira)
+public/manifest.webmanifest  aplikacija na početnom ekranu telefona (ikone ikona-192/512.png)
+testovi/               E2E testovi; izolovano.mjs pravi sopstvenu test bazu (npm test)
+.github/workflows/     testovi na svaki push (GitHub Actions)
 alati/                 CLI skripte, pokreću se sa računara konsultantkinje
 ```
 
@@ -356,6 +366,16 @@ odnosi (samo ako uloga smije tamo).
 
 Niko ne dobija obavještenje o onome što je sam uradio.
 
+**Na telefon, i kad je aplikacija zatvorena:** Moja strana → **„Obavještenja na telefon"** →
+„Uključi na ovom uređaju" (pa „Pošalji probno"). Uključuje se na svakom uređaju posebno.
+- Stiže ISTO što i na zvonce, za nekoliko sekundi; hitno (temperatura, povlačenje) ostaje na
+  ekranu dok se ne pogleda. Klik otvara stranu na koju se odnosi.
+- **iPhone:** samo kad je aplikacija na početnom ekranu (Safari → Dijeli → Dodaj na početni ekran,
+  pa otvoriti sa te ikone), iOS 16.4 ili noviji. Android (Chrome) radi i iz pregledača.
+- Sadržaj ide šifrovan kroz push servis pregledača (Google/Apple/Mozilla) — servis ga prenosi, ne
+  čita. Uređaj koji je odjavio obavještenja ili ga više nema briše se sam.
+- Zvonce u aplikaciji (provjera na 30 s) radi i dalje, za one koji push ne uključe.
+
 **Zadaci** nastaju sami (neusaglašenost, povlačenje, kontrola vozila) i nastaju
 **nedodijeljeni** — odgovorno lice ih vidi na Kontrolnom centru i u „Moji zadaci", i dodjeljuje
 ih nekome padajućim spiskom (ta osoba dobije obavještenje). Terenske uloge vide samo zadatke
@@ -421,11 +441,13 @@ aplikaciji, bez internih ID-jeva, pretraga), pa se štampa ili preuzme CSV sa sv
 
 ### Provjera znanja — pitanja firme i rezultati
 
-**Kako zaposleni ulazi:** na strani za prijavu dugme **„Provjera znanja — ulaz šifrom"** (ili
-direktno `/provjera-znanja`), upiše šifru sa spiska zaposlenih (npr. `M-03`) — bez korisničkog
-imena i lozinke. Ko ima nalog, na Mojoj strani ima dugme „Uđi u provjeru znanja" sa već
-upisanom šifrom. Šifra pušta samo dok postoji **otvoren termin** — kartica u Ljudima to ispisuje
-crveno kad termina nema, uz adresu za kopiranje.
+**Kako zaposleni ulazi:** sa svoje početne strane u aplikaciji. Dok je termin otvoren, na Mojoj
+strani (magacioner, vozač) i na Kontrolnom centru (odgovorno lice, direktor) stoji kartica
+**„Otvorena je provjera znanja — Uđi"**; šifra sa spiska zaposlenih se upiše sama. Poslije
+završetka tu piše da je provjera urađena. Na strani za prijavu ulaza **nema** (odluka vlasnice).
+Zaposleni koji nema nalog ulazi na adresi `/provjera-znanja` (kartica u Ljudima je daje za
+kopiranje) i upiše šifru (npr. `M-03`). Šifra pušta samo dok postoji **otvoren termin** —
+kartica u Ljudima to ispisuje crveno kad termina nema.
 
 Ljudi → Provjera znanja:
 
@@ -547,6 +569,11 @@ centru su dvije kartice: „Danas fali po planu · juče propušteno" i „HACCP
   isključivo iz hardkodovane liste, nikad od korisnika).
 - Validacija: Zod na serveru je autoritativna; frontend validacija je samo za UX.
 - `korisnik.uloga` sa klijenta se nikad ne vjeruje — svaka ruta provjerava ulogu iz sesije.
+- Jedna granica prijave (`app.use("/api", requireAuth)`); ispred nje samo javne adrese (prijava,
+  odjava, ulaz u provjeru znanja šifrom). Server pri pokretanju prolazi sve rute i ne kreće ako
+  neka nema `requireUloga` (`server/provjeraRuta.ts`).
+- Push: pretplata se prima samo za push servise pregledača (ne „pošalji bilo kud"); sadržaj je
+  šifrovan za uređaj; VAPID ključ je po bazi klijenta.
 
 ## Mobilni prikaz
 
@@ -561,11 +588,18 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm run dev          # u drugom prozoru — testovi rade protiv servera koji radi
-npm run test:e2e     # 293 provjere kroz svih pet uloga; izlazni kod 1 ako išta padne
+npm test             # 308 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 ```
 
-`npm run test:e2e` (fajlovi u `testovi/`) radi **samo na demo bazi** — prije prvog koraka provjeri
+**`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a
+instaliranog na računaru (`C:/Program Files/PostgreSQL`, ili `PG_BIN=`) pravi svoj klaster u
+`.testbaza/` (port 54329, bez lozinke, samo localhost), svaki put čistu bazu, na nju sve migracije
+i demo podatke, pokrene server na portu 5055 (samo `/api`), pusti sve testove i sve ugasi. Jedan
+test: `npm test -- povlacenje`. Isto radi **GitHub Actions na svaki push** na `main`
+(`.github/workflows/testovi.yml`, `npm run test:ci`) — ishod je kvačica ili krstić pored commita.
+
+`npm run test:e2e` pušta iste testove protiv servera koji već radi i baze iz `.env` — samo kad
+treba provjeriti baš demo bazu. Radi **samo na demo bazi** — prije prvog koraka provjeri
 da u bazi stoji svih pet demo naloga sa svojim fiksnim ID-jevima i inače odbije da krene, jer
 testovi prave i brišu podatke. Server i test moraju gledati istu bazu (`DATABASE_URL` iz
 `.env`); drugi server se zadaje sa `APP_URL=`. Jedan test: `npm run test:e2e -- povlacenje`.
@@ -589,6 +623,7 @@ se ispiše („· preskočeno").
 | `faza1_haccp` | HOLD → pusti/odbij sa razlogom, povlačenje blokira puštanje, provjera tek uz urađenu mjeru, odstupanje iz obrasca → neusaglašenost, nepotvrđena granica ne zadržava robu |
 | `otpremnice` | 10 probnih otpremnica iz PDF-a tačno do slova, fotografija (i smanjena kao iz pregledača) sa tačnim lotovima, dobavljač po PIB-u, zapamćen artikal, manjak, istekao rok se ne prihvata |
 | `faza2_integritet` | istovremeni unosi ne dobijaju isti broj, lice + nalog ili oba ili ništa, početna i nova lozinka, terenske uloge ne čitaju tuđe, kartice direktora, baza odbija nepoznat izvor |
+| `push` | pretplata po uređaju, adresa koja nije push servis se odbija, push stiže potpisan i šifrovan i čita ga samo „uređaj", ne šalje se dvaput, nestao uređaj (410) se briše sam, odjava samo svog uređaja |
 | `faza3_sistem` | temperatura obavezna na KKT 1, granica iz Šifarnika postaje pravilo (i nova verzija pri izmjeni), plan monitoringa i „šta danas fali", termometar (ispravan / neispravan → neusaglašenost, kalibracija traži sertifikat), verifikacija sistema, podaci za štampu HACCP plana, izuzetak od četiri oka samo kad je odgovorno lice jedino |
 
 Svaki test briše sve što napravi. Nov tok u aplikaciji = nov test u `testovi/` — dvije greške koje

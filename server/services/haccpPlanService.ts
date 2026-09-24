@@ -5,7 +5,6 @@ import { upit, transakcija } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import { danasCG } from "../vrijeme.js";
 import { logKreiranje } from "./auditService.js";
-import { emituj } from "./dogadjajService.js";
 import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
 import { stavkePlana } from "./monitoringService.js";
@@ -99,7 +98,7 @@ export async function zabiljeziProvjeru(uredjajId: string, ulaz: ProvjeraUlaz, i
         [broj, uredjajId, opis, korisnikId],
       );
       neusaglasenost = broj;
-      await emituj(klijent, { tipDogadjaja: "EVT-007", entitetTip: "neusaglasenost", entitetId: nc.rows[0].id, korisnikId, podaci: { izvor: "mjerni_uredjaj" } });
+      await logKreiranje(klijent, { korisnikId, entitetTip: "neusaglasenost", entitetId: nc.rows[0].id, noveVrijednosti: { broj, izvor: "mjerni_uredjaj", uredjajId } });
       await kreirajZadatak(klijent, {
         naslov: `Zamijeniti ili kalibrisati ${oznaka} — ${broj}`,
         opis: "Ne mjeriti tim uređajem dok ne prođe provjeru. Pregledati mjerenja od posljednje ispravne provjere.",

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { asyncRuta } from "../greske.js";
-import { requireAuth, requireUloga } from "../auth.js";
+import { requireUloga } from "../auth.js";
 import { IZVORI_IZVOZA, izvezi, izveziSve, nizUCsv, pregled, spisakIzvora } from "../services/izvozService.js";
 import { str } from "../validacija.js";
 
@@ -8,7 +8,6 @@ export const izvozRuter = Router();
 // Provjera važi SAMO za adrese ovog rutera. Ruter je montiran na zajednički "/api", pa bi
 // .use(...) bez putanje važio za SVAKI zahtjev koji prođe kroz njega — i zaključao bi rute
 // registrovane poslije (ovako je uprava dobijala 403 na /api/tabla).
-izvozRuter.use("/izvoz", requireAuth, requireUloga("bzr", "izvodjac"));
 
 /** HTTP zaglavlja moraju biti ASCII — "š"/"č"/"ž"/"đ" u nazivu izvještaja (npr.
  * "Neusaglašenosti", "Povlačenja") su rušili preuzimanje sa ERR_INVALID_CHAR. Fajl dobija
@@ -26,6 +25,7 @@ function nazivZaZaglavlje(naziv: string, ekstenzija: string) {
 
 izvozRuter.get(
   "/izvoz/izvori",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (_request, response) => {
     response.json(await spisakIzvora());
   }),
@@ -33,6 +33,7 @@ izvozRuter.get(
 
 izvozRuter.get(
   "/izvoz/:kod/pregled",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request, response) => {
     response.json(await pregled(str(request.params.kod)));
   }),
@@ -40,6 +41,7 @@ izvozRuter.get(
 
 izvozRuter.get(
   "/izvoz/:kod.csv",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request, response) => {
     const { naziv, csv } = await izvezi(str(request.params.kod));
     response.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -50,6 +52,7 @@ izvozRuter.get(
 
 izvozRuter.get(
   "/izvoz/sve.json",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (_request, response) => {
     const { podaci, nedostaje } = await izveziSve();
     response.json({ podaci, nedostaje, izvezenoAt: new Date().toISOString() });
@@ -58,6 +61,7 @@ izvozRuter.get(
 
 izvozRuter.get(
   "/izvoz/sve.csv-arhiva",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (_request, response) => {
     const { podaci, nedostaje } = await izveziSve();
     const dijelovi = Object.entries(podaci).map(([kod, redovi]) => `--- ${kod} ---\n${nizUCsv(redovi)}`);

@@ -78,9 +78,10 @@ export function ProvjeraZnanjaKartica({ verzija, onOsvjezi }: { verzija: number;
           <div style={{ flex: 1, minWidth: 260 }}>
             <span className="meta-label">Kako zaposleni ulazi</span>
             <p style={{ fontSize: 12, margin: "4px 0 0" }}>
-              Na strani za prijavu dugme <b>„Provjera znanja — ulaz šifrom"</b>, ili direktno na adresi{" "}
-              <a href={adresaProvjere} target="_blank" rel="noreferrer"><code>{adresaProvjere}</code></a>. Upisuje svoju šifru sa
-              spiska „Svi zaposleni" (npr. <code>M-03</code>) — bez korisničkog imena i lozinke. Ko ima nalog, ima i dugme na svojoj strani.
+              Sa svoje početne strane u aplikaciji (Moja strana, Kontrolni centar): dok je termin otvoren, tamo stoji{" "}
+              <b>„Uđi u provjeru znanja“</b> i šifra se upiše sama. Zaposleni koji nema nalog ulazi na adresi{" "}
+              <a href={adresaProvjere} target="_blank" rel="noreferrer"><code>{adresaProvjere}</code></a> (kopirajte je i pošaljite) i
+              upisuje šifru sa spiska „Svi zaposleni“ (npr. <code>M-03</code>).
             </p>
             <p style={{ fontSize: 12, margin: "6px 0 0" }}>
               {otvoreni.length > 0 ? (

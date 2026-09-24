@@ -2,14 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool, upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
+import { requireUloga, type AuthZahtjev, sviPrijavljeni } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { logKreiranje, logIzmjena } from "../services/auditService.js";
 import { uskladiPravilaArtikla } from "../services/pravilaService.js";
 
 export const sifarniciRuter = Router();
-sifarniciRuter.use(requireAuth);
-
 const dobavljacSchema = z.object({
   naziv: z.string().min(2),
   pib: z.string().optional(),
@@ -172,6 +170,7 @@ sifarniciRuter.patch(
 // formama pojavljuje tek kad postoji više od jednog aktivnog.
 sifarniciRuter.get(
   "/skladista",
+  sviPrijavljeni(),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const [skladista, maticno] = await Promise.all([
       upit(`select id, naziv, adresa, aktivan from skladiste order by aktivan desc, naziv`),

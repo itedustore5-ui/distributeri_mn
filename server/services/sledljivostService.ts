@@ -22,13 +22,3 @@ export async function lanacNazadZaIsporuku(isporukaId: string) {
   return rezultat.rows;
 }
 
-export async function vremenskaLinijaZaEntitet(entitetTip: string, entitetId: string) {
-  const rezultat = await upit(
-    `select d.tip_dogadjaja, d.desilo_se_at, d.podaci, k.korisnicko_ime
-     from dogadjaj d left join korisnik k on k.id = d.korisnik_id
-     where d.entitet_tip = $1 and d.entitet_id = $2
-     order by d.desilo_se_at asc`,
-    [entitetTip, entitetId],
-  );
-  return rezultat.rows;
-}

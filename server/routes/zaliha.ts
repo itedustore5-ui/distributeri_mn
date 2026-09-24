@@ -2,14 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
-import { lanacNaprijedZaLot, vremenskaLinijaZaEntitet } from "../services/sledljivostService.js";
+import { requireUloga, type AuthZahtjev } from "../auth.js";
+import { lanacNaprijedZaLot } from "../services/sledljivostService.js";
 import { otpisiZalihu } from "../services/otpisService.js";
 import { str, tijelo } from "../validacija.js";
 
 export const zalihaRuter = Router();
-zalihaRuter.use(requireAuth);
-
 zalihaRuter.get(
   "/zaliha",
   requireUloga("operater", "vozac", "bzr", "izvodjac"),
@@ -48,8 +46,7 @@ zalihaRuter.get(
     );
     if (!lot.rows[0]) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Lot nije pronađen.");
     const lanac = await lanacNaprijedZaLot(str(request.params.id));
-    const vremenskaLinija = await vremenskaLinijaZaEntitet("lot", str(request.params.id));
-    response.json({ ...lot.rows[0], lanac, vremenskaLinija });
+    response.json({ ...lot.rows[0], lanac });
   }),
 );
 

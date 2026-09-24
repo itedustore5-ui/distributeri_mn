@@ -7,6 +7,8 @@ import { StatusBadge } from "../components/StatusBadge";
 import { useAuth, NAZIV_ULOGE } from "../lib/auth";
 import { ListaZadataka, ListaObavjestenja } from "../components/Zadaci";
 import { lokalniDatum } from "../lib/vrijeme";
+import { ProvjeraZnanjaUlaz } from "../components/ProvjeraZnanjaUlaz";
+import { PushObavjestenja } from "../components/PushObavjestenja";
 
 type Lice = { id: string; ime: string; sifra: string; sanitarna_knjizica_rok: string | null; knjizica_status: string | null; rukuje_hranom: boolean };
 
@@ -45,6 +47,8 @@ export function Moja() {
           </span>
         </div>
       )}
+
+      <ProvjeraZnanjaUlaz />
 
       {terenskaUloga && <DanasPoPlanu />}
 
@@ -128,6 +132,7 @@ export function Moja() {
           </div>
         )}
         <PromjenaLozinke />
+        <PushObavjestenja />
       </div>
     </>
   );

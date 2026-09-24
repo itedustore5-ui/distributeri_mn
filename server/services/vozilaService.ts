@@ -1,5 +1,4 @@
 import { transakcija } from "../db.js";
-import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
@@ -28,14 +27,7 @@ export async function zabiljeziKontroluVozila(ulaz: NovaKontrolaVozilaUlaz, kori
     const noviStatusVozila = prosao ? "SPREMNO" : "NIJE_SPREMNO";
     await klijent.query(`update vozilo set status = $1 where id = $2`, [noviStatusVozila, ulaz.vozilId]);
 
-    const dogadjajId = await emituj(klijent, {
-      tipDogadjaja: prosao ? "EVT-027" : "EVT-028",
-      entitetTip: "vozilo",
-      entitetId: ulaz.vozilId,
-      korisnikId,
-      podaci: { kontrolaId, ukupanStatus },
-    });
-    await logKreiranje(klijent, { dogadjajId, korisnikId, entitetTip: "kontrola_vozila", entitetId: kontrolaId, noveVrijednosti: { ukupanStatus } });
+    await logKreiranje(klijent, { korisnikId, entitetTip: "kontrola_vozila", entitetId: kontrolaId, noveVrijednosti: { voziloId: ulaz.vozilId, ukupanStatus, statusVozila: noviStatusVozila } });
 
     let neusaglasenostId: string | null = null;
     if (!prosao) {

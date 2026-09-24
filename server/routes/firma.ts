@@ -2,14 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool, upit } from "../db.js";
 import { asyncRuta } from "../greske.js";
-import { requireAuth, requireUloga } from "../auth.js";
+import { requireUloga, sviPrijavljeni } from "../auth.js";
 import { tijelo } from "../validacija.js";
 
 export const firmaRuter = Router();
-firmaRuter.use(requireAuth);
-
 firmaRuter.get(
   "/firma",
+  sviPrijavljeni(),
   asyncRuta(async (_request, response) => {
     const rezultat = await upit(`select * from firma limit 1`);
     response.json(rezultat.rows[0] ?? null);

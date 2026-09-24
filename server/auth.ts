@@ -116,13 +116,24 @@ export const requireAuth = async (request: AuthZahtjev, response: Response, next
   next();
 };
 
-export const requireUloga = (...uloge: Uloga[]) => (request: AuthZahtjev, response: Response, next: NextFunction) => {
-  if (!request.korisnik || !uloge.includes(request.korisnik.uloga)) {
-    posalji(response, 403, "NEDOZVOLJENO", "Vaša uloga nema pristup ovoj funkciji.");
-    return;
-  }
-  next();
-};
+export const SVE_ULOGE: Uloga[] = ["izvodjac", "bzr", "uprava", "operater", "vozac"];
+
+/** Uloge se pišu na SVAKOJ ruti (nalaz A3, faza 4). Funkcija nosi svoj spisak (`uloge`), pa
+ * `provjeriRute()` pri pokretanju servera vidi rutu kojoj je zaboravljen. */
+export const requireUloga = (...uloge: Uloga[]) =>
+  Object.assign(
+    (request: AuthZahtjev, response: Response, next: NextFunction) => {
+      if (!request.korisnik || !uloge.includes(request.korisnik.uloga)) {
+        posalji(response, 403, "NEDOZVOLJENO", "Vaša uloga nema pristup ovoj funkciji.");
+        return;
+      }
+      next();
+    },
+    { uloge },
+  );
+
+/** Svaki prijavljeni korisnik — izričito, da se vidi da je odluka donesena, a ne zaboravljena. */
+export const sviPrijavljeni = () => requireUloga(...SVE_ULOGE);
 
 /** Zaštita od CSRF-a: state-changing zahtjevi moraju nositi ovo zaglavlje. Cross-site forme i
  * <img>/<script> pozivi ga ne mogu postaviti bez CORS dozvole koju server ne daje. */

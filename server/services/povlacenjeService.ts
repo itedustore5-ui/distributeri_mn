@@ -1,6 +1,5 @@
 import { transakcija, upit, pool } from "../db.js";
 import { ApiGreska } from "../greske.js";
-import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu, zatvoriZadatkeIzvora } from "./zadaciService.js";
 import { sljedeciBroj, sljedeciBrojNc, danasKratko } from "./brojeviService.js";
@@ -73,8 +72,7 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
       izvorId: povlacenjeId,
     });
 
-    const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-POVLACENJE", entitetTip: "povlacenje", entitetId: povlacenjeId, korisnikId, podaci: { lotId, razlog } });
-    await logKreiranje(klijent, { dogadjajId, korisnikId, entitetTip: "povlacenje", entitetId: povlacenjeId, noveVrijednosti: { broj, lotId, razlog } });
+    await logKreiranje(klijent, { korisnikId, entitetTip: "povlacenje", entitetId: povlacenjeId, noveVrijednosti: { broj, lotId, razlog } });
 
     return { id: povlacenjeId, broj, brojKontakata: isporuke.rows.length, neusaglasenostId: nc.rows[0].id };
   });

@@ -2,14 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool, upit, transakcija } from "../db.js";
 import { asyncRuta } from "../greske.js";
-import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
+import { requireUloga, type AuthZahtjev } from "../auth.js";
 import { tijelo } from "../validacija.js";
 import { zabiljeziKontroluVozila } from "../services/vozilaService.js";
 import { logKreiranje } from "../services/auditService.js";
 
 export const vozilaRuter = Router();
-vozilaRuter.use(requireAuth);
-
 vozilaRuter.get("/vozila", requireUloga("operater", "vozac", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
   response.json((await upit(`select * from vozilo where aktivan order by registarski_broj`)).rows);
 }));

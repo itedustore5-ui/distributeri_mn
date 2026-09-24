@@ -7,6 +7,7 @@ import { PageHeader, Modal } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { ListaZadataka } from "../components/Zadaci";
 import { AktivnostUzivo } from "../components/Aktivnost";
+import { ProvjeraZnanjaUlaz } from "../components/ProvjeraZnanjaUlaz";
 import { mozeNa } from "../components/Layout";
 import { useAuth } from "../lib/auth";
 
@@ -90,6 +91,7 @@ export function Tabla() {
   return (
     <>
       <PageHeader title="Kontrolni centar" description="Ovo nije forma za unos — ovo je pregled onoga što traži pažnju danas." />
+      <ProvjeraZnanjaUlaz />
       <div className="section-heading">
         <div>
           <h2>Kritično</h2>

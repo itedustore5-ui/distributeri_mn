@@ -9,7 +9,7 @@ import {
   postaviSesijskiKolacic,
   obrisiSesijskiKolacic,
   tokenIzZahtjeva,
-  requireAuth,
+  sviPrijavljeni,
   provjeriOgranicenjeLogina,
   zabiljeziNeuspjeliPokusaj,
   ocistiNeuspjelePokusaje,
@@ -19,7 +19,10 @@ import { hashLozinke, provjeriLozinku, lozinkaJeDovoljnoDugacka, MINIMALNA_DUZIN
 import { tijelo } from "../validacija.js";
 import { logSigurnosniDogadjaj } from "../services/auditService.js";
 import { pool } from "../db.js";
+import { javniRuter } from "../provjeraRuta.js";
 
+/** Prijava i odjava — jedine adrese naloga koje rade bez sesije. */
+export const authJavniRuter = javniRuter();
 export const authRuter = Router();
 
 const prijavaSchema = z.object({
@@ -27,7 +30,7 @@ const prijavaSchema = z.object({
   lozinka: z.string().min(1),
 });
 
-authRuter.post(
+authJavniRuter.post(
   "/auth/prijava",
   asyncRuta(async (request, response) => {
     const { korisnickoIme, lozinka } = tijelo(prijavaSchema, request.body);
@@ -56,13 +59,13 @@ authRuter.post(
 
 authRuter.get(
   "/auth/ja",
-  requireAuth,
+  sviPrijavljeni(),
   asyncRuta(async (request: AuthZahtjev, response) => {
     response.json({ korisnik: request.korisnik });
   }),
 );
 
-authRuter.post(
+authJavniRuter.post(
   "/auth/odjava",
   asyncRuta(async (request, response) => {
     const token = tokenIzZahtjeva(request);
@@ -79,7 +82,7 @@ const promjenaLozinkeSchema = z.object({
 
 authRuter.post(
   "/auth/promijeni-lozinku",
-  requireAuth,
+  sviPrijavljeni(),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const { staraLozinka, novaLozinka } = tijelo(promjenaLozinkeSchema, request.body);
     if (!lozinkaJeDovoljnoDugacka(novaLozinka)) {

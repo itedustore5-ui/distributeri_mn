@@ -1,8 +1,10 @@
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 
+// Jedini dnevnik promjena (nalaz B4, faza 4). Tabela `dogadjaj` se više ne puni — stari redovi
+// ostaju u bazi i u bekapu, a `audit_log.dogadjaj_id` je za nove redove prazan.
+
 type ZabiljeziInput = {
-  dogadjajId?: string | null;
   korisnikId?: string | null;
   akcija: string;
   entitetTip: string;
@@ -15,10 +17,9 @@ type ZabiljeziInput = {
 
 async function zabiljezi(klijent: PoolClient | typeof pool, ulaz: ZabiljeziInput) {
   await klijent.query(
-    `insert into audit_log (dogadjaj_id, korisnik_id, akcija, entitet_tip, entitet_id, stare_vrijednosti, nove_vrijednosti, ip_adresa, user_agent)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `insert into audit_log (korisnik_id, akcija, entitet_tip, entitet_id, stare_vrijednosti, nove_vrijednosti, ip_adresa, user_agent)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
-      ulaz.dogadjajId ?? null,
       ulaz.korisnikId ?? null,
       ulaz.akcija,
       ulaz.entitetTip,

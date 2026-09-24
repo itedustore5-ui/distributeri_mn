@@ -2,32 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, NA_TERENU, type AuthZahtjev } from "../auth.js";
+import { requireUloga, NA_TERENU, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajRucnuNeusaglasenost, dodajKorektivnuMjeru, zavrsiKorektivnuMjeru, verifikuj } from "../services/ncService.js";
+import { IME, IZVOR_OZNAKA, SAMO_MOJE_NC } from "../services/sqlDijelovi.js";
 
 export const ncRuter = Router();
-ncRuter.use(requireAuth);
-
-// Odakle je neusaglašenost došla — čitljivo, da se na listi vidi "isporuka ISP-…", a ne samo broj.
-export const IZVOR_OZNAKA = `
-  case nc.izvor_tip
-    when 'isporuka' then (select 'Isporuka ' || i.broj || ' · ' || k.naziv from isporuka i join kupac k on k.id = i.kupac_id where i.id = nc.izvor_id)
-    when 'mjerenje_temperature' then (select 'Temperatura · ' || kt.naziv || ' ' || m.vrijednost || ' °C' from mjerenje_temperature m join kontrolna_tacka kt on kt.id = m.kontrolna_tacka_id where m.id = nc.izvor_id)
-    when 'kontrola_vozila' then (select 'Vozilo ' || v.registarski_broj from kontrola_vozila kv join vozilo v on v.id = kv.vozilo_id where kv.id = nc.izvor_id)
-    when 'povlacenje' then (select 'Povlačenje ' || p.broj from povlacenje p where p.id = nc.izvor_id)
-    when 'zapis' then (select 'Obrazac ' || z.obrazac_kod || ' · ' || to_char(z.datum, 'DD.MM.YYYY.') from zapis z where z.id = nc.izvor_id)
-    when 'mjerni_uredjaj' then (select 'Mjerni uređaj ' || u.naziv || coalesce(' (' || u.oznaka || ')', '') from mjerni_uredjaj u where u.id = nc.izvor_id)
-    when 'prijem' then (select 'Prijem ' || coalesce(p.broj_dokumenta || ' · ', '') || d.naziv from prijem p join dobavljac d on d.id = p.dobavljac_id where p.id = nc.izvor_id)
-    else 'Prijava sa terena'
-  end`;
-
-export // Magacioner i vozač vide neusaglašenosti koje su SAMI prijavili i one gdje je mjera dodijeljena
-// NJIMA (invarijanta #26) — ne sve u firmi. $2 = id korisnika.
-const SAMO_MOJE_NC = `(nc.prijavio_korisnik_id = $2 or exists (select 1 from korektivna_mjera m where m.neusaglasenost_id = nc.id and m.dodijeljeno_korisnik_id = $2))`;
-
-export const IME = (alias: string) => `(select coalesce(l.ime, k.korisnicko_ime) from korisnik k left join lice l on l.id = k.lice_id where k.id = ${alias})`;
-
 ncRuter.get(
   "/neusaglasenosti",
   requireUloga("operater", "vozac", "bzr", "izvodjac"),
@@ -81,6 +61,7 @@ const rucnaSchema = z.object({
 // Prijaviti smije svako — i vozač i magacioner (to je poenta: problem se upisuje tamo gdje nastane).
 ncRuter.post(
   "/neusaglasenosti",
+  requireUloga("izvodjac", "bzr", "operater", "vozac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(rucnaSchema, request.body);
     const rezultat = await kreirajRucnuNeusaglasenost(ulaz, request.korisnik!.id);

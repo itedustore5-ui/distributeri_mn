@@ -1,7 +1,6 @@
 import type { PoolClient } from "pg";
 import { transakcija, upit, pool } from "../db.js";
 import { ApiGreska } from "../greske.js";
-import { emituj } from "./dogadjajService.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajObavjestenje } from "./zadaciService.js";
 import { zabiljeziMjerenje } from "./haccpService.js";
@@ -101,7 +100,6 @@ export async function kreirajIsporuku(ulaz: NovaIsporukaUlaz, korisnikId: string
       );
     }
 
-    await emituj(klijent, { tipDogadjaja: "EVT-030", entitetTip: "isporuka", entitetId: isporukaId, korisnikId });
     await obavijestiVozaca(klijent, isporukaId, ulaz.vozacKorisnikId, korisnikId);
     await logKreiranje(klijent, { korisnikId, entitetTip: "isporuka", entitetId: isporukaId, noveVrijednosti: { broj, kupacId: ulaz.kupacId } });
 
@@ -258,9 +256,7 @@ export async function potvrdiIsporuku(isporukaId: string, stavke: StavkaPotvrdeU
       [status, korisnikId, isporukaId],
     );
 
-    const dogadjajTip = status === "POTVRDJENA" ? "EVT-034" : status === "DJELIMICNA" ? "EVT-035" : "EVT-036";
-    const dogadjajId = await emituj(klijent, { tipDogadjaja: dogadjajTip, entitetTip: "isporuka", entitetId: isporukaId, korisnikId, podaci: { status } });
-    await logPromjenaStatusa(klijent, { dogadjajId, korisnikId, entitetTip: "isporuka", entitetId: isporukaId, noveVrijednosti: { status } });
+    await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "isporuka", entitetId: isporukaId, noveVrijednosti: { status } });
 
     return { status, voziloId: isporukaRed.rows[0].vozilo_id, broj: isporukaRed.rows[0].broj };
   });

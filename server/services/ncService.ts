@@ -1,7 +1,6 @@
 import type { PoolClient } from "pg";
 import { transakcija, upit } from "../db.js";
 import { ApiGreska } from "../greske.js";
-import { emituj } from "./dogadjajService.js";
 import { logIzmjena, logPromjenaStatusa } from "./auditService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
 import { zatvoriZadatkeIzvora, kreirajObavjestenje, kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
@@ -32,8 +31,7 @@ export async function kreirajRucnuNeusaglasenost(
       [broj, ozbiljnost, ulaz.izvorTip ?? "rucno", ulaz.izvorId ?? null, ulaz.opis, korisnikId],
     );
     const id = nc.rows[0].id;
-    const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-007", entitetTip: "neusaglasenost", entitetId: id, korisnikId });
-    await logIzmjena(klijent, { dogadjajId, korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj } });
+    await logIzmjena(klijent, { korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj } });
     await kreirajZadatak(klijent, {
       naslov: `Riješi neusaglašenost ${broj}`,
       opis: `${ulaz.opis}${izvorOpis}`,
@@ -69,8 +67,7 @@ export async function dodajKorektivnuMjeru(
       [neusaglasenostId, ulaz.opis, ulaz.dodijeljenoKorisnikId ?? null, ulaz.rok ?? null],
     );
     await klijent.query(`update neusaglasenost set status = 'MJERA_U_TOKU', updated_at = now() where id = $1`, [neusaglasenostId]);
-    const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-039", entitetTip: "neusaglasenost", entitetId: neusaglasenostId, korisnikId });
-    await logPromjenaStatusa(klijent, { dogadjajId, korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: "MJERA_U_TOKU" } });
+    await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: "MJERA_U_TOKU" } });
     if (ulaz.dodijeljenoKorisnikId && ulaz.dodijeljenoKorisnikId !== korisnikId) {
       const nc = await klijent.query<{ broj: string }>(`select broj from neusaglasenost where id = $1`, [neusaglasenostId]);
       await kreirajObavjestenje(klijent, {
@@ -111,8 +108,7 @@ export async function zavrsiKorektivnuMjeru(mjeraId: string, rezultat: string | 
     if (!mjera.rows[0]) throw new ApiGreska(404, "MJERA_NE_POSTOJI", "Korektivna mjera nije pronađena.");
     const neusaglasenostId = mjera.rows[0].neusaglasenost_id;
     await klijent.query(`update neusaglasenost set status = 'CEKA_VERIFIKACIJU', updated_at = now() where id = $1`, [neusaglasenostId]);
-    const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-040", entitetTip: "korektivna_mjera", entitetId: mjeraId, korisnikId });
-    await logPromjenaStatusa(klijent, { dogadjajId, korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: "CEKA_VERIFIKACIJU" } });
+    await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: "CEKA_VERIFIKACIJU" } });
     if (!vodiSistem) {
       const nc = await klijent.query<{ broj: string }>(`select broj from neusaglasenost where id = $1`, [neusaglasenostId]);
       await obavijestiUlogu(klijent, "bzr", {
@@ -203,13 +199,7 @@ export async function verifikuj(
       [noviStatus, korisnikId, neusaglasenostId],
     );
 
-    const dogadjajId = await emituj(klijent, {
-      tipDogadjaja: ulaz.rezultat === "POTVRDJENO" ? "EVT-042" : "EVT-041",
-      entitetTip: "neusaglasenost",
-      entitetId: neusaglasenostId,
-      korisnikId,
-    });
-    await logPromjenaStatusa(klijent, { dogadjajId, korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: noviStatus } });
+    await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: noviStatus, rezultat: ulaz.rezultat } });
 
     if (noviStatus === "ZATVORENA") {
       await zatvoriZadatkeIzvora(klijent, "neusaglasenost", neusaglasenostId);
@@ -255,8 +245,7 @@ export async function neusaglasenostIzZapisa(klijent: PoolClient, ulaz: { zapisI
      values ($1, $2, $3, 'ZAVRSENA', now(), $3, $2)`,
     [id, ulaz.korektivnaMjera.trim(), ulaz.korisnikId],
   );
-  const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-007", entitetTip: "neusaglasenost", entitetId: id, korisnikId: ulaz.korisnikId, podaci: { izvor: "zapis", obrazac: ulaz.obrazacKod } });
-  await logIzmjena(klijent, { dogadjajId, korisnikId: ulaz.korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj, zapisId: ulaz.zapisId } });
+  await logIzmjena(klijent, { korisnikId: ulaz.korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj, zapisId: ulaz.zapisId } });
   await kreirajZadatak(klijent, {
     naslov: `Provjeri odstupanje ${broj} (obrazac ${ulaz.obrazacKod})`,
     opis: `Preduzeto: ${ulaz.korektivnaMjera.trim()}`,

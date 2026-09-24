@@ -4,9 +4,10 @@ import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import { greskaHandler } from "./greske.js";
-import { zahtjevAppZaglavlje } from "./auth.js";
+import { zahtjevAppZaglavlje, requireAuth } from "./auth.js";
+import { provjeriRute } from "./provjeraRuta.js";
 
-import { authRuter } from "./routes/auth.js";
+import { authRuter, authJavniRuter } from "./routes/auth.js";
 import { ljudiRuter } from "./routes/ljudi.js";
 import { sifarniciRuter } from "./routes/sifarnici.js";
 import { prijemRuter } from "./routes/prijem.js";
@@ -21,11 +22,13 @@ import { sledljivostRuter } from "./routes/sledljivost.js";
 import { izvozRuter } from "./routes/izvoz.js";
 import { auditRuter } from "./routes/audit.js";
 import { tablaRuter } from "./routes/tabla.js";
-import { provjeraZnanjaRuter } from "./routes/provjeraZnanja.js";
+import { provjeraZnanjaRuter, provjeraZnanjaJavniRuter } from "./routes/provjeraZnanja.js";
 import { firmaRuter } from "./routes/firma.js";
 import { haccpPlanRuter } from "./routes/haccpPlan.js";
 import { povlacenjeRuter } from "./routes/povlacenje.js";
 import { bekapRuter } from "./routes/bekap.js";
+import { pushRuter } from "./routes/push.js";
+import { pokreniSlanjePush } from "./services/pushService.js";
 import { pokreniSedmicniBekap } from "./services/bekapService.js";
 import { pripremiSesije } from "./auth.js";
 
@@ -53,12 +56,16 @@ app.use((_request, response, next) => {
 
 app.use("/api", zahtjevAppZaglavlje);
 
-// JAVNE adrese moraju biti montirane PRIJE rutera koji rade .use(requireAuth) — takav ruter na
-// zajedničkom "/api" zaustavlja svaki zahtjev bez prijave, i onaj koji mu ne pripada. Ovako je
-// ulazak u provjeru znanja šifrom (bez naloga) vraćao 401.
+// ── JAVNO: jedino što radi bez prijave (nalaz A3, faza 4) ──
 app.get("/api/zdravlje", (_request, response) => {
   response.json({ ok: true, izdanje: IZDANJE });
 });
+app.use("/api", authJavniRuter); // prijava, odjava
+app.use("/api", provjeraZnanjaJavniRuter); // ulazak šifrom (invarijanta #32)
+
+// ── GRANICA PRIJAVE: sve ispod traži sesiju. Ruteri NE kače requireAuth sami i nemaju svoj
+// .use — uloge stoje na svakoj ruti, a provjeriRute() ispod to provjerava pri pokretanju. ──
+app.use("/api", requireAuth);
 app.use("/api", authRuter);
 app.use("/api", provjeraZnanjaRuter);
 app.use("/api", ljudiRuter);
@@ -79,6 +86,7 @@ app.use("/api", firmaRuter);
 app.use("/api", haccpPlanRuter);
 app.use("/api", povlacenjeRuter);
 app.use("/api", bekapRuter);
+app.use("/api", pushRuter);
 
 app.use("/api", (_request: Request, response: Response, _next: NextFunction) => {
   response.status(404).json({ error: { code: "RUTA_NE_POSTOJI", message: "Traženi API resurs ne postoji." } });
@@ -86,12 +94,25 @@ app.use("/api", (_request: Request, response: Response, _next: NextFunction) => 
 
 app.use(greskaHandler);
 
+// Ruta bez uloga, ruter sa svojim .use ili zaštićen ruter ispred granice: u razvoju server ne
+// kreće (greška se vidi odmah), u produkciji se samo zapiše — klijent ne ostaje bez aplikacije.
+const prekrsajiRuta = provjeriRute(app);
+if (prekrsajiRuta.length) {
+  const poruka = `Prava na rutama nisu podešena kako treba:\n  - ${prekrsajiRuta.join("\n  - ")}`;
+  if (isProduction) console.error(poruka);
+  else throw new Error(poruka);
+}
+
 const rootDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(rootDirectory, "..");
 
 const start = async () => {
   let vite: ViteDevServer | undefined;
-  if (!isProduction) {
+  // SAMO_API=1: server bez stranica — izolovani testovi (testovi/izolovano.mjs) zovu samo /api, a
+  // Vite bi se sudario sa „npm run dev" koji možda radi u drugom prozoru.
+  if (process.env.SAMO_API === "1") {
+    // ništa — samo /api
+  } else if (!isProduction) {
     vite = await createViteServer({
       configFile: path.resolve(projectRoot, "vite.config.ts"),
       server: { middlewareMode: true },
@@ -121,6 +142,7 @@ const start = async () => {
     console.log(`PILOT DISTRIBUTERI CG sluša na 0.0.0.0:${port} (${isProduction ? "produkcija" : "razvoj"}, izdanje ${IZDANJE})`);
   });
   pokreniSedmicniBekap();
+  pokreniSlanjePush().catch((e) => console.error("Push obavještenja nisu pokrenuta:", e));
 
   const shutdown = async () => {
     await vite?.close();

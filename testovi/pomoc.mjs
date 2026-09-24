@@ -6,7 +6,9 @@ import pg from "pg";
 export const APP_URL = (process.env.APP_URL || "http://localhost:5000").replace(/\/$/, "");
 const BAZA = `${APP_URL}/api`;
 
-export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+// Isto pravilo kao server/db.ts: lokalna baza (izolovani testovi, CI) je bez SSL-a, Supabase sa njim.
+const URL_BAZE = process.env.DATABASE_URL ?? "";
+export const pool = new pg.Pool({ connectionString: URL_BAZE, ssl: URL_BAZE.includes("localhost") ? undefined : { rejectUnauthorized: false } });
 
 // Demo nalozi iz db/13_demo_cg.sql i db/migriraj.ts (lozinke su tamo javne — samo za demo bazu).
 export const NALOZI = {
@@ -30,7 +32,6 @@ export async function provjeriDemoBazu() {
 
 export const danasCG = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Podgorica" });
 
-/** Klijent bez prijave — za javne adrese (zdravlje, ulazak u provjeru znanja šifrom). */
 // Skladište u koje testovi primaju robu: „Glavni magacin" iz demo podataka. Demo baza može imati i
 // druga aktivna skladišta (unesena ručno kroz aplikaciju) — tada prijem bez izbora vraća 400.
 export async function glavnoSkladiste(k) {
@@ -38,6 +39,7 @@ export async function glavnoSkladiste(k) {
   return (aktivna.find((s) => s.naziv === "Glavni magacin") ?? aktivna[0])?.id;
 }
 
+/** Klijent bez prijave — za javne adrese (zdravlje, ulazak u provjeru znanja šifrom). */
 export function anonimno() {
   return zahtjev(null);
 }

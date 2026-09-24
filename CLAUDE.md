@@ -52,6 +52,7 @@ pisano ne odredi ko je to, to je izvršni direktor. *(likely — iz teksta kazni
 | 5 | Magacioneri (`operater`) i vozači (`vozac`) dobijaju naloge — **otvara ih sam**, odmah pri unosu zaposlenog, sa početnom lozinkom i ceduljicom za štampu | `/ljudi` → Novo lice / „Otvori nalog" |
 | 6 | Direktor dobija `uprava` — pregled, aktivnost uživo i poruke, bez unosa | otvara konsultant |
 | 7 | Konsultant podešava HACCP plan: „Predloži osnovni plan" pa prilagodi stvarnim komorama i vozilima, upiše termometre i tekst kontrolnih tačaka | `/haccp-plan` |
+| 8 | Svako na SVOM telefonu uključi obavještenja (na iPhoneu prvo „Dodaj na početni ekran") i pošalje probno | `/moja` → „Obavještenja na telefon" |
 
 **Rješenje o imenovanju nije zakonski obrazac** i tako se i predstavlja — pisani trag ko
 sprovodi postupke iz čl. 36 i ko javlja UBH po čl. 28.
@@ -193,12 +194,15 @@ PostgreSQL na Supabase (`db/`) · Render, jedan servis po klijentu.
 pregledač  src/pages/*.tsx  ──►  src/lib/api.ts  (zaglavlje x-zahtjev-app, kolačić pilot_sesija)
    │
    ▼
-server/index.ts   1. javne rute PRVE: /api/zdravlje, auth, provjera znanja (ulaz šifrom)
-                  2. ruteri /api/*  (server/routes/*.ts) — zod validacija, requireAuth, requireUloga
+server/index.ts   1. JAVNO: /api/zdravlje, prijava/odjava, ulaz u provjeru znanja šifrom (javniRuter())
+                  2. GRANICA PRIJAVE: app.use("/api", requireAuth) — jedna, za sve ispod
+                  3. ruteri /api/*  (server/routes/*.ts) — zod šema, requireUloga NA SVAKOJ RUTI, odgovor
+                  provjeriRute() pri startu: ruta bez uloga / ruter sa .use → server ne kreće (invarijanta #44)
    │
    ▼
-server/services/*.ts   poslovna pravila, transakcije, događaj (dogadjaj) + audit (audit_log)
+server/services/*.ts   SQL i poslovna pravila, transakcije, audit (audit_log — jedini dnevnik)
                        brojevi dokumenata SAMO iz brojeviService.sljedeciBroj()
+                       pushService: petlja 5 s šalje potvrđena obavještenja na telefone
    │
    ▼
 PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_migracije
@@ -209,7 +213,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Modul | Strana | Ruta (`server/routes/`) | Servis (`server/services/`) | Glavne tabele |
 |---|---|---|---|---|
 | Prijava, sesije | `/prijava`, prisilna promjena lozinke | `auth.ts` | `server/auth.ts` | `korisnik`, `sesija_prijave` |
-| Ljudi | `/ljudi` (zaposleni, plan obuke, provjera znanja, nalozi) | `ljudi.ts`, `provjeraZnanja.ts` | — | `lice`, `korisnik`, `plan_obuke`, `pitanje`, `sesija_znanja`, `ucesnik_znanja`, `odgovor_znanja` |
+| Ljudi | `/ljudi` (zaposleni, plan obuke, provjera znanja, nalozi); ulaz u provjeru na `/moja` i `/tabla` | `ljudi.ts`, `provjeraZnanja.ts` | `ljudiService`, `provjeraZnanjaService` | `lice`, `korisnik`, `plan_obuke`, `pitanje`, `sesija_znanja`, `ucesnik_znanja`, `odgovor_znanja` |
 | Šifarnici | `/sifarnici` | `sifarnici.ts` | `skladisteService` | `kupac`, `dobavljac`, `artikal`, `skladiste` |
 | Prijem — KKT 1 | `/prijem` | `prijem.ts` | `prijemService`, `haccpService` | `prijem`, `prijem_stavka`, `lot`, `zaliha`, `kretanje_zalihe` |
 | Otpremnica (PDF / fotografija) | `/prijem` → Novi prijem | `prijem.ts` (`/prijem/otpremnica`) | `otpremnicaService` | `prijem_dokument`, `artikal_dobavljaca`, `prijem_stavka.po_otpremnici` |
@@ -219,11 +223,12 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Vozila — D1 | `/vozila` | `vozila.ts` | `vozilaService` | `vozilo`, `kontrola_vozila` |
 | Isporuka — KKT 3 | `/isporuka` | `isporuka.ts` | `isporukaService` | `isporuka`, `isporuka_stavka` |
 | Sledljivost, povlačenje | `/sledljivost` | `sledljivost.ts`, `povlacenje.ts` | `sledljivostService`, `povlacenjeService` | `povlacenje`, `povlacenje_kontakt`, `v_sledljivost_*` |
-| Zadaci, obavještenja, poruke | `/moja`, `/tabla`, `/poruke` | `zadaci.ts`, `poruke.ts` | `zadaciService` | `zadatak`, `obavjestenje`, `poruka` |
-| Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | `monitoringService`, `haccpPlanService` (kartice „Danas fali po planu", „HACCP rokovi") | čita sve (aktivnost = unija domenskih tabela) |
+| Zadaci, obavještenja, poruke | `/moja`, `/tabla`, `/poruke` | `zadaci.ts`, `poruke.ts` | `zadaciService`, `porukeService` | `zadatak`, `obavjestenje`, `poruka` |
+| Obavještenja na telefon (push) | `/moja` → „Obavještenja na telefon"; `public/sw.js`, `public/manifest.webmanifest` | `push.ts` | `pushService` | `push_pretplata`, `web_push_kljuc`, `obavjestenje.push_poslato_at` |
+| Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | `tablaService` (+ `monitoringService`, `haccpPlanService` za kartice „Danas fali po planu", „HACCP rokovi") | čita sve (aktivnost = unija domenskih tabela) |
 | HACCP plan: plan monitoringa, kontrolne tačke, termometri, verifikacija sistema | `/haccp-plan`; štampa `/prilozi` → HACCP plan; „Danas po planu" na `/moja` | `haccpPlan.ts` | `monitoringService` (šta danas fali), `haccpPlanService` (termometri, verifikacija, podaci za štampu), `pravilaService` (granica artikla → pravilo) | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`, `kontrolna_tacka` (opasnost, mjera, verifikacija) |
 | Prilozi, izvještaji, izvoz | `/prilozi`, `/izvjestaji` | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
-| Audit | `/audit` | `audit.ts` | `auditService`, `dogadjajService` | `audit_log`, `dogadjaj` |
+| Audit | `/audit` | `audit.ts` | `auditService` | `audit_log` (`dogadjaj` se od faze 4 ne puni — stari redovi ostaju) |
 | Bekap | `/tabla` (kartica) | `bekap.ts` | `bekapService` | `bekap_log` |
 | Podešavanje (konsultant) | `/admin` | `firma.ts`, `provjeraZnanja.ts` | — | `firma`, banka pitanja konsultanta |
 
@@ -291,6 +296,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `22_integritet_cg` | CHECK na `izvor_tip` u `neusaglasenost`, `zadatak`, `obavjestenje` (nalaz B2); isti spisak kao `IZVORI_*` u `zadaciService.ts` |
 | `23_otpremnice_cg` | `prijem_dokument` (PDF/slika u bazi — ulazi u bekap), `artikal_dobavljaca` (zapamćena veza „njihov → naš artikal"), `prijem_stavka.po_otpremnici` |
 | `24_haccp_sistem_cg` | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`; `kontrolna_tacka` + opasnost/mjera/verifikacija; `verifikacija.izuzetak_cetiri_oka`; proširene CHECK liste izvora; pravila KKT1/KKT3 iz postojećih granica artikala |
+| `25_push_cg` | `push_pretplata` (po uređaju), `web_push_kljuc` (VAPID, jedan po bazi), `obavjestenje.push_poslato_at` (izlazni red; sva ranija označena kao poslata) |
 
 Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim brojem.
 
@@ -305,9 +311,15 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 
 `alati/klijenti.txt` ima lozinke baza — u `.gitignore` je i ostaje.
 
-### Testovi (`testovi/`, `npm run test:e2e`)
+### Testovi (`testovi/`)
 
-13 testova, 293 provjere, kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+| Komanda | Baza | Kad |
+|---|---|---|
+| **`npm test`** | SOPSTVENA, svaki put čista: klaster u `.testbaza/` (port 54329, bez lozinke, samo localhost) iz PostgreSQL-a instaliranog na računaru; server na 5055 sa `SAMO_API=1` | **uvijek prvo ovo** — Render-ova demo baza se ne dira |
+| `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
+| `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
+
+14 testova, 308 provjera (na čistoj bazi; na demo bazi 306 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -317,9 +329,10 @@ nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamć
 istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
 (temperatura obavezna na KKT 1, granica iz Šifarnika → pravilo sa verzijama, plan monitoringa i
 „šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
-četiri oka — `faza3_sistem`). **Rade samo na demo bazi** (`testovi/pomoc.mjs` to provjeri
-preko pet demo naloga sa fiksnim ID-jevima) i brišu sve što naprave. Server mora raditi
-(`npm run dev` ili `APP_URL=`). Nov tok u aplikaciji = nov test.
+četiri oka — `faza3_sistem`), i push (pretplata po uređaju, šifrovan sadržaj koji dešifruje samo
+„uređaj", najviše jednom, 410 briše uređaj, odjava samo svog — `push`; push servis glumi lokalni
+HTTP server). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
+fiksnim ID-jevima) i brišu sve što naprave. Nov tok u aplikaciji = nov test.
 
 Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
 Testovi to **ne diraju**: prijem ide u „Glavni magacin" (`glavnoSkladiste()`), isporuka iz
@@ -385,10 +398,10 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     `/haccp`. Nov obrazac bez `uloge` se ne pojavljuje terenskim ulogama.
 26. **Terenske uloge u listama vide SAMO SVOJE unose** — `samoMoje()`; vozač vidi i isporuke koje su
     mu dodijeljene (`vozac_korisnik_id`); neusaglašenosti — one koje je sam prijavio i one gdje je
-    mjera na njemu (`SAMO_MOJE_NC`). **Svaka GET ruta nosi `requireUloga`** sa tačno onim ulogama
-    čije strane je zovu (mapa u `testovi/pristup.test.mjs`); cijeli spisak zaposlenih (`/lica`)
-    vidi samo vodstvo, a svako svoje lice čita preko `/lica/ja`. Nova ruta bez `requireUloga` je
-    greška, ne zaborav.
+    mjera na njemu (`SAMO_MOJE_NC`). **Svaka ruta nosi `requireUloga`** sa tačno onim ulogama
+    čije strane je zovu (mapa u `testovi/pristup.test.mjs`); za sve prijavljene — `sviPrijavljeni()`.
+    Cijeli spisak zaposlenih (`/lica`) vidi samo vodstvo, a svako svoje lice čita preko `/lica/ja`.
+    Ruta bez uloga ne prolazi `provjeriRute()` — server ne kreće (#44).
 27. **Radno mjesto nije uloga.** `lice.radno_mjesto` ide na štampu, `korisnik.uloga` odlučuje
     tablu. Promjena uloge briše sesije tog naloga.
 28. **Lozinka se prikazuje samo jednom, pri postavljanju.** U bazi je heš; najmanje 10 znakova,
@@ -400,9 +413,11 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
 30. **Izvoz ne pada zbog jednog nedostajućeg pogleda** — `tabelaPostoji()` prije upita; spisak
     izvora nosi `nedostaje`, `sve.json` listu `nedostaje`, pojedinačni CSV vraća 409.
 31. **Preuzimanje ide kroz `fetch`** (`preuzmiFajl()`), da se greška 401/409/500 ispiše.
-32. **U provjeru znanja se ulazi ŠIFROM SA SPISKA, bez naloga** — ruta mora ostati javna i
-    montirana PRIJE rutera sa `requireAuth` (vidi „Naučeno"). Rezultat se ne može naduvati: jedan
-    odgovor po pitanju, ništa poslije završetka.
+32. **U provjeru znanja se ulazi ŠIFROM SA SPISKA, bez naloga** — `provjeraZnanjaJavniRuter`
+    ispred granice prijave. Rezultat se ne može naduvati: jedan odgovor po pitanju, ništa poslije
+    završetka. **Ulaz se nudi na početnoj strani prijavljenog** (`ProvjeraZnanjaUlaz` na `/moja` i
+    `/tabla`, dok je termin otvoren, šifra se upiše sama), **ne na strani za prijavu** — odluka
+    vlasnice 24.09.2026. Ko nema nalog, ulazi na adresi `/provjera-znanja` koju mu pošalje odgovorno lice.
 33. *Ukinuto:* `generisiFormu` / `talas` — stara verzija. Provjera znanja sada pada samo ako nema
     otvorenog termina ili nema pitanja iz izabranog izvora (tada se termin ne može ni otvoriti).
 34. **Broj dokumenta (NC, isporuka, povlačenje, šifra zaposlenog) samo iz `sljedeciBroj()`**
@@ -442,6 +457,26 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     HACCP plan čitaju isto. Dan je po Podgorici (#11). Zapis obrasca se broji jednom — ispravka
     (`ispravlja_id`) nije nov zapis. Terenska uloga vidi samo stavke svoje uloge i svog matičnog
     skladišta.
+44. **Granica prijave je JEDNA** — `app.use("/api", requireAuth)` u `server/index.ts`. Ispred nje
+    smiju samo javni ruteri (`javniRuter()` iz `server/provjeraRuta.ts`); iza nje ruter nema svoj
+    `.use(...)`, a svaka ruta nosi `requireUloga`. `provjeriRute()` to provjerava pri svakom
+    pokretanju: u razvoju server ne kreće, u produkciji se zapiše. (Nalaz A3 — ranije je ko smije
+    zavisio od redoslijeda montiranja; adrese nisu mijenjane.)
+45. **Jedan dnevnik promjena — `audit_log`.** `dogadjaj` se više ne puni (nalaz B4); tabela i stari
+    redovi ostaju. Nova kritična radnja = `logKreiranje/logIzmjena/logPromjenaStatusa/logOdluka` u
+    istoj transakciji.
+46. **Push je samo kanal za postojeća obavještenja** (`pushService`): šalje se ono što je upisano u
+    `obavjestenje`, tek kad je transakcija potvrđena, **najviše jednom** (red se označi prije
+    slanja), šifrovano za uređaj (RFC 8291 — push servis ne čita sadržaj). Pretplata se prima samo
+    za push servise pregledača (Google, Apple, Mozilla, Microsoft), lokalno još i `http://localhost`.
+    U produkciji server preuzima samo obavještenja korisnika sa https pretplatom. Uređaj koji vrati
+    404/410 briše se sam. Starije od sat vremena se ne šalje.
+47. **SQL i poslovna pravila su u `server/services/`; ruta = šema, uloga, poziv servisa, odgovor.**
+    Preseljeno u fazi 4: `zadaci`, `poruke`, `tabla`, `ljudi`, `provjeraZnanja`. Zajednički SQL
+    dijelovi (`IME`, `IZVOR_OZNAKA`, `SAMO_MOJE_NC`) su u `services/sqlDijelovi.ts` — servis ne uvozi
+    rutu. Ostale rute još imaju ponešto SQL-a, većinom liste (`sifarnici` 9 upita, `haccp`,
+    `haccpPlan`, `prijem` po 5, `neusaglasenosti` 4, `isporuka`, `povlacenje`, `zaliha` po 3,
+    `vozila`, `firma`, `auth` po 2, `audit` 1) — sele se kad se diraju.
 
 ---
 
@@ -468,7 +503,7 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | B1 | ✓ **riješeno u fazi 2 (24.09.2026)** | ~~Brojevi = `count(*) + 1`.~~ Sada `sljedeciBroj()`: ključ po prefiksu + najveći postojeći broj, u transakciji. Pet istovremenih prijava dobija pet različitih brojeva (test). Nasumični formati `NC-…-P###` / `-V###` ukinuti. | `brojeviService` |
 | B2 | ✓ **riješeno u fazi 2 (24.09.2026)** — djelimično | ~~Polimorfne veze bez zaštite.~~ Sada CHECK liste u bazi (potvrđene i nad starim redovima na demo bazi) + tip u kodu. **Ostaje:** `izvor_id` i dalje nema FK — može pokazivati na obrisan red (brisanja poslovnih redova ionako nema). | 22, `zadaciService` |
 | B3 | **S** | **Zaliha nije po skladištu** — skladište lota se čita iz prijema; premještanje ne postoji. Kad se uvede, `zaliha` mora dobiti `skladiste_id`. | 05, 19 |
-| B4 | **S** | **Dva dnevnika + treći izvor**: `dogadjaj` i `audit_log` se pišu paralelno, a „Aktivnost uživo" se gradi iz domenskih tabela. `dogadjaj` se skoro ne čita — ili ga koristiti ili prestati puniti. | 10 |
+| B4 | ✓ **riješeno u fazi 4 (24.09.2026)** | ~~Dva dnevnika.~~ `dogadjaj` se više ne puni (čitalo ga je jedno polje koje ekran nije ni prikazivao); jedini dnevnik je `audit_log` — dopunjen tamo gdje je samo `dogadjaj` bilježio (status vozila poslije D1, neusaglašenost od termometra, ishod provjere). „Aktivnost uživo" i dalje iz domenskih tabela — to je pregled rada, ne dnevnik. | `auditService` |
 | B5 | **N** | Pogledi sa `p.*` se ne proširuju sami kad se doda kolona — mora `drop` + `create` (desilo se u 19). | `v_izvoz_*` |
 | B6 | **N** | `CHECK ... NOT VALID` — stari redovi sa praznom mjerom nisu provjereni. | 07 |
 
@@ -478,10 +513,10 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 |---|:-:|---|---|
 | A1 | ✓ **riješeno u fazi 1 (23.09.2026)** — osim rasporeda | ~~Bekap samo u istoj bazi.~~ Sada `npm run bekap` (`pg_dump` na računar, provjeren, 90 dana). **Ostaje:** da se pokreće SAM (Task Scheduler) — dok nije u rasporedu, bekap zavisi od toga da se neko sjeti. | `alati/bekap.ts` |
 | A2 | ✓ **riješeno u fazi 2 (24.09.2026)** | ~~Više koraka bez transakcije.~~ Sada 26 mjesta u transakciji: šifarnici, nalozi (uloga, lozinka, deaktivacija + brisanje sesija), zadaci, pravila kontrole (`for update`), zapis + neusaglašenost, izmjena stavke prijema (`for update` — ne preplete se sa odlukom), povlačenje, bekap sa table (`repeatable read` — jedan snimak). Prijava (poslednja prijava + sesija) svjesno nije. | rute, servisi |
-| A3 | **S** | **Ruteri na zajedničkom `/api` sa `.use(requireAuth)`** — ko smije zavisi od REDOSLIJEDA montiranja; jedna takva greška je zaključala upravu i provjeru znanja. Svaki ruter treba svoj prefiks. | `server/index.ts` |
-| A4 | **S** | SQL i poslovna pravila pola u rutama (`zadaci`, `poruke`, `tabla`, `ljudi`, `provjeraZnanja`), pola u servisima. | `server/routes/` |
-| A5 | **S** | Testovi rade na ISTOJ demo bazi koju koristi Render i ne pokreću se sami (nema CI). | `testovi/` |
-| A6 | **S** | Obavještenja stižu samo dok je aplikacija otvorena (provjera na 30 s) — nema push obavještenja na zaključan telefon. | `Layout.tsx` |
+| A3 | ✓ **riješeno u fazi 4 (24.09.2026)** | ~~Ko smije zavisi od redoslijeda montiranja.~~ Riješeno drugačije nego „svaki ruter svoj prefiks" (to bi promijenilo sve adrese u pregledaču i testovima): jedna granica prijave, ruteri bez `.use`, uloge na svakoj ruti, i `provjeriRute()` pri startu (invarijanta #44). Pri prvom pokretanju je sama našla 10 ruta bez uloga. | `server/index.ts`, `provjeraRuta.ts` |
+| A4 | ✓ **riješeno u fazi 4 (24.09.2026)** — za navedenih pet | ~~SQL u rutama `zadaci`, `poruke`, `tabla`, `ljudi`, `provjeraZnanja`.~~ Sada `zadaciService`, `porukeService`, `tablaService`, `ljudiService`, `provjeraZnanjaService`. Usput: promjena uloge i deaktivacija naloga sada pišu audit. **Ostaje:** liste u ostalim rutama (invarijanta #47). | `server/services/` |
+| A5 | ✓ **riješeno u fazi 4 (24.09.2026)** | ~~Testovi na demo bazi Rendera, bez CI.~~ `npm test` = sopstvena čista baza na računaru; GitHub Actions na svaki push. Prvo pokretanje na čistoj bazi je odmah našlo grešku u izvozu (prazna tabela bez zaglavlja). | `testovi/izolovano.mjs`, `.github/workflows/` |
+| A6 | ✓ **riješeno u fazi 4 (24.09.2026)** | ~~Obavještenja samo dok je aplikacija otvorena.~~ Web Push (PWA): Moja strana → „Obavještenja na telefon", po uređaju; iPhone samo sa početnog ekrana (iOS 16.4+). Zvonce na 30 s ostaje. **Nije još viđeno na pravom telefonu** — test glumi push servis. | `pushService`, `public/sw.js` |
 | A7 | **N** | Liste bez straničenja (lotovi, isporuke, neusaglašenosti) — dovoljno za malog distributera. | rute |
 | A8 | **N** | Ograničenje pokušaja prijave je u memoriji — restart ga briše. | `server/auth.ts` |
 
@@ -502,7 +537,7 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | ~~**1 — HACCP rupe i bekap**~~ ✓ 23.09.2026 | Pusti / odbij lot na HOLD-u. Provjera samo uz urađenu mjeru. Odstupanje u obrascu → neusaglašenost. Potvrđena granica na svim KKT. `npm run bekap`. Test `faza1_haccp` (33 provjere). **Ostalo: Task Scheduler za bekap.** | H1, H2, H3, H4, A1 | urađeno |
 | ~~**2 — Integritet baze**~~ ✓ 24.09.2026 | Brojevi iz `sljedeciBroj()`. 26 višekoračnih upisa u transakciji. CHECK liste za `izvor_tip` (dopuna 22). Uloge na svim GET rutama. Test `faza2_integritet` (30 provjera). Uz to: nalog i početna lozinka pri unosu zaposlenog, „Nova lozinka", kartice direktora, ulaz u provjeru znanja sa prijave. | B1, A2, B2, U1 | urađeno |
 | ~~**3 — HACCP kao sistem**~~ ✓ 24.09.2026 | Plan monitoringa + „šta danas fali" na tabli i Mojoj strani. Termometri (provjera, kalibracija), revizija plana, interni audit, vježba povlačenja, štampa HACCP plana. Izuzetak od četiri oka za malu firmu. Jedan izvor granica. Temperatura obavezna na KKT 1. Dopuna `24_haccp_sistem_cg`, test `faza3_sistem` (41 provjera). | H5, H6, H7, U2, ostatak H4 | urađeno |
-| **4 — Arhitektura i pogon** | Ruteri pod svojim prefiksom. SQL iz ruta u servise. Zasebna test baza + automatsko pokretanje testova. Odluka o `dogadjaj`. Push obavještenja (PWA). | A3, A4, A5, B4, A6 | 2–3 dana |
+| ~~**4 — Arhitektura i pogon**~~ ✓ 24.09.2026 | Jedna granica prijave + provjera ruta pri startu. SQL pet ruta u servise. `npm test` na sopstvenoj bazi + GitHub Actions. `dogadjaj` ugašen. Push obavještenja (PWA, dopuna 25, test `push`). Uz to: ulaz u provjeru znanja sa početne strane umjesto sa prijave. | A3, A4, A5, B4, A6 | urađeno |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
 **Pilot sa prvim klijentom ide paralelno od faze 1** — pravi magacioner nađe ono što test ne nađe.
@@ -514,7 +549,7 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | Problem | Uzrok | Rješenje |
 |---|---|---|
 | neusaglašenost se nikad nije mogla zatvoriti (500) | isti parametar i kao enum (`set status = $1`) i kao tekst (`case when $1 = …`) | kastovati na SVAKOM mjestu: `$1::nc_status_t`, `$2::uuid` |
-| uprava 403 na Kontrolnom centru; provjera znanja 401 za sve | `.use(requireAuth, requireUloga(…))` BEZ putanje na ruteru montiranom na `/api` važi i za rute registrovane poslije | `.use("/izvoz", …)`; javne rute montirane PRVE; `testovi/pristup.test.mjs` |
+| uprava 403 na Kontrolnom centru; provjera znanja 401 za sve | `.use(requireAuth, requireUloga(…))` BEZ putanje na ruteru montiranom na `/api` važi i za rute registrovane poslije | od faze 4: jedna granica prijave, ruteri bez `.use`, uloge na svakoj ruti, `provjeriRute()` pri startu (#44); `testovi/pristup.test.mjs` |
 | lot pod povlačenjem i dalje ponuđen za isporuku | povlačenje nije mijenjalo status lota | povlačenje stavlja lot na HOLD, zalihu u karantin |
 | „poruka nije stigla" — a stigla je | zvonce se osvježavalo samo pri prelasku na drugu stranu | provjera na 30 s + pri povratku u aplikaciju (`Layout.tsx`) |
 | ne zna se je li deploy prošao | izdanje zakucano na „1.0.0" | izdanje = `RENDER_GIT_COMMIT`, u `/api/zdravlje` i u dnu menija |
@@ -543,6 +578,11 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | server pao usred testova: `Connection terminated unexpectedly`, neuhvaćen `'error'` | `pg-pool` skida svoj slušalac greške sa klijenta dok je izdat — prekid veze usred transakcije ruši cio proces | `transakcija()` kači svoj slušalac i vraća klijenta sa `release(greska)` (pokvarena veza se ne vraća u bazen); `pool.on("error")`; `connectionTimeoutMillis: 10_000` |
 | testovi odjednom padaju na 400 „Firma ima više skladišta" | vlasnica je na demo bazi (preko Rendera) dodala svoje skladište; testovi su pretpostavljali jedno | testovi biraju skladište izričito; tuđe skladište se nikad ne gasi — provjera „posljednje aktivno" bi inače ugasila Glavni magacin |
 | Vite: `Unterminated string`, a stranica bijela | u nizu pod `"…"` tekst „HACCP plan" zatvoren ASCII navodnikom | unutar koda: „…“ (zatvara se sa “, U+201C) |
+| prazna tabela se izvozi kao prazan fajl, bez zaglavlja | `nizUCsv` je kolone čitao iz prvog reda | kolone iz upita (`fields`); našao ga je tek test na čistoj bazi — demo baza je uvijek imala redove |
+| `pg_ctl start` iz Node-a visi zauvijek | server baze nasljeđuje ručke izlaza, pa `spawnSync` čeka da se zatvore | `stdio: "ignore"` + `-l log.txt` |
+| test server ostaje na portu poslije testa | `tsx` komanda pokreće DIJETE-proces; gašenje roditelja ga ne gasi | `node --import tsx server/index.ts` — jedan proces |
+| `tijelo()` vraćao ulazni tip šeme (`brojPitanja?: number` iako ima `.default`) | potpis `ZodType<T>` bira ulazni tip | `tijelo<S extends ZodTypeAny>(…): output<S>` |
+| web-push upozorava „BadJwtToken" | VAPID `subject` = localhost; Apple ga odbija | na Renderu `RENDER_EXTERNAL_URL`, lokalno `mailto:` (ili `VAPID_SUBJECT=`) |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |
 
 ### Gdje se zapravo testira
@@ -558,6 +598,12 @@ nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git lo
 - **Render besplatni plan spava poslije 15 min** — za demo i pravi rad plaćeni plan.
 - Server ne učitava izmjene sam (`tsx` bez watch): poslije izmjene u `server/` — restart.
 - **Node ≥ 22.13** (`engines` u `package.json`) — zbog `pdfjs-dist`.
+- **Push:** VAPID ključ server pravi sam i čuva u bazi (`web_push_kljuc`) — na Renderu ne treba ništa
+  podešavati; `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` samo ako se želi ručno. Push radi
+  samo preko HTTPS-a (Render da) i na `localhost`. iPhone: samo aplikacija dodata na početni ekran, iOS ≥ 16.4.
+  Promjena ključa poništava sve pretplate (ljudi moraju ponovo uključiti).
+- **`npm test`** traži PostgreSQL na računaru (`C:/Program Files/PostgreSQL/<verzija>/bin`, ili
+  `PG_BIN=`) — pravi svoj klaster u `.testbaza/` (u `.gitignore`), pokreće ga samo dok traju testovi.
 - OCR: jedan Tesseract radnik za cijeli server, poslovi idu jedan za drugim, gasi se posle 5 min bez
   posla (oko 150 MB dok radi). Jezik `srp_latn` je u `node_modules` (`@tesseract.js-data/srp_latn`) —
   ništa se ne preuzima sa interneta. Slika: 3–5 s na računaru; na Render besplatnom planu sporije.
@@ -569,8 +615,7 @@ nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git lo
 ```bash
 npm run typecheck
 npm run build
-npm run dev          # u drugom prozoru
-npm run test:e2e     # samo demo baza; izlazni kod 1 ako išta padne
+npm test             # sopstvena čista baza + sopstveni server; izlazni kod 1 ako išta padne
 ```
 
 Pa ručno na telefonu (375 px): `/moja` za vozača i magacionera (i „Danas po planu" → „Upiši"),
@@ -586,6 +631,13 @@ važi: broj Sl. lista Uredbe o higijeni hrane nije provjeren (vidi pravni okvir)
 **Otpremnice — OCR je provjeren samo na izmišljenim i simuliranim fotografijama.** Prve prave
 otpremnice pilot klijenta (više dobavljača, pravi telefon, loše svjetlo) će pokazati šta još ne
 valja. Rukopis se ne čita. Skeniran PDF (samo slika, bez teksta) se odbija uz poruku da se slika.
+
+**Push obavještenja nisu viđena na pravom telefonu.** Test dokazuje da server šalje ispravno
+potpisano i šifrovano; da li Android/iPhone stvarno prikažu — prvo probati „Pošalji probno" na
+Renderu (HTTPS), na Androidu i na iPhoneu sa početnog ekrana.
+
+**GitHub Actions: prvo pokretanje tek poslije sljedećeg pusha** — pogledati da je zeleno (GitHub →
+Actions). Ako je repozitorijum privatan, troši besplatne minute (oko 5 min po pushu).
 
 **HACCP plan je polazni prijedlog.** „Predloži osnovni plan" i „Predloži tekst" daju razuman
 početak za distributera, ali ga konsultant za svakog klijenta prilagođava stvarnim komorama,
