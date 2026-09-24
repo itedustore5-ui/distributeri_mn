@@ -14,8 +14,19 @@ import { sljedeciBroj } from "../services/brojeviService.js";
 export const ljudiRuter = Router();
 ljudiRuter.use(requireAuth);
 
+// Moja strana: svoja šifra i svoja knjižica. Cijeli spisak (rokovi knjižica svih zaposlenih) vidi
+// samo odgovorno lice i konsultant — ranije ga je preko API-ja čitala svaka uloga (nalaz U1).
+ljudiRuter.get(
+  "/lica/ja",
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const rezultat = await upit(`select * from v_lica where id = (select lice_id from korisnik where id = $1)`, [request.korisnik!.id]);
+    response.json(rezultat.rows[0] ?? null);
+  }),
+);
+
 ljudiRuter.get(
   "/lica",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (_request, response) => {
     const rezultat = await upit(`select * from v_lica order by ime`);
     response.json(rezultat.rows);
@@ -129,6 +140,7 @@ ljudiRuter.patch(
 // Samo ime i id aktivnih vozača — za izbor vozača pri pripremi isporuke, bez ostalih podataka o nalozima.
 ljudiRuter.get(
   "/vozaci",
+  requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (_request, response) => {
     const rezultat = await upit(
       `select k.id, coalesce(l.ime, k.korisnicko_ime) as ime
@@ -142,6 +154,7 @@ ljudiRuter.get(
 // Godišnji plan obuke — Prilog 13.
 ljudiRuter.get(
   "/plan-obuke",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (_request, response) => {
     const rezultat = await upit(`select * from v_plan_obuke order by planirani_datum`);
     response.json(rezultat.rows);

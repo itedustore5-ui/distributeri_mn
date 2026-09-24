@@ -12,6 +12,7 @@ zalihaRuter.use(requireAuth);
 
 zalihaRuter.get(
   "/zaliha",
+  requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (_request, response) => {
     response.json((await upit(`select * from v_zaliha_dostupna`)).rows);
   }),
@@ -19,6 +20,7 @@ zalihaRuter.get(
 
 zalihaRuter.get(
   "/lotovi",
+  requireUloga("operater", "bzr", "izvodjac", "uprava"),
   asyncRuta(async (request, response) => {
     const status = typeof request.query.status === "string" ? request.query.status : undefined;
     const rezultat = await upit(
@@ -37,6 +39,7 @@ zalihaRuter.get(
 
 zalihaRuter.get(
   "/lotovi/:id",
+  requireUloga("operater", "bzr", "izvodjac", "uprava"),
   asyncRuta(async (request, response) => {
     const lot = await upit(
       `select l.*, a.naziv as artikal_naziv, d.naziv as dobavljac_naziv from lot l

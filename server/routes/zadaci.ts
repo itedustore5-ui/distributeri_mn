@@ -115,44 +115,48 @@ zadaciRuter.patch(
     const ulaz = tijelo(izmjenaSchema, request.body);
     const zadatakId = str(request.params.id);
     const korisnik = request.korisnik!;
-    const zadatak = await pool.query<{ naslov: string; opis: string | null; dodijeljeno_korisnik_id: string | null }>(
-      `select naslov, opis, dodijeljeno_korisnik_id from zadatak where id = $1`,
-      [zadatakId],
-    );
-    const red = zadatak.rows[0];
-    if (!red) throw new ApiGreska(404, "ZADATAK_NE_POSTOJI", "Zadatak nije pronađen.");
-
-    if (ulaz.dodijeljenoKorisnikId !== undefined) {
-      if (!vodiSistem(korisnik.uloga)) {
-        throw new ApiGreska(403, "NEDOZVOLJENO", "Zadatke dodjeljuje odgovorno lice.");
-      }
-      if (ulaz.dodijeljenoKorisnikId) {
-        const cilj = await pool.query(`select 1 from korisnik where id = $1 and aktivan`, [ulaz.dodijeljenoKorisnikId]);
-        if (!cilj.rows[0]) throw new ApiGreska(400, "NALOG_NIJE_AKTIVAN", "Zadatak se može dodijeliti samo aktivnom nalogu.");
-      }
-      await pool.query(`update zadatak set dodijeljeno_korisnik_id = $1 where id = $2`, [ulaz.dodijeljenoKorisnikId, zadatakId]);
-      if (ulaz.dodijeljenoKorisnikId && ulaz.dodijeljenoKorisnikId !== korisnik.id && ulaz.dodijeljenoKorisnikId !== red.dodijeljeno_korisnik_id) {
-        await kreirajObavjestenje(pool, {
-          korisnikId: ulaz.dodijeljenoKorisnikId,
-          naslov: `Dodijeljen vam je zadatak: ${red.naslov}`,
-          poruka: red.opis ?? undefined,
-          ozbiljnost: "SREDNJI",
-          izvorTip: "zadatak",
-          izvorId: zadatakId,
-        });
-      }
-    }
-
-    if (ulaz.status !== undefined) {
-      const dodijeljeno = ulaz.dodijeljenoKorisnikId !== undefined ? ulaz.dodijeljenoKorisnikId : red.dodijeljeno_korisnik_id;
-      if (!vodiSistem(korisnik.uloga) && dodijeljeno !== korisnik.id) {
-        throw new ApiGreska(403, "NIJE_VAS_ZADATAK", "Ovaj zadatak nije dodijeljen vama.");
-      }
-      await pool.query(
-        `update zadatak set status = $1::zadatak_status_t, zavrseno_at = case when $1::zadatak_status_t = 'ZAVRSEN' then now() else zavrseno_at end where id = $2`,
-        [ulaz.status, zadatakId],
+    // Dodjela, obavještenje i promjena statusa su jedna radnja: ranije je dodjela ostajala upisana
+    // i kad je provjera statusa odmah zatim odbila zahtjev.
+    await transakcija(async (klijent) => {
+      const zadatak = await klijent.query<{ naslov: string; opis: string | null; dodijeljeno_korisnik_id: string | null }>(
+        `select naslov, opis, dodijeljeno_korisnik_id from zadatak where id = $1 for update`,
+        [zadatakId],
       );
-    }
+      const red = zadatak.rows[0];
+      if (!red) throw new ApiGreska(404, "ZADATAK_NE_POSTOJI", "Zadatak nije pronađen.");
+
+      if (ulaz.dodijeljenoKorisnikId !== undefined) {
+        if (!vodiSistem(korisnik.uloga)) {
+          throw new ApiGreska(403, "NEDOZVOLJENO", "Zadatke dodjeljuje odgovorno lice.");
+        }
+        if (ulaz.dodijeljenoKorisnikId) {
+          const cilj = await klijent.query(`select 1 from korisnik where id = $1 and aktivan`, [ulaz.dodijeljenoKorisnikId]);
+          if (!cilj.rows[0]) throw new ApiGreska(400, "NALOG_NIJE_AKTIVAN", "Zadatak se može dodijeliti samo aktivnom nalogu.");
+        }
+        await klijent.query(`update zadatak set dodijeljeno_korisnik_id = $1 where id = $2`, [ulaz.dodijeljenoKorisnikId, zadatakId]);
+        if (ulaz.dodijeljenoKorisnikId && ulaz.dodijeljenoKorisnikId !== korisnik.id && ulaz.dodijeljenoKorisnikId !== red.dodijeljeno_korisnik_id) {
+          await kreirajObavjestenje(klijent, {
+            korisnikId: ulaz.dodijeljenoKorisnikId,
+            naslov: `Dodijeljen vam je zadatak: ${red.naslov}`,
+            poruka: red.opis ?? undefined,
+            ozbiljnost: "SREDNJI",
+            izvorTip: "zadatak",
+            izvorId: zadatakId,
+          });
+        }
+      }
+
+      if (ulaz.status !== undefined) {
+        const dodijeljeno = ulaz.dodijeljenoKorisnikId !== undefined ? ulaz.dodijeljenoKorisnikId : red.dodijeljeno_korisnik_id;
+        if (!vodiSistem(korisnik.uloga) && dodijeljeno !== korisnik.id) {
+          throw new ApiGreska(403, "NIJE_VAS_ZADATAK", "Ovaj zadatak nije dodijeljen vama.");
+        }
+        await klijent.query(
+          `update zadatak set status = $1::zadatak_status_t, zavrseno_at = case when $1::zadatak_status_t = 'ZAVRSEN' then now() else zavrseno_at end where id = $2`,
+          [ulaz.status, zadatakId],
+        );
+      }
+    });
     response.status(204).end();
   }),
 );

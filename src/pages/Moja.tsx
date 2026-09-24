@@ -19,7 +19,7 @@ export function Moja() {
 
   useEffect(() => {
     if (korisnik?.lice_id) {
-      api<Lice[]>("/lica").then((lica) => setLice(lica.find((l) => l.id === korisnik.lice_id) ?? null));
+      api<Lice | null>("/lica/ja").then(setLice);
     }
     if (korisnik?.uloga === "operater") {
       api<unknown[]>("/prijem").then((r) => setBrojPrijema(r.length));

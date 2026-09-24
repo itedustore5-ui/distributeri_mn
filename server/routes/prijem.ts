@@ -11,6 +11,7 @@ prijemRuter.use(requireAuth);
 
 prijemRuter.get(
   "/prijem",
+  requireUloga("operater", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ogranicenje = ogranicenjeDatuma(request.korisnik!.uloga, "p.datum_prijema");
     const rezultat = await upit(
@@ -27,6 +28,7 @@ prijemRuter.get(
 
 prijemRuter.get(
   "/prijem/:id",
+  requireUloga("operater", "bzr", "izvodjac"),
   asyncRuta(async (request, response) => {
     const prijem = await upit(
       `select p.*, d.naziv as dobavljac_naziv, s.naziv as skladiste_naziv from prijem p

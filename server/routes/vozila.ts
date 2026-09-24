@@ -10,7 +10,7 @@ import { logKreiranje } from "../services/auditService.js";
 export const vozilaRuter = Router();
 vozilaRuter.use(requireAuth);
 
-vozilaRuter.get("/vozila", asyncRuta(async (_request, response) => {
+vozilaRuter.get("/vozila", requireUloga("operater", "vozac", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
   response.json((await upit(`select * from vozilo where aktivan order by registarski_broj`)).rows);
 }));
 

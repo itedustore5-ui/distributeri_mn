@@ -1,4 +1,4 @@
-import { pool, tabelaPostoji } from "../db.js";
+import { pool, tabelaPostoji, transakcija } from "../db.js";
 import { obavijestiUlogu } from "./zadaciService.js";
 
 /** Sve poslovne tabele — u istom redoslijedu kao db/*.sql. Namjerno bez schema_migracije
@@ -21,13 +21,18 @@ type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: nu
 export async function napraviBekap(tip: "RUCNI" | "AUTOMATSKI", korisnikId: string | null): Promise<BekapMeta> {
   const podaci: Record<string, unknown[]> = {};
   let ukupnoRedova = 0;
-  for (const tabela of TABELE) {
-    // Tabela iz dopune koja na ovoj bazi još nije pokrenuta ne smije da obori cio bekap.
-    if (!(await tabelaPostoji(tabela))) continue;
-    const rezultat = await pool.query(`select * from ${tabela}`);
-    podaci[tabela] = rezultat.rows;
-    ukupnoRedova += rezultat.rowCount ?? 0;
-  }
+  // Sve tabele iz JEDNOG snimka baze (repeatable read) — inače isporuka upisana usred bekapa može
+  // ući bez svojih stavki, ili stavke bez isporuke.
+  await transakcija(async (klijent) => {
+    await klijent.query("set transaction isolation level repeatable read, read only");
+    for (const tabela of TABELE) {
+      // Tabela iz dopune koja na ovoj bazi još nije pokrenuta ne smije da obori cio bekap.
+      if (!(await tabelaPostoji(tabela))) continue;
+      const rezultat = await klijent.query(`select * from ${tabela}`);
+      podaci[tabela] = rezultat.rows;
+      ukupnoRedova += rezultat.rowCount ?? 0;
+    }
+  });
 
   const upisano = await pool.query<{ id: string; created_at: string }>(
     `insert into bekap_log (tip, pokrenuo_korisnik_id, broj_tabela, broj_redova, podaci)
@@ -35,7 +40,7 @@ export async function napraviBekap(tip: "RUCNI" | "AUTOMATSKI", korisnikId: stri
     [tip, korisnikId, TABELE.length, ukupnoRedova, JSON.stringify(podaci)],
   );
 
-  // Isto kao alati/bekap.ps1 — ne čuva se unazad zauvijek.
+  // Isto kao npm run bekap (alati/bekap.ts) — ne čuva se unazad zauvijek.
   await pool.query(`delete from bekap_log where created_at < now() - interval '90 days'`);
 
   if (tip === "AUTOMATSKI") {

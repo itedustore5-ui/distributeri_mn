@@ -10,7 +10,8 @@ export const povlacenjeRuter = Router();
 // Provjera važi SAMO za adrese ovog rutera. Ruter je montiran na zajednički "/api", pa bi
 // .use(...) bez putanje važio za SVAKI zahtjev koji prođe kroz njega — i zaključao bi rute
 // registrovane poslije (ovako je uprava dobijala 403 na /api/tabla).
-povlacenjeRuter.use(["/povlacenja", "/sledljivost/lot/:id/povlacenje"], requireAuth, requireUloga("bzr", "izvodjac"));
+// Uprava ČITA povlačenja (Kontrolni centar vodi na Sledljivost); pokreće, zove i zatvara samo vodstvo.
+povlacenjeRuter.use(["/povlacenja", "/sledljivost/lot/:id/povlacenje"], requireAuth, requireUloga("bzr", "izvodjac", "uprava"));
 
 povlacenjeRuter.get(
   "/povlacenja",
@@ -43,6 +44,7 @@ const pokreniSchema = z.object({ razlog: z.string().min(3, "Razlog povlačenja j
 
 povlacenjeRuter.post(
   "/sledljivost/lot/:id/povlacenje",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const { razlog } = tijelo(pokreniSchema, request.body);
     const rezultat = await pokreniPovlacenje(str(request.params.id), razlog, request.korisnik!.id);
@@ -54,6 +56,7 @@ const kontaktSchema = z.object({ napomena: z.string().optional() });
 
 povlacenjeRuter.patch(
   "/povlacenja/:id/kontakt/:kontaktId",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const { napomena } = tijelo(kontaktSchema, request.body);
     await oznaciKontaktiran(str(request.params.kontaktId), napomena, request.korisnik!.id);
@@ -63,6 +66,7 @@ povlacenjeRuter.patch(
 
 povlacenjeRuter.patch(
   "/povlacenja/:id/zavrsi",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     await zavrsiPovlacenje(str(request.params.id), request.korisnik!.id);
     response.status(204).end();

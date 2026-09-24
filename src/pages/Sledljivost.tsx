@@ -35,10 +35,12 @@ export function Sledljivost() {
   const [otvorenoPovlacenje, setOtvorenoPovlacenje] = useState<PovlacenjeDetalj | null>(null);
 
   const mozeUpravljatiPovlacenjem = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
+  // Uprava vidi povlačenja (dolazi sa kartice "Povlačenja u toku"), ali ih ne pokreće i ne zatvara.
+  const vidiPovlacenja = mozeUpravljatiPovlacenjem || korisnik?.uloga === "uprava";
 
   const ucitajPovlacenja = () => api<PovlacenjeRed[]>("/povlacenja").then(setPovlacenja);
   useEffect(() => {
-    if (mozeUpravljatiPovlacenjem) ucitajPovlacenja();
+    if (vidiPovlacenja) ucitajPovlacenja();
   }, []);
 
   const pretrazi = async (e: FormEvent) => {
@@ -114,7 +116,7 @@ export function Sledljivost() {
         </div>
       ))}
 
-      {mozeUpravljatiPovlacenjem && (
+      {vidiPovlacenja && (
         <div className="no-print">
           <div className="section-heading" style={{ marginTop: 26 }}>
             <div>
@@ -170,6 +172,7 @@ export function Sledljivost() {
       {otvorenoPovlacenje && (
         <PovlacenjeDetaljModal
           povlacenje={otvorenoPovlacenje}
+          samoCitanje={!mozeUpravljatiPovlacenjem}
           onClose={() => setOtvorenoPovlacenje(null)}
           onOsvjezi={() => otvoriPovlacenje(otvorenoPovlacenje.id).then(ucitajPovlacenja)}
         />
@@ -236,7 +239,7 @@ function PokreniPovlacenjeModal({ lot, onClose, onPokrenuto }: { lot: Red; onClo
   );
 }
 
-function PovlacenjeDetaljModal({ povlacenje, onClose, onOsvjezi }: { povlacenje: PovlacenjeDetalj; onClose: () => void; onOsvjezi: () => void }) {
+function PovlacenjeDetaljModal({ povlacenje, samoCitanje, onClose, onOsvjezi }: { povlacenje: PovlacenjeDetalj; samoCitanje: boolean; onClose: () => void; onOsvjezi: () => void }) {
   const [greska, setGreska] = useState("");
 
   const oznaciKontaktiran = async (kontaktId: string) => {
@@ -267,7 +270,7 @@ function PovlacenjeDetaljModal({ povlacenje, onClose, onOsvjezi }: { povlacenje:
       onClose={onClose}
       greska={greska}
       footer={
-        povlacenje.status === "U_TOKU" ? (
+        povlacenje.status === "U_TOKU" && !samoCitanje ? (
           <><button className="secondary-button" onClick={onClose}>Zatvori prozor</button><button className="primary-button" onClick={zatvori} disabled={!sviKontaktirani}>Zatvori povlačenje</button></>
         ) : (
           <button className="primary-button" onClick={onClose}>Zatvori prozor</button>
@@ -299,7 +302,7 @@ function PovlacenjeDetaljModal({ povlacenje, onClose, onOsvjezi }: { povlacenje:
                 <td className="muted-text">{k.kolicina ?? "—"}</td>
                 <td>{k.kontaktiran ? <StatusBadge status="VAZI" tekst="Da" /> : <StatusBadge status="OTVORENA" tekst="Ne" />}</td>
                 <td className="no-print">
-                  {!k.kontaktiran && <button className="small-action" onClick={() => oznaciKontaktiran(k.id)}>Označi zvano</button>}
+                  {!k.kontaktiran && !samoCitanje && <button className="small-action" onClick={() => oznaciKontaktiran(k.id)}>Označi zvano</button>}
                 </td>
               </tr>
             ))}

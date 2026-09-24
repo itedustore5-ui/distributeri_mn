@@ -10,3 +10,6 @@ bekap/
 
 npm-debug.log*
 .DS_Store
+
+# Probne otpremnice za modul skeniranja — stvarni dokumenti firmi, ne idu u git
+otpremnice-test/

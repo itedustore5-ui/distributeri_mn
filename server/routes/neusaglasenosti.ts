@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireAuth, requireUloga, type AuthZahtjev } from "../auth.js";
+import { requireAuth, requireUloga, NA_TERENU, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajRucnuNeusaglasenost, dodajKorektivnuMjeru, zavrsiKorektivnuMjeru, verifikuj } from "../services/ncService.js";
 
@@ -20,10 +20,15 @@ export const IZVOR_OZNAKA = `
     else 'Prijava sa terena'
   end`;
 
+export // Magacioner i vozač vide neusaglašenosti koje su SAMI prijavili i one gdje je mjera dodijeljena
+// NJIMA (invarijanta #26) — ne sve u firmi. $2 = id korisnika.
+const SAMO_MOJE_NC = `(nc.prijavio_korisnik_id = $2 or exists (select 1 from korektivna_mjera m where m.neusaglasenost_id = nc.id and m.dodijeljeno_korisnik_id = $2))`;
+
 export const IME = (alias: string) => `(select coalesce(l.ime, k.korisnicko_ime) from korisnik k left join lice l on l.id = k.lice_id where k.id = ${alias})`;
 
 ncRuter.get(
   "/neusaglasenosti",
+  requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const status = typeof request.query.status === "string" ? request.query.status : undefined;
     const rezultat = await upit(
@@ -32,7 +37,7 @@ ncRuter.get(
               (select ${IME("m.dodijeljeno_korisnik_id")} from korektivna_mjera m
                 where m.neusaglasenost_id = nc.id and m.status <> 'ZAVRSENA' order by m.created_at desc limit 1) as mjera_kod
        from neusaglasenost nc
-       where ($1::text is null or nc.status::text = $1)
+       where ($1::text is null or nc.status::text = $1) ${NA_TERENU.includes(request.korisnik!.uloga) ? `and ${SAMO_MOJE_NC}` : ""}
        order by (nc.status = 'ZATVORENA'), nc.created_at desc`,
       [status ?? null, request.korisnik!.id],
     );
@@ -42,11 +47,13 @@ ncRuter.get(
 
 ncRuter.get(
   "/neusaglasenosti/:id",
-  asyncRuta(async (request, response) => {
+  requireUloga("operater", "vozac", "bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const naTerenu = NA_TERENU.includes(request.korisnik!.uloga);
     const nc = await upit(
       `select nc.*, ${IME("nc.prijavio_korisnik_id")} as prijavio, ${IME("nc.zatvorio_korisnik_id")} as zatvorio, ${IZVOR_OZNAKA} as izvor_oznaka
-       from neusaglasenost nc where nc.id = $1`,
-      [request.params.id],
+       from neusaglasenost nc where nc.id = $1 ${naTerenu ? `and ${SAMO_MOJE_NC}` : ""}`,
+      naTerenu ? [request.params.id, request.korisnik!.id] : [request.params.id],
     );
     if (!nc.rows[0]) throw new ApiGreska(404, "NC_NE_POSTOJI", "Neusaglašenost nije pronađena.");
     const mjere = await upit(

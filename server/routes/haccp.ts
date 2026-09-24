@@ -11,12 +11,13 @@ import { neusaglasenostIzZapisa } from "../services/ncService.js";
 export const haccpRuter = Router();
 haccpRuter.use(requireAuth);
 
-haccpRuter.get("/kontrolne-tacke", asyncRuta(async (_request, response) => {
+haccpRuter.get("/kontrolne-tacke", requireUloga("operater", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
   response.json((await upit(`select * from kontrolna_tacka where aktivan order by sifra`)).rows);
 }));
 
 haccpRuter.get(
   "/pravila-kontrole",
+  requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request, response) => {
     const { kontrolnaTackaId, artikalId } = request.query;
     const rezultat = await upit(
@@ -45,26 +46,32 @@ haccpRuter.post(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(novoPraviloSchema, request.body);
-    const prethodno = await pool.query<{ id: string; verzija: number }>(
-      `select id, verzija from pravilo_kontrole where kontrolna_tacka_id = $1 and artikal_id is not distinct from $2 and aktivan`,
-      [ulaz.kontrolnaTackaId, ulaz.artikalId ?? null],
-    );
-    if (prethodno.rows[0]) {
-      await pool.query(`update pravilo_kontrole set aktivan = false, vazi_do = now() where id = $1`, [prethodno.rows[0].id]);
-    }
-    const verzija = (prethodno.rows[0]?.verzija ?? 0) + 1;
-    const rezultat = await pool.query<{ id: string }>(
-      `insert into pravilo_kontrole (kontrolna_tacka_id, artikal_id, naziv, min_vrijednost, max_vrijednost, jedinica, ozbiljnost, verzija)
-       values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-      [ulaz.kontrolnaTackaId, ulaz.artikalId ?? null, ulaz.naziv, ulaz.minVrijednost ?? null, ulaz.maxVrijednost ?? null, ulaz.jedinica, ulaz.ozbiljnost, verzija],
-    );
-    await logKreiranje(pool, { korisnikId: request.korisnik!.id, entitetTip: "pravilo_kontrole", entitetId: rezultat.rows[0].id, noveVrijednosti: ulaz });
-    response.status(201).json({ id: rezultat.rows[0].id, verzija });
+    // Gašenje stare verzije i upis nove su jedna radnja: ranije je pad upisa ostavljao tačku BEZ
+    // ijednog aktivnog pravila, a dva istovremena upisa su pravila dvije aktivne verzije.
+    const rezultat = await transakcija(async (klijent) => {
+      const prethodno = await klijent.query<{ id: string; verzija: number }>(
+        `select id, verzija from pravilo_kontrole where kontrolna_tacka_id = $1 and artikal_id is not distinct from $2 and aktivan for update`,
+        [ulaz.kontrolnaTackaId, ulaz.artikalId ?? null],
+      );
+      if (prethodno.rows[0]) {
+        await klijent.query(`update pravilo_kontrole set aktivan = false, vazi_do = now() where id = $1`, [prethodno.rows[0].id]);
+      }
+      const verzija = (prethodno.rows[0]?.verzija ?? 0) + 1;
+      const novo = await klijent.query<{ id: string }>(
+        `insert into pravilo_kontrole (kontrolna_tacka_id, artikal_id, naziv, min_vrijednost, max_vrijednost, jedinica, ozbiljnost, verzija)
+         values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+        [ulaz.kontrolnaTackaId, ulaz.artikalId ?? null, ulaz.naziv, ulaz.minVrijednost ?? null, ulaz.maxVrijednost ?? null, ulaz.jedinica, ulaz.ozbiljnost, verzija],
+      );
+      await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "pravilo_kontrole", entitetId: novo.rows[0].id, noveVrijednosti: ulaz });
+      return { id: novo.rows[0].id, verzija };
+    });
+    response.status(201).json(rezultat);
   }),
 );
 
 haccpRuter.get(
   "/mjerenja",
+  requireUloga("operater", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ogranicenje = ogranicenjeDatuma(request.korisnik!.uloga, "m.izmjereno_at::date");
     const rezultat = await upit(
@@ -109,6 +116,7 @@ haccpRuter.post(
 // Dnevni obrasci (P1/P3/P7/P8...), generički. Šema polja je u public/obrasci-cg.json.
 haccpRuter.get(
   "/zapisi",
+  requireUloga("operater", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const obrazacKod = typeof request.query.obrazacKod === "string" ? request.query.obrazacKod : undefined;
     const ogranicenje = ogranicenjeDatuma(request.korisnik!.uloga, "z.datum");
@@ -146,19 +154,22 @@ haccpRuter.post(
       throw new ApiGreska(400, "MJERA_OBAVEZNA", "Odstupanje bez zapisane mjere je nalaz protiv firme, ne protiv zaposlenog — upišite korektivnu mjeru.");
     }
     const izvrsilac = izvrsilacZa(request.korisnik!, ulaz.izvrsilac);
+    // Zapis sa odstupanjem i njegova neusaglašenost nastaju zajedno ili nikako — inače bi ostao
+    // zapis sa odstupanjem koje niko ne provjerava (nalaz H3).
     const rezultat = await transakcija(async (klijent) => {
-      const rezultat = await klijent.query<{ id: string }>(
+      const zapis = await klijent.query<{ id: string }>(
         `insert into zapis (obrazac_kod, datum, podaci, odstupanje, korektivna_mjera, izvrsilac, uneo_korisnik_id, ispravlja_id)
          values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
         [ulaz.obrazacKod, ulaz.datum, JSON.stringify(ulaz.podaci), ulaz.odstupanje, ulaz.korektivnaMjera ?? null, izvrsilac, request.korisnik!.id, ulaz.ispravljaId ?? null],
       );
-      await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "zapis", entitetId: rezultat.rows[0].id, noveVrijednosti: { obrazacKod: ulaz.obrazacKod, datum: ulaz.datum } });
-      return rezultat;
+      const id = zapis.rows[0].id;
+      await logKreiranje(klijent, { korisnikId: request.korisnik!.id, entitetTip: "zapis", entitetId: id, noveVrijednosti: { obrazacKod: ulaz.obrazacKod, datum: ulaz.datum } });
+      // Ispravka zapisa ne otvara drugu neusaglašenost za isto odstupanje.
+      const nc = ulaz.odstupanje && !ulaz.ispravljaId
+        ? await neusaglasenostIzZapisa(klijent, { zapisId: id, obrazacKod: ulaz.obrazacKod, datum: ulaz.datum, korektivnaMjera: ulaz.korektivnaMjera!, korisnikId: request.korisnik!.id })
+        : null;
+      return { id, neusaglasenost: nc?.broj ?? null };
     });
-    // Ispravka zapisa ne otvara drugu neusaglašenost za isto odstupanje.
-    const nc = ulaz.odstupanje && !ulaz.ispravljaId
-      ? await neusaglasenostIzZapisa({ zapisId: rezultat.rows[0].id, obrazacKod: ulaz.obrazacKod, datum: ulaz.datum, korektivnaMjera: ulaz.korektivnaMjera!, korisnikId: request.korisnik!.id })
-      : null;
-    response.status(201).json({ id: rezultat.rows[0].id, neusaglasenost: nc?.broj ?? null });
+    response.status(201).json(rezultat);
   }),
 );

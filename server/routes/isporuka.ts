@@ -11,6 +11,7 @@ isporukaRuter.use(requireAuth);
 
 isporukaRuter.get(
   "/isporuke",
+  requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ogranicenje = ogranicenjeDatuma(request.korisnik!.uloga, "i.datum_isporuke");
     // Vozač vidi i isporuke koje je magacioner pripremio i njemu dodijelio, ne samo svoje.
@@ -32,6 +33,7 @@ isporukaRuter.get(
 
 isporukaRuter.get(
   "/isporuke/:id",
+  requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (request, response) => {
     const isporuka = await upit(
       `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj, s.naziv as skladiste_naziv from isporuka i

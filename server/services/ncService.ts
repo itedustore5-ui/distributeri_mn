@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { transakcija, upit } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import { emituj } from "./dogadjajService.js";
@@ -44,7 +45,7 @@ export async function kreirajRucnuNeusaglasenost(
       naslov: `Prijavljena neusaglašenost ${broj}`,
       poruka: `${ulaz.opis}${izvorOpis}`,
       ozbiljnost: ozbiljnost as "NIZAK" | "SREDNJI" | "VISOK",
-      izvorTip: "neusaglasenost",
+      izvorTip: "neusaglasenost" as const,
       izvorId: id,
     };
     await obavijestiUlogu(klijent, "bzr", obavjestenje);
@@ -202,38 +203,37 @@ export async function verifikuj(
 /** Odstupanje upisano u dnevni obrazac (nalaz H3) ulazi u isti tok kao svaka neusaglašenost.
  * Radnik je hitnu mjeru već upisao u obrazac (bez nje se zapis ni ne snima — invarijanta #2), pa
  * neusaglašenost odmah čeka provjeru: mjera je "urađena" od strane onoga ko je upisao zapis, a
- * provjerava je DRUGO lice (četiri oka). Ranije je odstupanje ostajalo samo u listi zapisa. */
-export async function neusaglasenostIzZapisa(ulaz: { zapisId: string; obrazacKod: string; datum: string; korektivnaMjera: string; korisnikId: string }) {
-  return transakcija(async (klijent) => {
-    const broj = await sljedeciBrojNc(klijent);
-    const opis = `Odstupanje u obrascu ${ulaz.obrazacKod} (${ulaz.datum})`;
-    const nc = await klijent.query<{ id: string }>(
-      `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
-       values ($1, 'SREDNJI', 'CEKA_VERIFIKACIJU', 'zapis', $2, $3, $4) returning id`,
-      [broj, ulaz.zapisId, opis, ulaz.korisnikId],
-    );
-    const id = nc.rows[0].id;
-    await klijent.query(
-      `insert into korektivna_mjera (neusaglasenost_id, opis, dodijeljeno_korisnik_id, status, zavrseno_at, zavrsio_korisnik_id, rezultat)
-       values ($1, $2, $3, 'ZAVRSENA', now(), $3, $2)`,
-      [id, ulaz.korektivnaMjera.trim(), ulaz.korisnikId],
-    );
-    const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-007", entitetTip: "neusaglasenost", entitetId: id, korisnikId: ulaz.korisnikId, podaci: { izvor: "zapis", obrazac: ulaz.obrazacKod } });
-    await logIzmjena(klijent, { dogadjajId, korisnikId: ulaz.korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj, zapisId: ulaz.zapisId } });
-    await kreirajZadatak(klijent, {
-      naslov: `Provjeri odstupanje ${broj} (obrazac ${ulaz.obrazacKod})`,
-      opis: `Preduzeto: ${ulaz.korektivnaMjera.trim()}`,
-      prioritet: "SREDNJI",
-      izvorTip: "neusaglasenost",
-      izvorId: id,
-    });
-    await obavijestiUlogu(klijent, "bzr", {
-      naslov: `Odstupanje u obrascu ${ulaz.obrazacKod} — čeka vašu provjeru`,
-      poruka: `${ulaz.datum}. Preduzeto: ${ulaz.korektivnaMjera.trim()}`,
-      ozbiljnost: "SREDNJI",
-      izvorTip: "neusaglasenost",
-      izvorId: id,
-    });
-    return { id, broj };
+ * provjerava je DRUGO lice (četiri oka). Ranije je odstupanje ostajalo samo u listi zapisa.
+ * Radi u transakciji pozivaoca — zapis i njegova neusaglašenost nastaju zajedno ili nikako. */
+export async function neusaglasenostIzZapisa(klijent: PoolClient, ulaz: { zapisId: string; obrazacKod: string; datum: string; korektivnaMjera: string; korisnikId: string }) {
+  const broj = await sljedeciBrojNc(klijent);
+  const opis = `Odstupanje u obrascu ${ulaz.obrazacKod} (${ulaz.datum})`;
+  const nc = await klijent.query<{ id: string }>(
+    `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
+     values ($1, 'SREDNJI', 'CEKA_VERIFIKACIJU', 'zapis', $2, $3, $4) returning id`,
+    [broj, ulaz.zapisId, opis, ulaz.korisnikId],
+  );
+  const id = nc.rows[0].id;
+  await klijent.query(
+    `insert into korektivna_mjera (neusaglasenost_id, opis, dodijeljeno_korisnik_id, status, zavrseno_at, zavrsio_korisnik_id, rezultat)
+     values ($1, $2, $3, 'ZAVRSENA', now(), $3, $2)`,
+    [id, ulaz.korektivnaMjera.trim(), ulaz.korisnikId],
+  );
+  const dogadjajId = await emituj(klijent, { tipDogadjaja: "EVT-007", entitetTip: "neusaglasenost", entitetId: id, korisnikId: ulaz.korisnikId, podaci: { izvor: "zapis", obrazac: ulaz.obrazacKod } });
+  await logIzmjena(klijent, { dogadjajId, korisnikId: ulaz.korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj, zapisId: ulaz.zapisId } });
+  await kreirajZadatak(klijent, {
+    naslov: `Provjeri odstupanje ${broj} (obrazac ${ulaz.obrazacKod})`,
+    opis: `Preduzeto: ${ulaz.korektivnaMjera.trim()}`,
+    prioritet: "SREDNJI",
+    izvorTip: "neusaglasenost",
+    izvorId: id,
   });
+  await obavijestiUlogu(klijent, "bzr", {
+    naslov: `Odstupanje u obrascu ${ulaz.obrazacKod} — čeka vašu provjeru`,
+    poruka: `${ulaz.datum}. Preduzeto: ${ulaz.korektivnaMjera.trim()}`,
+    ozbiljnost: "SREDNJI",
+    izvorTip: "neusaglasenost",
+    izvorId: id,
+  });
+  return { id, broj };
 }

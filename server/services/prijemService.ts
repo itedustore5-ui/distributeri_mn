@@ -112,33 +112,37 @@ export type StavkaIzmjenaUlaz = {
 /** Ispravka unosa je dozvoljena SAMO dok lot čeka odluku — čim je lot PRIHVAĆEN/HOLD/ODBIJEN,
  * mijenjanje bi pokvarilo sledljivost i zalihu koja je već zavisna od unesenih brojki. */
 export async function izmijeniStavku(lotId: string, ulaz: StavkaIzmjenaUlaz, korisnikId: string) {
-  const lotRed = await pool.query<{ status: string }>(`select status from lot where id = $1`, [lotId]);
-  if (!lotRed.rows[0]) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Lot nije pronađen.");
-  if (lotRed.rows[0].status !== "PRIMLJEN") {
-    throw new ApiGreska(409, "ODLUKA_VEC_DONESENA", "Stavka se više ne može mijenjati — odluka o prijemu je već donesena.");
-  }
-  if (ulaz.brojLota !== undefined && ulaz.brojLota.trim() === "") {
-    throw new ApiGreska(400, "LOT_OBAVEZAN", "Broj lota je obavezan — bez njega nema sledljivosti.");
-  }
+  // Lot se zaključava: odluka o prijemu (donesiOdlukuOLotu) zaključava isti red, pa izmjena i
+  // odluka ne mogu da se prepletu — ranije je stavka mogla biti izmijenjena poslije prihvatanja.
+  await transakcija(async (klijent) => {
+    const lotRed = await klijent.query<{ status: string }>(`select status from lot where id = $1 for update`, [lotId]);
+    if (!lotRed.rows[0]) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Lot nije pronađen.");
+    if (lotRed.rows[0].status !== "PRIMLJEN") {
+      throw new ApiGreska(409, "ODLUKA_VEC_DONESENA", "Stavka se više ne može mijenjati — odluka o prijemu je već donesena.");
+    }
+    if (ulaz.brojLota !== undefined && ulaz.brojLota.trim() === "") {
+      throw new ApiGreska(400, "LOT_OBAVEZAN", "Broj lota je obavezan — bez njega nema sledljivosti.");
+    }
 
-  await pool.query(
-    `update lot set
-       broj_lota = coalesce($1, broj_lota),
-       proizvodni_datum = coalesce($2, proizvodni_datum),
-       rok_trajanja = coalesce($3, rok_trajanja),
-       primljena_kolicina = coalesce($4, primljena_kolicina),
-       updated_at = now()
-     where id = $5`,
-    [ulaz.brojLota?.trim() ?? null, ulaz.proizvodniDatum ?? null, ulaz.rokTrajanja ?? null, ulaz.primljenaKolicina ?? null, lotId],
-  );
-  await pool.query(
-    `update prijem_stavka set
-       primljena_kolicina = coalesce($1, primljena_kolicina),
-       temperatura_prijema = coalesce($2, temperatura_prijema)
-     where lot_id = $3`,
-    [ulaz.primljenaKolicina ?? null, ulaz.temperaturaPrijema ?? null, lotId],
-  );
-  await logIzmjena(pool, { korisnikId, entitetTip: "lot", entitetId: lotId, noveVrijednosti: ulaz });
+    await klijent.query(
+      `update lot set
+         broj_lota = coalesce($1, broj_lota),
+         proizvodni_datum = coalesce($2, proizvodni_datum),
+         rok_trajanja = coalesce($3, rok_trajanja),
+         primljena_kolicina = coalesce($4, primljena_kolicina),
+         updated_at = now()
+       where id = $5`,
+      [ulaz.brojLota?.trim() ?? null, ulaz.proizvodniDatum ?? null, ulaz.rokTrajanja ?? null, ulaz.primljenaKolicina ?? null, lotId],
+    );
+    await klijent.query(
+      `update prijem_stavka set
+         primljena_kolicina = coalesce($1, primljena_kolicina),
+         temperatura_prijema = coalesce($2, temperatura_prijema)
+       where lot_id = $3`,
+      [ulaz.primljenaKolicina ?? null, ulaz.temperaturaPrijema ?? null, lotId],
+    );
+    await logIzmjena(klijent, { korisnikId, entitetTip: "lot", entitetId: lotId, noveVrijednosti: ulaz });
+  });
 }
 
 export type Odluka = "PRIHVATI" | "HOLD" | "ODBIJI";

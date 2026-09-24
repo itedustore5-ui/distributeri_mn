@@ -17,7 +17,7 @@ const dobavljacSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
 });
 
-sifarniciRuter.get("/dobavljaci", asyncRuta(async (_request, response) => {
+sifarniciRuter.get("/dobavljaci", requireUloga("operater", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
   response.json((await upit(`select * from dobavljac where aktivan order by naziv`)).rows);
 }));
 
@@ -62,7 +62,7 @@ const kupacSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
 });
 
-sifarniciRuter.get("/kupci", asyncRuta(async (_request, response) => {
+sifarniciRuter.get("/kupci", requireUloga("operater", "vozac", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
   response.json((await upit(`select * from kupac where aktivan order by naziv`)).rows);
 }));
 
@@ -111,7 +111,7 @@ const artikalSchema = z.object({
   granicaPotvrdio: z.boolean().default(false),
 });
 
-sifarniciRuter.get("/artikli", asyncRuta(async (_request, response) => {
+sifarniciRuter.get("/artikli", requireUloga("operater", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
   response.json((await upit(`select * from artikal where aktivan order by naziv`)).rows);
 }));
 
@@ -215,16 +215,18 @@ sifarniciRuter.patch(
       if (!ostala.rows[0]) throw new ApiGreska(409, "POSLJEDNJE_SKLADISTE", "Firma mora imati bar jedno aktivno skladište.");
     }
     try {
-      const rezultat = await pool.query(
-        `update skladiste set naziv = $1, adresa = $2, aktivan = coalesce($3, aktivan) where id = $4`,
-        [ulaz.naziv, ulaz.adresa || null, ulaz.aktivan ?? null, id],
-      );
-      if (rezultat.rowCount === 0) throw new ApiGreska(404, "SKLADISTE_NE_POSTOJI", "Skladište nije pronađeno.");
+      await transakcija(async (klijent) => {
+        const rezultat = await klijent.query(
+          `update skladiste set naziv = $1, adresa = $2, aktivan = coalesce($3, aktivan) where id = $4`,
+          [ulaz.naziv, ulaz.adresa || null, ulaz.aktivan ?? null, id],
+        );
+        if (rezultat.rowCount === 0) throw new ApiGreska(404, "SKLADISTE_NE_POSTOJI", "Skladište nije pronađeno.");
+        await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "skladiste", entitetId: id, noveVrijednosti: ulaz });
+      });
     } catch (e) {
       if ((e as { code?: string }).code === JEDINSTVEN_NAZIV) throw new ApiGreska(409, "SKLADISTE_POSTOJI", "Skladište sa tim nazivom već postoji.");
       throw e;
     }
-    await logIzmjena(pool, { korisnikId: request.korisnik!.id, entitetTip: "skladiste", entitetId: id, noveVrijednosti: ulaz });
     response.status(204).end();
   }),
 );

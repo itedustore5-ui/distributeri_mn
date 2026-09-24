@@ -81,28 +81,32 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
 }
 
 export async function oznaciKontaktiran(kontaktId: string, napomena: string | undefined, korisnikId: string) {
-  const rezultat = await pool.query<{ povlacenje_id: string }>(
-    `update povlacenje_kontakt set kontaktiran = true, kontaktiran_at = now(), napomena = coalesce($1, napomena) where id = $2 returning povlacenje_id`,
-    [napomena ?? null, kontaktId],
-  );
-  if (!rezultat.rows[0]) throw new ApiGreska(404, "KONTAKT_NE_POSTOJI", "Kontakt nije pronađen.");
-  await logPromjenaStatusa(pool, { korisnikId, entitetTip: "povlacenje_kontakt", entitetId: kontaktId, noveVrijednosti: { kontaktiran: true } });
-  return rezultat.rows[0].povlacenje_id;
+  return transakcija(async (klijent) => {
+    const rezultat = await klijent.query<{ povlacenje_id: string }>(
+      `update povlacenje_kontakt set kontaktiran = true, kontaktiran_at = now(), napomena = coalesce($1, napomena) where id = $2 returning povlacenje_id`,
+      [napomena ?? null, kontaktId],
+    );
+    if (!rezultat.rows[0]) throw new ApiGreska(404, "KONTAKT_NE_POSTOJI", "Kontakt nije pronađen.");
+    await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "povlacenje_kontakt", entitetId: kontaktId, noveVrijednosti: { kontaktiran: true } });
+    return rezultat.rows[0].povlacenje_id;
+  });
 }
 
+/** Zatvaranje, zadaci i trag u jednoj transakciji — ranije je povlačenje moglo ostati zatvoreno
+ * sa otvorenim zadatkom "obavijesti kupce" ako drugi korak padne. */
 export async function zavrsiPovlacenje(povlacenjeId: string, korisnikId: string) {
-  const nekontaktirani = await pool.query<{ broj: string }>(
-    `select count(*) as broj from povlacenje_kontakt where povlacenje_id = $1 and not kontaktiran`,
-    [povlacenjeId],
-  );
-  if (Number(nekontaktirani.rows[0].broj) > 0) {
-    throw new ApiGreska(409, "NISU_SVI_KONTAKTIRANI", "Povlačenje se ne može zatvoriti dok svi kupci nisu obaviješteni.");
-  }
-  const rezultat = await pool.query(
-    `update povlacenje set status = 'ZAVRSENO', zavrseno_at = now(), zavrsio_korisnik_id = $1 where id = $2 and status = 'U_TOKU' returning id`,
-    [korisnikId, povlacenjeId],
-  );
-  if (!rezultat.rows[0]) throw new ApiGreska(404, "POVLACENJE_NE_POSTOJI", "Povlačenje nije pronađeno ili je već zatvoreno.");
-  await zatvoriZadatkeIzvora(pool, "povlacenje", povlacenjeId);
-  await logPromjenaStatusa(pool, { korisnikId, entitetTip: "povlacenje", entitetId: povlacenjeId, noveVrijednosti: { status: "ZAVRSENO" } });
+  await transakcija(async (klijent) => {
+    const povlacenje = await klijent.query(`select 1 from povlacenje where id = $1 and status = 'U_TOKU' for update`, [povlacenjeId]);
+    if (!povlacenje.rows[0]) throw new ApiGreska(404, "POVLACENJE_NE_POSTOJI", "Povlačenje nije pronađeno ili je već zatvoreno.");
+    const nekontaktirani = await klijent.query<{ broj: string }>(
+      `select count(*) as broj from povlacenje_kontakt where povlacenje_id = $1 and not kontaktiran`,
+      [povlacenjeId],
+    );
+    if (Number(nekontaktirani.rows[0].broj) > 0) {
+      throw new ApiGreska(409, "NISU_SVI_KONTAKTIRANI", "Povlačenje se ne može zatvoriti dok svi kupci nisu obaviješteni.");
+    }
+    await klijent.query(`update povlacenje set status = 'ZAVRSENO', zavrseno_at = now(), zavrsio_korisnik_id = $1 where id = $2`, [korisnikId, povlacenjeId]);
+    await zatvoriZadatkeIzvora(klijent, "povlacenje", povlacenjeId);
+    await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "povlacenje", entitetId: povlacenjeId, noveVrijednosti: { status: "ZAVRSENO" } });
+  });
 }

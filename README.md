@@ -56,10 +56,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`21_pitanja_firme_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`22_integritet_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -112,7 +112,7 @@ Svaki klijent dobija **svoj** Supabase projekat i **svoj** Render web servis, sa
    ```
    `prvi-korisnik` ispisuje privremenu lozinku — proslijediti je odmah odgovornom licu
    (`bzr`), koje potom u `/moja` mijenja lozinku i u `/ljudi` otvara naloge magacioneru i
-   vozaču.
+   vozaču (vidi „Ljudi — nalozi i početna lozinka").
 4. Dodati klijenta u `alati/klijenti.txt` (nije u gitu — ostaje samo na vašem računaru):
    ```
    Naziv klijenta = postgresql://...
@@ -251,6 +251,24 @@ uneseno). Tri jezička: Kupci (telefon obavezan, čl. 28), Dobavljači, Artikli 
 i „Granicu potvrdio klijent" — dok nije potvrđeno, automatska ocjena odstupanja se ne primjenjuje,
 invarijanta #5). Vidljivo samo `bzr`/`izvodjac`.
 
+### Ljudi — nalozi i početna lozinka
+
+Odgovorno lice otvara nalog magacioneru ili vozaču na dva mjesta:
+
+- **Novo lice** → kvačica „Otvori i nalog za prijavu". Uloga se predlaže iz radnog mjesta
+  („vozač…" → vozač, inače magacioner), korisničko ime iz imena („Marko Vuković" → `marko.v`),
+  a početna lozinka je predložena (npr. `Durmitor-4827`) — može se prekucati svojom, najmanje
+  10 znakova. Lice i nalog nastaju zajedno ili nikako: zauzeto korisničko ime ne ostavlja lice
+  bez naloga.
+- **Svi zaposleni** → „Otvori nalog" kod svakog ko ga još nema (ili kartica Nalozi → „Novi nalog").
+
+Poslije toga se prikaže **jednom**: korisničko ime, početna lozinka i šifra, sa dugmetom
+„Štampaj ceduljicu" za zaposlenog. Poslije zatvaranja lozinku ne vidi niko.
+
+Zaboravljena lozinka: Nalozi → **„Nova lozinka"** — postavlja novu privremenu, prekida prijavu
+na svim uređajima tog naloga, a pri sljedećoj prijavi se opet mora promijeniti. Odgovorno lice
+ovo može samo magacioneru i vozaču (invarijanta #13); svoju mijenja na Mojoj strani.
+
 ### Prva prijava — obavezna promjena lozinke
 
 Dok god `korisnik.mora_promijeniti_lozinku` stoji na `true` (postavlja ga bzr/izvodjac pri
@@ -347,12 +365,24 @@ neusaglašenost, otpis i povlačenje — ko i kada, osvježava se na 30 s, „Sa
 Uprava ne dobija obavještenje za svaki unos (50 poruka dnevno bi zatrpalo ono nekoliko važnih);
 važno stiže na zvonce. Uprava nema zadatke i ne vidi sanitarnu knjižicu ako ne rukuje hranom.
 
+Kartice Kontrolnog centra kod uprave otvaraju **listu iza broja**, samo za čitanje (otvorene
+neusaglašenosti, temperature van opsega, nespremna vozila, knjižice, prijemi / isporuke /
+zapisi danas) — uprava ne ulazi na operativne strane. „Lotovi na HOLD-u" vodi na Zalihe sa već
+izabranim filterom, „Povlačenja u toku" na Sledljivost, gdje uprava vidi povlačenja i spisak
+kupaca, bez dugmadi za upis. Lista i broj na kartici se računaju istim uslovom (`/tabla/detalj`).
+
 ### Izvještaji — prvo pregled
 
 Izvještaj se prvo otvori na ekranu (najnovijih 500 redova, čitljiva zaglavlja, statusi kao u
 aplikaciji, bez internih ID-jeva, pretraga), pa se štampa ili preuzme CSV sa svim kolonama.
 
 ### Provjera znanja — pitanja firme i rezultati
+
+**Kako zaposleni ulazi:** na strani za prijavu dugme **„Provjera znanja — ulaz šifrom"** (ili
+direktno `/provjera-znanja`), upiše šifru sa spiska zaposlenih (npr. `M-03`) — bez korisničkog
+imena i lozinke. Ko ima nalog, na Mojoj strani ima dugme „Uđi u provjeru znanja" sa već
+upisanom šifrom. Šifra pušta samo dok postoji **otvoren termin** — kartica u Ljudima to ispisuje
+crveno kad termina nema, uz adresu za kopiranje.
 
 Ljudi → Provjera znanja:
 
@@ -447,7 +477,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 npm run typecheck
 npm run build
 npm run dev          # u drugom prozoru — testovi rade protiv servera koji radi
-npm run test:e2e     # 192 provjere kroz svih pet uloga; izlazni kod 1 ako išta padne
+npm run test:e2e     # 222 provjere kroz svih pet uloga; izlazni kod 1 ako išta padne
 ```
 
 `npm run test:e2e` (fajlovi u `testovi/`) radi **samo na demo bazi** — prije prvog koraka provjeri
@@ -466,6 +496,8 @@ testovi prave i brišu podatke. Server i test moraju gledati istu bazu (`DATABAS
 | `sesije` | prijava u bazi kao heš, odjava, promjena lozinke odjavljuje ostale uređaje |
 | `neusaglasenosti_teren` | vozač prijavi problem na isporuci → mjera njemu → samo on je završava, uz opis → provjera; uprava i aktivnost |
 | `znanje_firme` | pitanja firme, termin sa pragom, rezultat „položeno", statistika po pitanju |
+| `faza1_haccp` | HOLD → pusti/odbij sa razlogom, povlačenje blokira puštanje, provjera tek uz urađenu mjeru, odstupanje iz obrasca → neusaglašenost, nepotvrđena granica ne zadržava robu |
+| `faza2_integritet` | istovremeni unosi ne dobijaju isti broj, lice + nalog ili oba ili ništa, početna i nova lozinka, terenske uloge ne čitaju tuđe, kartice direktora, baza odbija nepoznat izvor |
 
 Svaki test briše sve što napravi. Nov tok u aplikaciji = nov test u `testovi/` — dvije greške koje
 su dugo bile na Renderu (neusaglašenost se nije mogla zatvoriti; uprava i provjera znanja

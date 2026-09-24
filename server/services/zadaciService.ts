@@ -1,13 +1,21 @@
 import type { PoolClient } from "pg";
 import { pool } from "../db.js";
 
+// Odakle je zadatak ili obavještenje došlo (izvor_tip + izvor_id). ISTI spisak stoji kao CHECK u
+// db/22_integritet_cg.sql (nalaz B2) — nov izvor se dodaje na OBA mjesta, inače upis pada u bazi.
+// Ranije je izvor bio slobodan tekst: greška u kucanju je prolazila, a veza je pokazivala u prazno.
+export const IZVORI_ZADATKA = ["neusaglasenost", "povlacenje", "rucno"] as const;
+export const IZVORI_OBAVJESTENJA = ["neusaglasenost", "povlacenje", "lot", "prijem", "isporuka", "zadatak", "poruka", "bekap_log"] as const;
+export type IzvorZadatka = (typeof IZVORI_ZADATKA)[number];
+export type IzvorObavjestenja = (typeof IZVORI_OBAVJESTENJA)[number];
+
 type NoviZadatakInput = {
   naslov: string;
   opis?: string;
   dodijeljenoKorisnikId?: string | null;
   prioritet?: "NIZAK" | "SREDNJI" | "VISOK";
   rokAt?: string | null;
-  izvorTip?: string;
+  izvorTip?: IzvorZadatka;
   izvorId?: string;
   createdBy?: string | null;
 };
@@ -35,7 +43,7 @@ type NovoObavjestenjeInput = {
   naslov: string;
   poruka?: string;
   ozbiljnost?: "NIZAK" | "SREDNJI" | "VISOK";
-  izvorTip?: string;
+  izvorTip?: IzvorObavjestenja;
   izvorId?: string;
 };
 
@@ -49,7 +57,7 @@ export async function kreirajObavjestenje(klijent: PoolClient | typeof pool, ula
 
 /** Automatski zadatak živi koliko i ono iz čega je nastao — kad se zatvori neusaglašenost ili
  * povlačenje, njegov zadatak se zatvara sam. Inače bi ostao da visi kao "zakašnjeo" zauvijek. */
-export async function zatvoriZadatkeIzvora(klijent: PoolClient | typeof pool, izvorTip: string, izvorId: string) {
+export async function zatvoriZadatkeIzvora(klijent: PoolClient | typeof pool, izvorTip: IzvorZadatka, izvorId: string) {
   await klijent.query(
     `update zadatak set status = 'ZAVRSEN', zavrseno_at = now()
      where izvor_tip = $1 and izvor_id = $2 and status not in ('ZAVRSEN', 'OTKAZAN')`,
