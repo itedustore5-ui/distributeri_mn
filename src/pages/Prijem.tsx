@@ -457,8 +457,14 @@ function NoviPrijemModal({
     }
   };
 
+  // KKT 1: roba pod temperaturnim režimom se ne prima bez izmjerene temperature (server isto provjerava).
+  const podRezimom = (artikalId: string) => artikli.find((a) => a.id === artikalId)?.temp_kontrolisano === true;
   const validno =
-    dobavljacId && datum && redovi.length > 0 && redovi.every((r) => r.artikalId && r.brojLota.trim() && Number(r.primljenaKolicina) > 0) && (!procitano || uporedjeno);
+    dobavljacId &&
+    datum &&
+    redovi.length > 0 &&
+    redovi.every((r) => r.artikalId && r.brojLota.trim() && Number(r.primljenaKolicina) > 0 && (!podRezimom(r.artikalId) || r.temperaturaPrijema.trim() !== "")) &&
+    (!procitano || uporedjeno);
   const ostaloZutih = redovi.reduce((n, r) => n + r.nesigurno.length, 0);
 
   return (
@@ -571,7 +577,11 @@ function NoviPrijemModal({
                   <input type="number" value={red.primljenaKolicina} onChange={(e) => azurirajRed(i, { primljenaKolicina: e.target.value }, "kolicina")} style={nesigurno(red, "kolicina")} />
                   {razlika !== 0 && <small className="danas-fali" style={{ fontWeight: 400 }}>{razlika < 0 ? "manjak" : "višak"} {Math.abs(razlika)} u odnosu na otpremnicu</small>}
                 </label>
-                <label>Temperatura pri prijemu (°C) <ZakonskaOznaka clan="36" /><input type="number" step="0.1" value={red.temperaturaPrijema} onChange={(e) => azurirajRed(i, { temperaturaPrijema: e.target.value })} /></label>
+                <label>
+                  Temperatura pri prijemu (°C) {podRezimom(red.artikalId) && <span className="danas-fali" style={{ fontWeight: 400 }}>(obavezno)</span>} <ZakonskaOznaka clan="36" />
+                  <input type="number" step="0.1" value={red.temperaturaPrijema} onChange={(e) => azurirajRed(i, { temperaturaPrijema: e.target.value })} />
+                  {podRezimom(red.artikalId) && !red.temperaturaPrijema.trim() && <small className="muted-text">Izmjerite temperaturu robe — KKT 1.</small>}
+                </label>
                 {redovi.length > 1 && (
                   <button type="button" className="link-button" style={{ alignSelf: "end" }} onClick={() => setRedovi((r) => r.filter((_, idx) => idx !== i))}>Ukloni stavku</button>
                 )}

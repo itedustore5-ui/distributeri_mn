@@ -30,7 +30,7 @@ type Mjera = {
   rezultat: string | null;
   zavrseno_at: string | null;
 };
-type Verifikacija = { id: string; rezultat: string; napomena: string | null; verifikovao: string | null; verifikovano_at: string };
+type Verifikacija = { id: string; rezultat: string; napomena: string | null; verifikovao: string | null; verifikovano_at: string; izuzetak_cetiri_oka: boolean };
 type NcDetalj = Nc & { zatvorio: string | null; zatvoreno_at: string | null; korektivneMjere: Mjera[]; verifikacije: Verifikacija[] };
 type Izvrsilac = { id: string; ime: string; uloga: Uloga };
 
@@ -175,6 +175,9 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
     if (vodiSistem) api<Izvrsilac[]>("/zadaci/izvrsioci").then(setIzvrsioci);
   }, [vodiSistem]);
 
+  // Četiri oka u maloj firmi (H7): server kaže da li je izuzetak moguć; tek tada se nudi.
+  const [izuzetakMoguc, setIzuzetakMoguc] = useState(false);
+  const [izuzetak, setIzuzetak] = useState(false);
   const radnja = async (fn: () => Promise<unknown>, poruka: string) => {
     setGreska("");
     try {
@@ -182,8 +185,17 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
       onOsvjezi();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : poruka);
+      if (e instanceof ApiGreska && e.code === "VERIFIKACIJA_NIJE_NEZAVISNA" && e.details.izuzetakMoguc === true) setIzuzetakMoguc(true);
     }
   };
+  const provjeri = (rezultat: "POTVRDJENO" | "ODBIJENO") =>
+    radnja(
+      () =>
+        api(`/neusaglasenosti/${detalj.id}/verifikacija`, {
+          telo: { rezultat, napomena: napomena || undefined, izuzetak: izuzetak || undefined },
+        }),
+      "Provjera nije sačuvana.",
+    );
 
   const k = korak(detalj.status);
   const otvorenaMjera = detalj.korektivneMjere.find((m) => m.status !== "ZAVRSENA");
@@ -290,17 +302,20 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
         {vodiSistem && detalj.status === "CEKA_VERIFIKACIJU" && (
           <div className="nc-provjera">
             <input placeholder="Napomena o provjeri (šta ste pogledali)" value={napomena} onChange={(e) => setNapomena(e.target.value)} />
+            {izuzetakMoguc && (
+              <label style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "flex-start", fontSize: 11, margin: "8px 0", cursor: "pointer" }}>
+                <input type="checkbox" checked={izuzetak} onChange={(e) => setIzuzetak(e.target.checked)} style={{ width: "auto", height: "auto", marginTop: 2 }} />
+                <span>
+                  U firmi nema drugog odgovornog lica — provjeru radim bez drugog lica. Zapis će nositi oznaku „bez četiri oka", a konsultant
+                  dobija obavještenje. U napomeni upišite šta ste pregledali (najmanje 10 znakova).
+                </span>
+              </label>
+            )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                className="primary-button"
-                onClick={() => radnja(() => api(`/neusaglasenosti/${detalj.id}/verifikacija`, { telo: { korektivnaMjeraId: detalj.korektivneMjere[detalj.korektivneMjere.length - 1]?.id, rezultat: "POTVRDJENO", napomena: napomena || undefined } }), "Provjera nije sačuvana.")}
-              >
+              <button className="primary-button" disabled={izuzetak && napomena.trim().length < 10} onClick={() => provjeri("POTVRDJENO")}>
                 Provjereno — zatvori
               </button>
-              <button
-                className="secondary-button"
-                onClick={() => radnja(() => api(`/neusaglasenosti/${detalj.id}/verifikacija`, { telo: { korektivnaMjeraId: detalj.korektivneMjere[detalj.korektivneMjere.length - 1]?.id, rezultat: "ODBIJENO", napomena: napomena || undefined } }), "Provjera nije sačuvana.")}
-              >
+              <button className="secondary-button" disabled={izuzetak && napomena.trim().length < 10} onClick={() => provjeri("ODBIJENO")}>
                 Nije riješeno — vrati
               </button>
             </div>
@@ -314,6 +329,7 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
               <p key={v.id} style={{ fontSize: 11, margin: "0 0 4px" }}>
                 {v.rezultat === "POTVRDJENO" ? "✓ Potvrđeno" : "✗ Vraćeno"} — {v.verifikovao ?? ""}, {datum(v.verifikovano_at)}
                 {v.napomena ? `: ${v.napomena}` : ""}
+                {v.izuzetak_cetiri_oka && <span className="rok-oznaka istekao" style={{ marginLeft: 6 }}>bez četiri oka</span>}
               </p>
             ))}
           </div>

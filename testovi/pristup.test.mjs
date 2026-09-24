@@ -11,18 +11,21 @@ const MORA = {
     "/lica", "/nalozi", "/plan-obuke", "/evidencija-osposobljavanja", "/provjera-znanja/sesije", "/poruke", "/poruke/primaoci", "/zadaci",
     "/zadaci/izvrsioci", "/obavjestenja", "/skladista", "/kupci", "/dobavljaci", "/artikli", "/povlacenja", "/izvoz/izvori", "/audit",
     "/bekap/poslednji", "/firma", "/sledljivost/pretraga?q=MLJ", "/zdravlje", "/aktivnost", "/pitanja-firme",
-    "/provjera-znanja/rezultati", "/izvoz/prijemi/pregled"],
-  direktor: ["/tabla", "/aktivnost", "/tabla/detalj/neusaglasenosti", "/povlacenja", "/lotovi", "/poruke", "/poruke/primaoci", "/zadaci", "/obavjestenja", "/skladista", "/sledljivost/pretraga?q=MLJ", "/zdravlje"],
+    "/provjera-znanja/rezultati", "/izvoz/prijemi/pregled",
+    "/haccp-plan", "/plan-monitoringa", "/monitoring/danas", "/monitoring/pregled", "/mjerni-uredjaji", "/verifikacija-sistema", "/tabla/detalj/monitoring", "/tabla/detalj/rokovi"],
+  direktor: ["/tabla", "/aktivnost", "/tabla/detalj/neusaglasenosti", "/povlacenja", "/lotovi", "/poruke", "/poruke/primaoci", "/zadaci", "/obavjestenja", "/skladista", "/sledljivost/pretraga?q=MLJ", "/zdravlje",
+    "/haccp-plan", "/plan-monitoringa", "/monitoring/danas", "/monitoring/pregled", "/mjerni-uredjaji", "/verifikacija-sistema", "/tabla/detalj/monitoring"],
   marko: ["/prijem", "/zaliha", "/lotovi", "/zapisi", "/mjerenja", "/isporuke", "/neusaglasenosti", "/zadaci", "/obavjestenja", "/skladista", "/lica/ja",
-    "/kupci", "/dobavljaci", "/artikli", "/vozaci", "/zdravlje"],
-  petar: ["/isporuke", "/vozila", "/kontrole-vozila", "/neusaglasenosti", "/zadaci", "/obavjestenja", "/vozaci", "/skladista", "/kupci", "/zaliha", "/lica/ja", "/zdravlje"],
+    "/kupci", "/dobavljaci", "/artikli", "/vozaci", "/zdravlje", "/monitoring/danas", "/mjerni-uredjaji"],
+  petar: ["/isporuke", "/vozila", "/kontrole-vozila", "/neusaglasenosti", "/zadaci", "/obavjestenja", "/vozaci", "/skladista", "/kupci", "/zaliha", "/lica/ja", "/zdravlje", "/monitoring/danas"],
   konsultant: ["/tabla", "/izvoz/izvori", "/audit", "/pitanja", "/nalozi", "/povlacenja", "/zdravlje"],
 };
 
 const NE_SMIJE = {
   direktor: ["/pitanja-firme", "/izvoz/prijemi/pregled", "/izvoz/izvori", "/audit", "/nalozi", "/pitanja", "/kontrole-vozila", "/lica", "/prijem", "/zapisi", "/plan-obuke"],
-  marko: ["/aktivnost", "/tabla", "/tabla/detalj/neusaglasenosti", "/lica", "/plan-obuke", "/pravila-kontrole", "/pitanja-firme", "/provjera-znanja/rezultati", "/kontrole-vozila", "/izvoz/izvori", "/nalozi", "/poruke", "/audit", "/povlacenja", "/sledljivost/pretraga?q=MLJ", "/pitanja"],
-  petar: ["/izvoz/izvori", "/nalozi", "/poruke", "/audit", "/povlacenja", "/pitanja", "/sledljivost/pretraga?q=MLJ", "/tabla", "/lica", "/prijem", "/zapisi", "/mjerenja", "/dobavljaci", "/artikli", "/lotovi", "/kontrolne-tacke"],
+  marko: ["/aktivnost", "/tabla", "/tabla/detalj/neusaglasenosti", "/lica", "/plan-obuke", "/pravila-kontrole", "/pitanja-firme", "/provjera-znanja/rezultati", "/kontrole-vozila", "/izvoz/izvori", "/nalozi", "/poruke", "/audit", "/povlacenja", "/sledljivost/pretraga?q=MLJ", "/pitanja",
+    "/haccp-plan", "/plan-monitoringa", "/monitoring/pregled", "/verifikacija-sistema", "/tabla/detalj/monitoring"],
+  petar: ["/izvoz/izvori", "/nalozi", "/poruke", "/audit", "/povlacenja", "/pitanja", "/sledljivost/pretraga?q=MLJ", "/tabla", "/lica", "/prijem", "/zapisi", "/mjerenja", "/dobavljaci", "/artikli", "/lotovi", "/kontrolne-tacke", "/mjerni-uredjaji", "/haccp-plan", "/plan-monitoringa"],
   ana: ["/pitanja"], // banka pitanja je samo konsultantova (invarijanta #14)
 };
 
@@ -52,6 +55,8 @@ export async function pokreni({ provjeri }) {
     provjeri(`${NALOZI[kljuc].ime}: ne vidi ${adrese.length} tuđih adresa (403)`, propusteno.length === 0, propusteno.join(", "));
   }
 
+  const direktor = await prijava(NALOZI.direktor);
+  provjeri("Direktor ne mijenja plan monitoringa (403)", (await direktor("/plan-monitoringa/osnovni", { telo: {} })).status === 403);
   const petar = await prijava(NALOZI.petar);
   provjeri("Vozač ne upisuje HACCP obrasce (403)", (await petar("/zapisi", { telo: { obrazacKod: "P3", datum: "2026-01-01", podaci: {} } })).status === 403);
 }

@@ -46,6 +46,8 @@ export function Moja() {
         </div>
       )}
 
+      {terenskaUloga && <DanasPoPlanu />}
+
       {korisnik?.uloga === "vozac" && <VozacDanas />}
 
       {korisnik?.uloga === "operater" && (
@@ -275,5 +277,66 @@ function PromjenaLozinke() {
         <button className="primary-button" type="submit" disabled={nova.length < 10}>Sačuvaj lozinku</button>
       </form>
     </div>
+  );
+}
+
+type StavkaDanas = {
+  id: string;
+  naziv: string;
+  vrsta: "mjerenje" | "obrazac" | "kontrola_vozila";
+  kontrolna_tacka_id: string | null;
+  obrazac_kod: string | null;
+  puta: number;
+  uradjeno: number;
+  fali: number;
+  rok: string;
+};
+
+/** Plan monitoringa za ovog čovjeka (po ulozi i magacinu): šta danas treba, šta je urađeno, i šta
+ * je juče ostalo neurađeno. Dugme vodi pravo na obrazac ili mjerenje. */
+function DanasPoPlanu() {
+  const navigate = useNavigate();
+  const [stanje, setStanje] = useState<{ stavke: StavkaDanas[]; juce: StavkaDanas[] } | null>(null);
+  useEffect(() => {
+    api<{ stavke: StavkaDanas[]; juce: StavkaDanas[] }>("/monitoring/danas").then(setStanje).catch(() => setStanje(null));
+  }, []);
+  if (!stanje || (stanje.stavke.length === 0 && stanje.juce.length === 0)) return null;
+  const upisi = (s: StavkaDanas) =>
+    s.vrsta === "obrazac"
+      ? navigate("/haccp", { state: { obrazac: s.obrazac_kod } })
+      : s.vrsta === "mjerenje"
+        ? navigate("/haccp", { state: { mjerenje: s.kontrolna_tacka_id } })
+        : navigate("/vozila");
+  const fali = stanje.stavke.filter((s) => s.fali > 0).length;
+  return (
+    <>
+      <div className="section-heading">
+        <div>
+          <h2>Danas po planu</h2>
+          <span>{fali === 0 ? "Sve iz plana za danas je urađeno." : `Još ${fali === 1 ? "1 stavka" : `${fali} stavke`} — upišite čim uradite, ne na kraju dana.`}</span>
+        </div>
+      </div>
+      {stanje.juce.length > 0 && (
+        <div className="upozorenje-traka">
+          <AlertTriangle size={16} />
+          <span>Juče nije urađeno: {stanje.juce.map((s) => `${s.naziv} (${s.uradjeno}/${s.puta})`).join(", ")}. Javite odgovornom licu.</span>
+        </div>
+      )}
+      <div className="panel" style={{ minHeight: "auto", marginBottom: 24 }}>
+        {stanje.stavke.map((s) => (
+          <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: "1px solid #edf1f3" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13 }}>{s.naziv}</div>
+              <small className="muted-text">{s.uradjeno} od {s.puta} · {s.rok}</small>
+            </div>
+            {s.fali === 0 ? (
+              <StatusBadge status="VAZI" tekst="urađeno" />
+            ) : (
+              <button className="primary-button" onClick={() => upisi(s)}>Upiši <ChevronRight size={14} /></button>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

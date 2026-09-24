@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, Thermometer, ClipboardList } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { Plus, Thermometer, ClipboardList, AlertTriangle } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
@@ -20,7 +21,10 @@ export function Haccp() {
   const [lotovi, setLotovi] = useState<Lot[]>([]);
   const [obrasci, setObrasci] = useState<Obrazac[]>([]);
   const [zapisi, setZapisi] = useState<Zapis[]>([]);
-  const [modalMjerenje, setModalMjerenje] = useState(false);
+  // Sa Moje strane ("Danas po planu → Upiši") stiže koji obrazac ili koja tačka se upisuje.
+  const saPlana = useLocation().state as { obrazac?: string; mjerenje?: string } | null;
+  const [modalMjerenje, setModalMjerenje] = useState<boolean>(!!saPlana?.mjerenje);
+  const [neispravni, setNeispravni] = useState<string[]>([]);
   const [modalZapis, setModalZapis] = useState<Obrazac | null>(null);
   const [filterObrazac, setFilterObrazac] = useState("");
 
@@ -35,7 +39,16 @@ export function Haccp() {
     // Invarijanta #25: obrazac nosi `uloge` — svako vidi samo obrasce svoje uloge.
     fetch("/obrasci-cg.json")
       .then((r) => r.json())
-      .then((svi: Obrazac[]) => setObrasci(svi.filter((o) => !korisnik || o.uloge.includes(korisnik.uloga))));
+      .then((svi: Obrazac[]) => {
+        const moji = svi.filter((o) => !korisnik || o.uloge.includes(korisnik.uloga));
+        setObrasci(moji);
+        const trazeni = saPlana?.obrazac ? moji.find((o) => o.kod === saPlana.obrazac) : undefined;
+        if (trazeni) setModalZapis(trazeni);
+      });
+    // Termometar koji nije prošao provjeru — mjerenje njime ne vrijedi (faza 3).
+    api<{ naziv: string; oznaka: string | null; stanje: string; aktivan: boolean }[]>("/mjerni-uredjaji")
+      .then((u) => setNeispravni(u.filter((x) => x.aktivan && x.stanje === "NEISPRAVAN").map((x) => `${x.naziv}${x.oznaka ? ` (${x.oznaka})` : ""}`)))
+      .catch(() => undefined);
     ucitaj();
   }, []);
 
@@ -55,6 +68,13 @@ export function Haccp() {
           </button>
         }
       />
+
+      {neispravni.length > 0 && (
+        <div className="upozorenje-traka">
+          <AlertTriangle size={16} />
+          <span>Termometar nije prošao provjeru: {neispravni.join(", ")} — ne mjerite njime dok se ne zamijeni ili kalibriše.</span>
+        </div>
+      )}
 
       <div className="section-heading">
         <div>
@@ -136,15 +156,15 @@ export function Haccp() {
       </div>
 
       {modalMjerenje && (
-        <NovoMjerenjeModal tacke={tacke} lotovi={lotovi} onClose={() => setModalMjerenje(false)} onCreated={ucitaj} />
+        <NovoMjerenjeModal key={tacke.length} tacke={tacke} pocetnaTacka={saPlana?.mjerenje} lotovi={lotovi} onClose={() => setModalMjerenje(false)} onCreated={ucitaj} />
       )}
       {modalZapis && <NoviZapisModal obrazac={modalZapis} onClose={() => setModalZapis(null)} onCreated={ucitaj} />}
     </>
   );
 }
 
-function NovoMjerenjeModal({ tacke, lotovi, onClose, onCreated }: { tacke: KontrolnaTacka[]; lotovi: Lot[]; onClose: () => void; onCreated: () => void }) {
-  const [kontrolnaTackaId, setKontrolnaTackaId] = useState(tacke[0]?.id ?? "");
+function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, onClose, onCreated }: { tacke: KontrolnaTacka[]; pocetnaTacka?: string; lotovi: Lot[]; onClose: () => void; onCreated: () => void }) {
+  const [kontrolnaTackaId, setKontrolnaTackaId] = useState(pocetnaTacka && tacke.some((t) => t.id === pocetnaTacka) ? pocetnaTacka : tacke[0]?.id ?? "");
   const [lotId, setLotId] = useState("");
   const [vrijednost, setVrijednost] = useState("");
   const [napomena, setNapomena] = useState("");

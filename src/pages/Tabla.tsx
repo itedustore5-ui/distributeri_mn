@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall, ClipboardList, DatabaseBackup } from "lucide-react";
+import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall, ClipboardList, DatabaseBackup, ClipboardCheck, Gauge } from "lucide-react";
 import { api, ApiGreska, preuzmiFajl } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal } from "../components/Zajednicko";
@@ -25,6 +25,9 @@ type TablaPodaci = {
     zadaciOtvoreni: number;
     knjizicIstice: number;
     povlacenjaUToku: number;
+    monitoringFali: number;
+    monitoringJuce: number;
+    haccpRokovi: number;
   };
   operativno: { prijemiDanas: number; isporukeDanas: number; zapisiDanas: number };
 };
@@ -72,6 +75,9 @@ export function Tabla() {
     { naslov: "Lotovi na HOLD-u", vrijednost: k.lotoviNaHoldu, ikonica: <PackageX size={18} />, putanja: "/zalihe", stanje: { status: "HOLD" }, tona: k.lotoviNaHoldu > 0 ? "danger" : "warning" },
     { naslov: "Zakašnjeli zadaci", vrijednost: k.zadaciZakasnili, ikonica: <Clock3 size={18} />, putanja: "#zadaci", tona: k.zadaciZakasnili > 0 ? "danger" : "warning" },
     { naslov: "Knjižice ističu/istekle", vrijednost: k.knjizicIstice, ikonica: <BookOpen size={18} />, putanja: "/ljudi", detalj: "knjizice", tona: k.knjizicIstice > 0 ? "danger" : "warning" },
+    // Plan monitoringa (faza 3): šta danas još nije urađeno; juče propušteno je već rupa u zapisima.
+    { naslov: `Danas fali po planu${k.monitoringJuce ? ` · juče propušteno ${k.monitoringJuce}` : ""}`, vrijednost: k.monitoringFali, ikonica: <ClipboardCheck size={18} />, putanja: "/haccp-plan", stanje: { kartica: "plan" }, detalj: "monitoring", tona: k.monitoringJuce > 0 ? "danger" : "warning" },
+    { naslov: "HACCP rokovi (termometri, revizija)", vrijednost: k.haccpRokovi, ikonica: <Gauge size={18} />, putanja: "/haccp-plan", stanje: { kartica: "termometri" }, detalj: "rokovi", tona: k.haccpRokovi > 0 ? "danger" : "warning" },
   ].filter((kartica) => !(jeUprava && kartica.putanja === "#zadaci"));
   // Ko smije na stranu — ide na nju. Uprava ne ulazi na operativne strane, pa dobija listu iza
   // broja, samo za čitanje (ranije je klik kod direktora radio ništa).
