@@ -6,7 +6,7 @@
 //   H4 jedan izvor granica: granica iz Šifarnika postaje pravilo KKT 1 / KKT 3;
 //   KKT 1: bez temperature se ne prima roba pod režimom.
 // Test pravi svoju kontrolnu tačku, termometar i artikal, pa se brojevi ne miješaju sa demo podacima.
-import { pool, prijava, NALOZI, danasCG } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, glavnoSkladiste } from "./pomoc.mjs";
 
 export const naziv = "Faza 3: plan monitoringa, termometri, verifikacija sistema, HACCP plan, četiri oka, jedan izvor granica";
 
@@ -45,7 +45,7 @@ export async function pokreni({ provjeri }) {
     // ── KKT 1: temperatura obavezna ─────────────────────────────────────────────────────────
     const dobavljac = (await ana("/dobavljaci")).tijelo[0];
     const bezTemp = await marko("/prijem", {
-      telo: { dobavljacId: dobavljac.id, datumPrijema: danasCG(), stavke: [{ artikalId: trag.artikal, brojLota: "E2E-F3", primljenaKolicina: 5 }] },
+      telo: { dobavljacId: dobavljac.id, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [{ artikalId: trag.artikal, brojLota: "E2E-F3", primljenaKolicina: 5 }] },
     });
     provjeri("KKT 1: roba pod režimom bez temperature se ne prima (400)", bezTemp.status === 400 && bezTemp.tijelo.error.code === "TEMPERATURA_OBAVEZNA", bezTemp.tijelo?.error?.message);
     await ana(`/artikli/${trag.artikal}`, { method: "PATCH", telo: { tempKontrolisano: false } });

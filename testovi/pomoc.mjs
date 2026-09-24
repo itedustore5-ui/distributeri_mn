@@ -31,6 +31,13 @@ export async function provjeriDemoBazu() {
 export const danasCG = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Podgorica" });
 
 /** Klijent bez prijave — za javne adrese (zdravlje, ulazak u provjeru znanja šifrom). */
+// Skladište u koje testovi primaju robu: „Glavni magacin" iz demo podataka. Demo baza može imati i
+// druga aktivna skladišta (unesena ručno kroz aplikaciju) — tada prijem bez izbora vraća 400.
+export async function glavnoSkladiste(k) {
+  const aktivna = (await k("/skladista")).tijelo.skladista.filter((s) => s.aktivan);
+  return (aktivna.find((s) => s.naziv === "Glavni magacin") ?? aktivna[0])?.id;
+}
+
 export function anonimno() {
   return zahtjev(null);
 }

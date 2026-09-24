@@ -19,7 +19,7 @@ export async function pokreni({ provjeri }) {
     const kupac = (await ana("/kupci")).tijelo[0];
 
     // Isporuka jednog komada — da povlačenje ima kome da zove.
-    const isp = await ana("/isporuke", { telo: { kupacId: kupac.id, datumIsporuke: danasCG(), napomena: "E2E-POVLACENJE", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
+    const isp = await ana("/isporuke", { telo: { kupacId: kupac.id, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), napomena: "E2E-POVLACENJE", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
     trag.isporuke.push(isp.tijelo?.id);
     provjeri("Isporuka iz lota", isp.status === 201, `${isp.status}`);
     const detalj = (await ana(`/isporuke/${isp.tijelo.id}`)).tijelo;
@@ -43,7 +43,7 @@ export async function pokreni({ provjeri }) {
     const lotPosle = (await pool.query(`select status from lot where id = $1`, [lot.id])).rows[0].status;
     const dostupno = (await pool.query(`select coalesce(sum(kolicina), 0) as n from zaliha where lot_id = $1 and status = 'DOSTUPNO'`, [lot.id])).rows[0].n;
     provjeri("Lot pod povlačenjem je na HOLD-u, zaliha u karantinu", lotPosle === "HOLD" && Number(dostupno) === 0, `${lotPosle}, dostupno ${dostupno}`);
-    const druga = await ana("/isporuke", { telo: { kupacId: kupac.id, datumIsporuke: danasCG(), stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
+    const druga = await ana("/isporuke", { telo: { kupacId: kupac.id, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
     if (druga.status === 201) trag.isporuke.push(druga.tijelo.id);
     provjeri("Lot pod povlačenjem se više ne može isporučiti (409)", druga.status === 409, druga.tijelo?.error?.message);
 

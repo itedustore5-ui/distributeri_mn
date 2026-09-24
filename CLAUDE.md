@@ -51,6 +51,7 @@ pisano ne odredi ko je to, to je izvršni direktor. *(likely — iz teksta kazni
 | 4 | Upisuje sve zaposlene; kod onih koji rukuju hranom — rok sanitarne knjižice | `/ljudi` → Svi zaposleni |
 | 5 | Magacioneri (`operater`) i vozači (`vozac`) dobijaju naloge — **otvara ih sam**, odmah pri unosu zaposlenog, sa početnom lozinkom i ceduljicom za štampu | `/ljudi` → Novo lice / „Otvori nalog" |
 | 6 | Direktor dobija `uprava` — pregled, aktivnost uživo i poruke, bez unosa | otvara konsultant |
+| 7 | Konsultant podešava HACCP plan: „Predloži osnovni plan" pa prilagodi stvarnim komorama i vozilima, upiše termometre i tekst kontrolnih tačaka | `/haccp-plan` |
 
 **Rješenje o imenovanju nije zakonski obrazac** i tako se i predstavlja — pisani trag ko
 sprovodi postupke iz čl. 36 i ko javlja UBH po čl. 28.
@@ -219,7 +220,8 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Isporuka — KKT 3 | `/isporuka` | `isporuka.ts` | `isporukaService` | `isporuka`, `isporuka_stavka` |
 | Sledljivost, povlačenje | `/sledljivost` | `sledljivost.ts`, `povlacenje.ts` | `sledljivostService`, `povlacenjeService` | `povlacenje`, `povlacenje_kontakt`, `v_sledljivost_*` |
 | Zadaci, obavještenja, poruke | `/moja`, `/tabla`, `/poruke` | `zadaci.ts`, `poruke.ts` | `zadaciService` | `zadatak`, `obavjestenje`, `poruka` |
-| Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | — | čita sve (aktivnost = unija domenskih tabela) |
+| Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | `monitoringService`, `haccpPlanService` (kartice „Danas fali po planu", „HACCP rokovi") | čita sve (aktivnost = unija domenskih tabela) |
+| HACCP plan: plan monitoringa, kontrolne tačke, termometri, verifikacija sistema | `/haccp-plan`; štampa `/prilozi` → HACCP plan; „Danas po planu" na `/moja` | `haccpPlan.ts` | `monitoringService` (šta danas fali), `haccpPlanService` (termometri, verifikacija, podaci za štampu), `pravilaService` (granica artikla → pravilo) | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`, `kontrolna_tacka` (opasnost, mjera, verifikacija) |
 | Prilozi, izvještaji, izvoz | `/prilozi`, `/izvjestaji` | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
 | Audit | `/audit` | `audit.ts` | `auditService`, `dogadjajService` | `audit_log`, `dogadjaj` |
 | Bekap | `/tabla` (kartica) | `bekap.ts` | `bekapService` | `bekap_log` |
@@ -234,10 +236,10 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | Uloga | Ko | Prva strana | Upis unazad (`PROZOR`) | Šta radi |
 |---|---|---|:-:|---|
 | `izvodjac` | konsultantkinja | `/tabla` | 30 dana | sve što i `bzr` + Podešavanje, banka pitanja konsultanta; otvara sve naloge osim `izvodjac` |
-| `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, izvoz, poruke |
-| `uprava` | direktor | `/tabla` | — (samo gleda) | Kontrolni centar (kartice otvaraju listu iza broja, `/tabla/detalj`), aktivnost uživo, zalihe, sledljivost i povlačenja (čitanje), poruke; bez zadataka i unosa |
-| `operater` | magacioner | `/moja` | 1 | prijem, zalihe i otpis, obrasci P3–P10, isporuka, prijava problema, SVOJA korektivna mjera |
-| `vozac` | vozač | `/moja` | 1 | isporuka i potvrda sa temperaturom (KKT 3), kontrola vozila D1, prijava problema, SVOJA mjera |
+| `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, HACCP plan (plan monitoringa, termometri, verifikacija), izvoz, poruke |
+| `uprava` | direktor | `/tabla` | — (samo gleda) | Kontrolni centar (kartice otvaraju listu iza broja, `/tabla/detalj`), aktivnost uživo, zalihe, sledljivost i povlačenja (čitanje), HACCP plan (čitanje), poruke; bez zadataka i unosa |
+| `operater` | magacioner | `/moja` | 1 | prijem, zalihe i otpis, obrasci P3–P10, isporuka, prijava problema, SVOJA korektivna mjera; „Danas po planu" na Mojoj strani; provjera termometra (API) |
+| `vozac` | vozač | `/moja` | 1 | isporuka i potvrda sa temperaturom (KKT 3), kontrola vozila D1, prijava problema, SVOJA mjera; „Danas po planu" |
 
 `PROZOR`, `NA_TERENU`, `ogranicenjeDatuma()`, `provjeriProzorUpisa()`, `izvrsilacZa()`,
 `samoMoje()`, `smijeDodijelitiUlogu()` — sve u `server/auth.ts`.
@@ -247,15 +249,18 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | Tačka | Šta se upisuje | Van granice → |
 |---|---|---|
 | **otpremnica** | PDF ili fotografija → server pročita (PDF tekst / lokalni OCR) i POPUNI formu; magacioner upoređuje sa robom i potvrđuje kvačicom | nesigurna polja žuta; dobavljač po PIB-u; artikal po zapamćenoj vezi sa dobavljačem; manjak i drugi lot se vide uz stavku |
-| **KKT 1 — prijem** | stavke sa lotom (bez lota odbijeno), temperatura po `pravilo_kontrole` KKT1 | mjerenje FAIL → neusaglašenost + zadatak + obavještenje `bzr` i uprava + **lot na HOLD**. Artikal sa NEPOTVRĐENOM granicom → samo WARNING i obavještenje `bzr`, bez HOLD-a (invarijanta #5) |
+| **plan monitoringa** | `plan_monitoringa`: šta (mjerenje na KKT / obrazac / D1 za vozilo), koliko često, koliko puta, ko (uloga, skladište) | ništa se ne blokira — „Danas po planu" na `/moja`, kartica „Danas fali po planu · juče propušteno" na tabli, propušteni dani na `/haccp-plan` |
+| **KKT 1 — prijem** | stavke sa lotom (bez lota odbijeno), temperatura **obavezna za robu pod režimom** (`TEMPERATURA_OBAVEZNA`), ocjena po `pravilo_kontrole` KKT1 artikla | mjerenje FAIL → neusaglašenost + zadatak + obavještenje `bzr` i uprava + **lot na HOLD**. Artikal sa NEPOTVRĐENOM granicom → samo WARNING i obavještenje `bzr`, bez HOLD-a (invarijanta #5) |
 | odluka o lotu | `bzr`: prihvati / HOLD / odbij (odbijanje traži razlog). **Istekao rok se ne prihvata i ne pušta** (`ROK_ISTEKAO`); pri prijemu takve robe `bzr` odmah dobija obavještenje | prihvaćeno → zaliha DOSTUPNO + kretanje PRIJEM; HOLD → KARANTIN + kretanje PRIJEM; magacioner dobija obavještenje |
 | **lot na HOLD-u** | `bzr`: **pusti** (razlog obavezan) ili **odbij** — na `/zalihe` i `/prijem` | pušteno iz karantina → DOSTUPNO, kretanje RELEASE 0; odbijeno → karantin 0, kretanje OTPIS. Zadržan pri prijemu (zaliha još ne postoji) → pušten = PRIJEM. **Ne pušta se dok je povlačenje U_TOKU** |
 | **KKT 2 — skladištenje** | ručno mjerenje na `/haccp` | kao KKT 1 (ako je vezano za lot — HOLD) |
 | obrasci P3–P10 | `zapis` iz `public/obrasci-cg.json`; odstupanje traži korektivnu mjeru (tekst) | neusaglašenost odmah u „čeka provjeru" — mjera iz obrasca je upisana kao urađena, potpisuje je ko je unio zapis; zadatak + obavještenje `bzr`. Ispravka zapisa ne otvara drugu |
 | **D1 — vozilo** | kontrola prije utovara (vidi samo vozač, invarijanta #24) | vozilo NIJE_SPREMNO → isporuka tim vozilom odbijena; neusaglašenost |
-| **KKT 3 — isporuka** | potvrda + temperatura pri predaji (obavezna za robu pod režimom) | FAIL → neusaglašenost; lot u magacinu se NE zadržava (problem je u prevozu) |
+| **KKT 3 — isporuka** | potvrda + temperatura pri predaji (obavezna za robu pod režimom); ocjena SAMO po pravilu KKT3 artikla | FAIL → neusaglašenost; lot u magacinu se NE zadržava (problem je u prevozu) |
+| **termometar** | interna provjera (referentna vs izmjereno — rezultat računa server) ili kalibracija (broj sertifikata obavezan) | NEISPRAVAN → neusaglašenost + zadatak + obavještenje `bzr`; traka upozorenja na `/haccp`. Istekla provjera/kalibracija → kartica „HACCP rokovi" |
+| **verifikacija sistema** | revizija HACCP plana, interni audit, vježba povlačenja — jednom godišnje | POTREBNE_IZMJENE → zadatak (`verifikacija_sistema`); KASNI / NIJE_RADJENO → „HACCP rokovi" |
 | problem na isporuci | „Problem" na isporuci → neusaglašenost vezana za isporuku | zadatak + obavještenje `bzr` |
-| **neusaglašenost** | 4 koraka: prijava → mjera (kome, rok) → urađeno (samo dodijeljeni, uz opis) → provjera drugog lica | provjera SAMO iz „čeka provjeru"; mjeru koja se provjerava bira server (posljednja urađena), ne pregledač. Zadatak se zatvara sam; prijavilac dobija obavještenje |
+| **neusaglašenost** | 4 koraka: prijava → mjera (kome, rok) → urađeno (samo dodijeljeni, uz opis) → provjera drugog lica | provjera SAMO iz „čeka provjeru"; mjeru koja se provjerava bira server (posljednja urađena), ne pregledač. Zadatak se zatvara sam; prijavilac dobija obavještenje. Izuzetak od četiri oka — invarijanta #41 |
 | **povlačenje** (čl. 28) | kontakti iz stvarnih isporuka lota | lot na HOLD, zaliha u karantin; zatvara se tek kad su svi pozvani |
 
 ### Migracije (`npm run migriraj`, redoslijed nije proizvoljan)
@@ -285,6 +290,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `21_pitanja_firme_cg` | `pitanje.izvor` (konsultant/firma), prag i izvor pitanja na terminu |
 | `22_integritet_cg` | CHECK na `izvor_tip` u `neusaglasenost`, `zadatak`, `obavjestenje` (nalaz B2); isti spisak kao `IZVORI_*` u `zadaciService.ts` |
 | `23_otpremnice_cg` | `prijem_dokument` (PDF/slika u bazi — ulazi u bekap), `artikal_dobavljaca` (zapamćena veza „njihov → naš artikal"), `prijem_stavka.po_otpremnici` |
+| `24_haccp_sistem_cg` | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`; `kontrolna_tacka` + opasnost/mjera/verifikacija; `verifikacija.izuzetak_cetiri_oka`; proširene CHECK liste izvora; pravila KKT1/KKT3 iz postojećih granica artikala |
 
 Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim brojem.
 
@@ -301,16 +307,23 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 
 ### Testovi (`testovi/`, `npm run test:e2e`)
 
-13 testova, 252 provjere, kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+13 testova, 293 provjere, kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
 jednoj transakciji, početna i nova lozinka, čitanje po ulogama, kartice direktora, nepoznat izvor
 odbijen u bazi — `faza2_integritet`), i otpremnice (10 probnih u PDF-u tačno do slova, fotografija
 nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamćen artikal, manjak,
-istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni). **Rade samo na demo bazi** (`testovi/pomoc.mjs` to provjeri
+istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
+(temperatura obavezna na KKT 1, granica iz Šifarnika → pravilo sa verzijama, plan monitoringa i
+„šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
+četiri oka — `faza3_sistem`). **Rade samo na demo bazi** (`testovi/pomoc.mjs` to provjeri
 preko pet demo naloga sa fiksnim ID-jevima) i brišu sve što naprave. Server mora raditi
 (`npm run dev` ili `APP_URL=`). Nov tok u aplikaciji = nov test.
+
+Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
+Testovi to **ne diraju**: prijem ide u „Glavni magacin" (`glavnoSkladiste()`), isporuka iz
+skladišta svog lota; provjera koja traži JEDNO skladište se tada preskače i ispiše „· preskočeno".
 
 ---
 
@@ -410,6 +423,25 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
 38. **Roba sa isteklim rokom se upisuje, ali se ne prihvata ni pušta** (`ROK_ISTEKAO` u
     `donesiOdlukuOLotu`). Upisuje se jer je stigla (trag za povrat i ocjenu dobavljača); ne HOLD-uje
     se automatski, da greška u kucanju datuma ostane ispravljiva dok odluka nije donesena.
+39. **Granica temperature ima JEDAN izvor — `pravilo_kontrole`.** Unosi se na artiklu u Šifarnicima,
+    a `uskladiPravilaArtikla()` (`pravilaService`) u ISTOJ transakciji pravi novu verziju pravila
+    KKT 1 i KKT 3 za taj artikal (stara ostaje sa `vazi_do`), ili ga gasi kad artikal izađe iz
+    režima. Nijedan KKT ne čita `artikal.temp_min/max` mimo pravila. KKT 1 i KKT 3 se ne mogu
+    ugasiti (`TACKA_NEZAMJENJIVA`).
+40. **Roba pod temperaturnim režimom se ne prima bez temperature** (`TEMPERATURA_OBAVEZNA`, i u
+    formi). Temperatura sa otpremnice se ne računa (#37).
+41. **Četiri oka — izuzetak samo kad firma ima JEDNO aktivno odgovorno lice** (`ncService.verifikuj`).
+    Server ga nudi (`VERIFIKACIJA_NIJE_NEZAVISNA` + `izuzetakMoguc`), pregledač ga ne izmišlja.
+    Traži izričitu kvačicu i obrazloženje od bar 10 znakova. Trajno je označen
+    (`verifikacija.izuzetak_cetiri_oka`, „bez četiri oka" u listi), a konsultant dobija
+    obavještenje. Sa dva odgovorna lica — `IZUZETAK_NIJE_DOZVOLJEN`. Uprava i dalje ne provjerava.
+42. **Rezultat provjere termometra računa server** iz referentne i izmjerene vrijednosti
+    (dozvoljeno odstupanje, podrazumijevano 0,5). Pregledač ga ne šalje kad ima brojeva.
+    Kalibracija bez broja sertifikata se ne prima. NEISPRAVAN → neusaglašenost (izvor `mjerni_uredjaj`).
+43. **„Šta danas fali" ima jedan izvor — `monitoringService.stanjeDanas()`.** Tabla, Moja strana i
+    HACCP plan čitaju isto. Dan je po Podgorici (#11). Zapis obrasca se broji jednom — ispravka
+    (`ispravlja_id`) nije nov zapis. Terenska uloga vidi samo stavke svoje uloge i svog matičnog
+    skladišta.
 
 ---
 
@@ -424,10 +456,10 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | H1 | ✓ **riješeno u fazi 1 (23.09.2026)** | ~~Lot na HOLD-u je slijepa ulica.~~ Sada: `bzr` pušta (razlog obavezan) ili odbija zadržan lot; pušteno → RELEASE, odbijeno → OTPIS iz karantina; ne pušta se dok je povlačenje U_TOKU. Usput nađeno i ispravljeno: lot zadržan PRI PRIJEMU nije imao zalihu uopšte, a odluka „HOLD" nije upisivala PRIJEM u dnevnik kretanja. | `prijemService.donesiOdlukuOLotu` |
 | H2 | ✓ **riješeno u fazi 1 (23.09.2026)** | ~~Neusaglašenost se može zatvoriti bez korektivne mjere.~~ Sada: samo iz CEKA_VERIFIKACIJU, a mjeru bira server (posljednja urađena) — četiri oka se ne mogu zaobići izostavljanjem id-a. | `ncService.verifikuj` |
 | H3 | ✓ **riješeno u fazi 1 (23.09.2026)** | ~~Odstupanje u obrascu ne ulazi u tok neusaglašenosti.~~ Sada: neusaglašenost u „čeka provjeru" + zadatak + obavještenje `bzr`. **Posljedica za H7:** kad odstupanje upiše samo odgovorno lice, provjeriti ga može samo konsultant. | `ncService.neusaglasenostIzZapisa` |
-| H4 | ✓ **riješeno u fazi 1 (23.09.2026)** — djelimično | ~~KKT 1 i KKT 2 ne poštuju `granica_potvrdio`.~~ Sada na jednom mjestu (`zabiljeziMjerenje`). **Ostaje otvoreno:** dva izvora granica (`pravilo_kontrole` i `artikal.temp_min/max`) se mogu razići — ide u fazu 3. | `haccpService` |
-| H5 | **V** | **Nema plana monitoringa**: nigdje ne piše koliko često i ko mjeri komoru ili popunjava koji obrazac, pa aplikacija ne može reći „komora 2 danas nije izmjerena". A to je ono što se prodaje — dokaz da zapisi nastaju svakog dana. | nema modela |
-| H6 | **S** | **7. princip HACCP-a (verifikacija sistema) nije pokriven**: kalibracija termometara, godišnja revizija HACCP plana, interni audit; nema ni štampe HACCP plana iz podešenih KKT-ova i granica. | nema modela |
-| H7 | **S** | **Firma sa jednim odgovornim licem ne može zatvoriti neusaglašenost** koju je samo riješila (pravilo četiri oka), a uprava ne smije provjeravati. | `ncService`, uloge |
+| H4 | ✓ **riješeno u fazama 1 i 3 (23–24.09.2026)** | ~~KKT 1 i KKT 2 ne poštuju `granica_potvrdio`.~~ Sada na jednom mjestu (`zabiljeziMjerenje`). ~~Dva izvora granica.~~ U fazi 3: granica artikla postaje pravilo (`pravilaService`), KKT 3 više ne čita artikal (invarijanta #39). | `haccpService`, `pravilaService` |
+| H5 | ✓ **riješeno u fazi 3 (24.09.2026)** | ~~Nema plana monitoringa.~~ Sada `plan_monitoringa` + „Danas po planu" na Mojoj strani, kartica „Danas fali po planu · juče propušteno" na tabli, propušteni dani za 30 dana na `/haccp-plan`. | `monitoringService` |
+| H6 | ✓ **riješeno u fazi 3 (24.09.2026)** | ~~Verifikacija sistema nije pokrivena.~~ Sada termometri (interna provjera, kalibracija, rokovi), revizija plana / interni audit / vježba povlačenja, štampa HACCP plana iz podešenog. | `haccpPlanService`, `/prilozi` |
+| H7 | ✓ **riješeno u fazi 3 (24.09.2026)** | ~~Firma sa jednim odgovornim licem ne može zatvoriti neusaglašenost.~~ Sada svjesno označen izuzetak (invarijanta #41). | `ncService.verifikuj` |
 
 ### Baza
 
@@ -458,7 +490,7 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | # | | Nalaz |
 |---|:-:|---|
 | U1 | ✓ **riješeno u fazi 2 (24.09.2026)** | ~~GET rute samo sa `requireAuth`.~~ Sada svaka GET ruta ima uloge po mapi strana; `/lica` samo vodstvo (+ `/lica/ja`); neusaglašenosti na terenu samo svoje; `/tabla` samo vodstvo i uprava. |
-| U2 | **S** | Pravilo četiri oka nema izlaz za malu firmu (= H7): treba dozvoliti provjeru konsultantu ili upravi, ili svjesno potpisan izuzetak. |
+| U2 | ✓ **riješeno u fazi 3 (24.09.2026)** | ~~Pravilo četiri oka nema izlaz za malu firmu.~~ Izabran svjesno potpisan izuzetak (ne uprava, ne konsultant umjesto firme) — invarijanta #41. |
 | U3 | **N** | Jedan `izvodjac` nalog po bazi — ako konsultantkinja dobije saradnika, dijele nalog i ne vidi se ko je šta uradio. |
 
 ---
@@ -469,7 +501,7 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 |---|---|---|---|
 | ~~**1 — HACCP rupe i bekap**~~ ✓ 23.09.2026 | Pusti / odbij lot na HOLD-u. Provjera samo uz urađenu mjeru. Odstupanje u obrascu → neusaglašenost. Potvrđena granica na svim KKT. `npm run bekap`. Test `faza1_haccp` (33 provjere). **Ostalo: Task Scheduler za bekap.** | H1, H2, H3, H4, A1 | urađeno |
 | ~~**2 — Integritet baze**~~ ✓ 24.09.2026 | Brojevi iz `sljedeciBroj()`. 26 višekoračnih upisa u transakciji. CHECK liste za `izvor_tip` (dopuna 22). Uloge na svim GET rutama. Test `faza2_integritet` (30 provjera). Uz to: nalog i početna lozinka pri unosu zaposlenog, „Nova lozinka", kartice direktora, ulaz u provjeru znanja sa prijave. | B1, A2, B2, U1 | urađeno |
-| **3 — HACCP kao sistem** | Plan monitoringa (šta, koliko često, ko) + „šta danas fali" na tabli i Mojoj strani. Kalibracija termometara, godišnja revizija, štampa HACCP plana. Izlaz za malu firmu kod četiri oka. Jedan izvor granica (pravilo, ne artikal). | H5, H6, H7, U2, ostatak H4 | 2–3 dana |
+| ~~**3 — HACCP kao sistem**~~ ✓ 24.09.2026 | Plan monitoringa + „šta danas fali" na tabli i Mojoj strani. Termometri (provjera, kalibracija), revizija plana, interni audit, vježba povlačenja, štampa HACCP plana. Izuzetak od četiri oka za malu firmu. Jedan izvor granica. Temperatura obavezna na KKT 1. Dopuna `24_haccp_sistem_cg`, test `faza3_sistem` (41 provjera). | H5, H6, H7, U2, ostatak H4 | urađeno |
 | **4 — Arhitektura i pogon** | Ruteri pod svojim prefiksom. SQL iz ruta u servise. Zasebna test baza + automatsko pokretanje testova. Odluka o `dogadjaj`. Push obavještenja (PWA). | A3, A4, A5, B4, A6 | 2–3 dana |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
@@ -508,6 +540,10 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | forma prijema ostavila prvog dobavljača sa spiska kad sa otpremnice nije prepoznat | početna vrijednost polja | nepoznat → prazno („— izaberite dobavljača —") |
 | `pdfjs-dist` na starijem Node-u ne radi | traži Node ≥ 22.13 | `engines.node` u `package.json` — Render bira verziju po njemu |
 | zaposleni nisu znali gdje se ulazi u provjeru znanja | adresa `/provjera-znanja` je stajala samo kao tekst kod Ane | dugme na strani za prijavu i na Mojoj strani (sa šifrom); kartica javlja kad nema otvorenog termina |
+| server pao usred testova: `Connection terminated unexpectedly`, neuhvaćen `'error'` | `pg-pool` skida svoj slušalac greške sa klijenta dok je izdat — prekid veze usred transakcije ruši cio proces | `transakcija()` kači svoj slušalac i vraća klijenta sa `release(greska)` (pokvarena veza se ne vraća u bazen); `pool.on("error")`; `connectionTimeoutMillis: 10_000` |
+| testovi odjednom padaju na 400 „Firma ima više skladišta" | vlasnica je na demo bazi (preko Rendera) dodala svoje skladište; testovi su pretpostavljali jedno | testovi biraju skladište izričito; tuđe skladište se nikad ne gasi — provjera „posljednje aktivno" bi inače ugasila Glavni magacin |
+| Vite: `Unterminated string`, a stranica bijela | u nizu pod `"…"` tekst „HACCP plan" zatvoren ASCII navodnikom | unutar koda: „…“ (zatvara se sa “, U+201C) |
+| temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |
 
 ### Gdje se zapravo testira
 
@@ -537,8 +573,8 @@ npm run dev          # u drugom prozoru
 npm run test:e2e     # samo demo baza; izlazni kod 1 ako išta padne
 ```
 
-Pa ručno na telefonu (375 px): `/moja` za vozača i magacionera, potvrda isporuke sa
-temperaturom, „Prijavi problem".
+Pa ručno na telefonu (375 px): `/moja` za vozača i magacionera (i „Danas po planu" → „Upiši"),
+potvrda isporuke sa temperaturom, „Prijavi problem".
 
 ---
 
@@ -550,6 +586,12 @@ važi: broj Sl. lista Uredbe o higijeni hrane nije provjeren (vidi pravni okvir)
 **Otpremnice — OCR je provjeren samo na izmišljenim i simuliranim fotografijama.** Prve prave
 otpremnice pilot klijenta (više dobavljača, pravi telefon, loše svjetlo) će pokazati šta još ne
 valja. Rukopis se ne čita. Skeniran PDF (samo slika, bez teksta) se odbija uz poruku da se slika.
+
+**HACCP plan je polazni prijedlog.** „Predloži osnovni plan" i „Predloži tekst" daju razuman
+početak za distributera, ali ga konsultant za svakog klijenta prilagođava stvarnim komorama,
+vozilima i ritmu rada — prazno polje se u štampi vidi kao crveno „— upisati —". Faza 3 nije
+prošla ručni klik kroz pregledač (samo build, typecheck i E2E kroz API) — prvo korišćenje na
+Renderu je i prva vizuelna provjera.
 
 **Bekap se ne pokreće sam** dok `npm run bekap` nije u Task Scheduleru na računaru
 konsultantkinje. Skripta postoji i radi; raspored je odluka vlasnice (računar mora biti uključen

@@ -4,7 +4,7 @@
 //   H3 odstupanje upisano u dnevni obrazac otvara neusaglašenost koja čeka provjeru;
 //   H4 nepotvrđena granica artikla ne zadržava robu — samo upozorava odgovorno lice.
 // Test pravi svoja dva artikla, pa sve što nastane (lotovi, zaliha, kretanja) briše po njima.
-import { pool, prijava, NALOZI, danasCG } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, glavnoSkladiste } from "./pomoc.mjs";
 
 export const naziv = "Faza 1: HOLD, provjera mjere, odstupanje iz obrasca, nepotvrđena granica";
 
@@ -37,7 +37,7 @@ export async function pokreni({ provjeri }) {
 
     const primi = async (artikalId, stavke) => {
       const r = await marko("/prijem", {
-        telo: { dobavljacId: dobavljac.id, brojDokumenta: "E2E-F1", datumPrijema: danasCG(), stavke: stavke.map((s) => ({ artikalId, primljenaKolicina: 10, ...s })) },
+        telo: { dobavljacId: dobavljac.id, brojDokumenta: "E2E-F1", datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: stavke.map((s) => ({ artikalId, primljenaKolicina: 10, ...s })) },
       });
       trag.prijemi.push(r.tijelo?.id);
       const lotovi = (await pool.query(`select id, broj_lota from lot where prijem_id = $1`, [r.tijelo.id])).rows;

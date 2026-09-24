@@ -1,6 +1,6 @@
 // Obavještenja za teren, zadaci (automatski, dodjela, samozatvaranje), temperatura pri predaji (KKT 3),
 // zatvaranje neusaglašenosti do kraja. Briše sve što napravi i vraća zalihu.
-import { pool, prijava, NALOZI, danasCG } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, glavnoSkladiste } from "./pomoc.mjs";
 
 export const naziv = "Obavještenja, zadaci, temperatura pri predaji";
 
@@ -20,7 +20,7 @@ export async function pokreni({ provjeri }) {
     trag.lotIsporuke = lot.id;
     trag.zalihaPrije = (await pool.query(`select id, kolicina from zaliha where lot_id = $1 and status = 'DOSTUPNO'`, [lot.id])).rows[0];
     const obavjPetarPrije = (await brojObavj(petar)).length;
-    const nova = await ana("/isporuke", { telo: { kupacId: kupac.id, vozilId: vozilo?.id, vozacKorisnikId: idPetar, datumIsporuke: danasCG(), napomena: "E2E-TEST", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
+    const nova = await ana("/isporuke", { telo: { kupacId: kupac.id, vozilId: vozilo?.id, vozacKorisnikId: idPetar, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), napomena: "E2E-TEST", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
     trag.isporukaId = nova.tijelo?.id;
     provjeri("Ana pravi isporuku sa vozačem Petrom", nova.status === 201, `status ${nova.status}`);
     const obavjPetar = await brojObavj(petar);
@@ -86,7 +86,7 @@ export async function pokreni({ provjeri }) {
     const artikli = (await ana("/artikli")).tijelo;
     const dob = (await ana("/dobavljaci")).tijelo[0];
     const hljeb = artikli.find((a) => !a.temp_kontrolisano) ?? artikli[0];
-    const pr = await marko("/prijem", { telo: { dobavljacId: dob.id, brojDokumenta: "E2E-TEST", datumPrijema: danasCG(), stavke: [
+    const pr = await marko("/prijem", { telo: { dobavljacId: dob.id, brojDokumenta: "E2E-TEST", datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [
       { artikalId: hljeb.id, brojLota: "E2E-A", primljenaKolicina: 5 },
       { artikalId: hljeb.id, brojLota: "E2E-B", primljenaKolicina: 3 },
     ] } });

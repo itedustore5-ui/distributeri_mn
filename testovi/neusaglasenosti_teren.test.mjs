@@ -16,7 +16,7 @@ export async function pokreni({ provjeri }) {
   try {
     const kupac = (await ana("/kupci")).tijelo[0];
     const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => Number(l.dostupno) >= 1);
-    const isp = await ana("/isporuke", { telo: { kupacId: kupac.id, vozacKorisnikId: petar.id, datumIsporuke: danasCG(), napomena: "E2E-NC", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
+    const isp = await ana("/isporuke", { telo: { kupacId: kupac.id, vozacKorisnikId: petar.id, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), napomena: "E2E-NC", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
     trag.isporukaId = isp.tijelo?.id;
 
     // 1. Vozač prijavljuje problem na isporuci

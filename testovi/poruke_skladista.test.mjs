@@ -14,20 +14,28 @@ export async function pokreni({ provjeri }) {
   const [idAna, idPetar, idMarko, idDirektor, idKonsultant] = [ana.id, petar.id, marko.id, direktor.id, konsultant.id];
   const obavj = async (k) => (await k("/obavjestenja")).tijelo;
 
-  const trag = { poruke: [], zadaci: [], prijemi: [], isporuke: [], skladista: [] };
+  const trag = { poruke: [], zadaci: [], prijemi: [], isporuke: [], skladista: [], markoMaticno: null };
 
   try {
     // ── Jedno skladište: ništa se ne bira ──
+    // Demo baza može imati i skladišta unesena ručno kroz aplikaciju. Ona se ne diraju; provjere
+    // koje traže da je Glavni magacin JEDINO aktivno tada se preskaču (i to se ispiše).
     const skl0 = (await marko("/skladista")).tijelo;
-    const glavno = skl0.skladista.find((s) => s.aktivan);
-    provjeri("Postoji tačno jedno aktivno skladište posle dopune 19", skl0.skladista.filter((s) => s.aktivan).length === 1, glavno?.naziv);
+    trag.markoMaticno = skl0.maticno;
+    const aktivna = skl0.skladista.filter((s) => s.aktivan);
+    const glavno = aktivna.find((s) => s.naziv === "Glavni magacin") ?? aktivna[0];
+    const jedino = aktivna.length === 1;
+    const preskoci = (opis) => console.log(`  · preskočeno: ${opis} — u demo bazi ima ${aktivna.length} aktivnih skladišta`);
+    provjeri("Postoji aktivan Glavni magacin", !!glavno, aktivna.map((s) => s.naziv).join(", "));
+    if (skl0.maticno) await ana(`/nalozi/${idMarko}/skladiste`, { method: "PATCH", telo: { skladisteId: null } });
     const dob = (await ana("/dobavljaci")).tijelo[0];
     const hljeb = (await ana("/artikli")).tijelo.find((a) => !a.temp_kontrolisano);
     const prijem = (tijelo) => marko("/prijem", { telo: { dobavljacId: dob.id, brojDokumenta: "E2E-SKL", datumPrijema: danas, ...tijelo } });
-    const p1 = await prijem({ stavke: [{ artikalId: hljeb.id, brojLota: "E2E-G1", primljenaKolicina: 4 }] });
+    const p1 = await prijem({ ...(jedino ? {} : { skladisteId: glavno.id }), stavke: [{ artikalId: hljeb.id, brojLota: "E2E-G1", primljenaKolicina: 4 }] });
     trag.prijemi.push(p1.tijelo?.id);
     const p1Skl = (await pool.query(`select skladiste_id from prijem where id = $1`, [p1.tijelo?.id])).rows[0]?.skladiste_id;
-    provjeri("Prijem bez izbora ide u jedino skladište", p1.status === 201 && p1Skl === glavno.id);
+    if (jedino) provjeri("Prijem bez izbora ide u jedino skladište", p1.status === 201 && p1Skl === glavno.id);
+    else provjeri("Prijem ide u izabrano skladište", p1.status === 201 && p1Skl === glavno.id);
 
     // ── Drugo skladište ──
     const novo = await ana("/skladista", { telo: { naziv: "E2E Magacin Bar", adresa: "Luka bb, Bar" } });
@@ -74,14 +82,18 @@ export async function pokreni({ provjeri }) {
 
     // ── Deaktivacija ──
     provjeri("Deaktivacija Bara prolazi dok je Glavni aktivan", (await ana(`/skladista/${bar}`, { method: "PATCH", telo: { naziv: "E2E Magacin Bar", aktivan: false } })).status === 204);
-    const posljednje = await ana(`/skladista/${glavno.id}`, { method: "PATCH", telo: { naziv: glavno.naziv, aktivan: false } });
-    provjeri("Posljednje aktivno skladište se ne može ugasiti (409)", posljednje.status === 409, posljednje.tijelo?.error?.message);
+    // Samo kad je Glavni magacin zaista posljednji — inače bi ga ovaj poziv ugasio.
+    if (jedino) {
+      const posljednje = await ana(`/skladista/${glavno.id}`, { method: "PATCH", telo: { naziv: glavno.naziv, aktivan: false } });
+      provjeri("Posljednje aktivno skladište se ne može ugasiti (409)", posljednje.status === 409, posljednje.tijelo?.error?.message);
+    } else preskoci("posljednje aktivno skladište se ne može ugasiti");
     const p6 = await prijem({ skladisteId: bar, stavke: [{ artikalId: hljeb.id, brojLota: "E2E-X", primljenaKolicina: 1 }] });
     provjeri("U neaktivno skladište se ne prima (400)", p6.status === 400);
     const p7 = await prijem({ stavke: [{ artikalId: hljeb.id, brojLota: "E2E-G3", primljenaKolicina: 1 }] });
     trag.prijemi.push(p7.tijelo?.id);
     const p7Skl = (await pool.query(`select skladiste_id from prijem where id = $1`, [p7.tijelo?.id])).rows[0]?.skladiste_id;
-    provjeri("Matično neaktivno → ide u jedino aktivno", p7.status === 201 && p7Skl === glavno.id);
+    if (jedino) provjeri("Matično neaktivno → ide u jedino aktivno", p7.status === 201 && p7Skl === glavno.id);
+    else provjeri("Matično neaktivno, više aktivnih → traži izbor (400)", p7.status === 400, `${p7.status}`);
 
     // ── Poruke ──
     provjeri("Vozač ne može slati poruke (403)", (await petar("/poruke", { telo: { naslov: "x", primaoci: { nacin: "svi" } } })).status === 403);
@@ -147,7 +159,7 @@ export async function pokreni({ provjeri }) {
         await k.query(`delete from lot where prijem_id = any($1)`, [prijemi]);
         await k.query(`delete from prijem where id = any($1)`, [prijemi]);
       }
-      await k.query(`update korisnik set skladiste_id = null where id = $1`, [idMarko]);
+      await k.query(`update korisnik set skladiste_id = $2 where id = $1`, [idMarko, trag.markoMaticno]);
       await k.query(`update skladiste set aktivan = true where naziv = 'Glavni magacin'`);
       await k.query(`delete from skladiste where id = any($1)`, [trag.skladista.filter(Boolean)]);
       await k.query("commit");

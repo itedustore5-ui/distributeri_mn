@@ -56,10 +56,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`23_otpremnice_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`24_haccp_sistem_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -205,12 +205,20 @@ Dobavljač → Prijem → LOT (obavezan broj lota) → odluka (PRIHVATI / HOLD /
 LOT na HOLD-u (karantin) → bzr: PUSTI (razlog obavezan) → zaliha, ili ODBIJ → otpis
   (ne pušta se dok je povlačenje u toku)
 
+Prijem robe pod temperaturnim režimom → temperatura OBAVEZNA (KKT 1)
+
 HACCP mjerenje → evaluacija protiv pravila iz baze (PASS/WARNING/FAIL)
   → FAIL: Neusaglašenost + Zadatak + Obavještenje bzr-u + LOT na HOLD
   → artikal sa NEPOTVRĐENOM granicom: samo WARNING i obavještenje bzr-u, bez HOLD-a
+  Granica artikla se unosi u Šifarnicima → postaje pravilo KKT 1 i KKT 3 (jedan izvor)
 
 Odstupanje u dnevnom obrascu → Neusaglašenost „čeka provjeru" + Zadatak + Obavještenje bzr-u
 Neusaglašenost se zatvara samo uz urađenu mjeru i samo tuđom provjerom
+  (izuzetak: firma sa JEDNIM odgovornim licem — označeno, obrazloženo, konsultant obaviješten)
+
+Plan monitoringa (šta, koliko često, ko) → „Danas po planu" na Mojoj strani,
+  „Danas fali po planu · juče propušteno" na Kontrolnom centru
+Termometar ne prođe provjeru → Neusaglašenost + Zadatak + upozorenje na HACCP strani
 
 Svaka kritična odluka piše i u dogadjaj (events) i u audit_log — oba imutabilna.
 ```
@@ -369,6 +377,13 @@ Na vrhu strane stoje četiri koraka, a u svakoj neusaglašenosti piše **šta je
 4. **Provjera** — odgovorno lice provjeri i zatvori (ne može ista osoba koja je uradila mjeru), ili
    vrati. Zadatak se zatvara sam, a ko je prijavio dobija obavještenje.
 
+**Mala firma — jedno odgovorno lice.** Kad je mjeru uradilo samo odgovorno lice, a u firmi nema
+drugog aktivnog `bzr` naloga, server to prepozna i ponudi kvačicu „provjeru radim bez drugog
+lica". Tada napomena mora imati bar 10 znakova (šta je pregledano), provjera nosi trajnu oznaku
+„bez četiri oka" (`verifikacija.izuzetak_cetiri_oka`), a konsultant dobija obavještenje. Čim
+firma ima dva odgovorna lica, izuzetak se odbija (`IZUZETAK_NIJE_DOZVOLJEN`). Uprava ni tada ne
+provjerava.
+
 Terenske uloge prvo vide „Za mene" (ono što su prijavile ili im je dodijeljeno).
 
 ### Problem na isporuci
@@ -452,12 +467,54 @@ koji se predaje, vozač upisuje temperaturu izmjerenu kod kupca — bez nje serv
 Čuva se na stavci (`isporuka_stavka.temperatura_predaje`, `db/18_temperatura_predaje_cg.sql`) i
 izvozi u „Stavke isporuka".
 
-Ocjena ide redom: pravilo za KKT 3 postavljeno za taj artikal → granica sa samog artikla, **samo
-ako je potvrđena** (`granica_potvrdio`). Nepotvrđena granica se ne ocjenjuje. Opšte pravilo
-KKT 3 (rashladni režim vozila, 0–5 °C) se namjerno ne koristi — po njemu bi smrznuta roba na
-−18 °C ispala „van opsega". Van granice → mjerenje FAIL na KKT 3 (vezano za lot i vozilo),
+Ocjena ide **samo po pravilu KKT 3 za taj artikal**. To pravilo pravi Šifarnik iz granice
+artikla (`pravilaService.uskladiPravilaArtikla`) — aplikacija više ne čita granicu sa artikla
+mimo pravila. Nepotvrđena granica (`granica_potvrdio`) daje samo upozorenje, bez
+neusaglašenosti. Opšte pravilo KKT 3 (rashladni režim vozila, 0–5 °C) se namjerno ne koristi —
+po njemu bi smrznuta roba na −18 °C ispala „van opsega". Van granice → mjerenje FAIL na KKT 3 (vezano za lot i vozilo),
 neusaglašenost i zadatak, obavještenje odgovornom licu. **Lot u magacinu se ne stavlja na HOLD**
 — problem je nastao u prevozu, a roba koja je ostala u magacinu nije bila u tom vozilu.
+
+### HACCP plan (`/haccp-plan`)
+
+Strana za odgovorno lice i konsultanta; uprava je vidi, ali ne mijenja. Četiri kartice:
+
+- **Plan monitoringa** — šta se radi, koliko često (svaki dan / radnim danima / sedmično /
+  mjesečno / po događaju), koliko puta i ko (uloga, po želji skladište). „Predloži osnovni plan"
+  upiše polazni plan:
+  - KKT 1 i KKT 3 po događaju;
+  - KKT 2 radnim danima, dva puta;
+  - P3, P8 i P9 radnim danima;
+  - P7 i P10 sedmično;
+  - D1 za svako vozilo.
+
+  Ispod plana je stanje za danas i spisak propuštenih dana za posljednjih 30 dana.
+  Brojanje radi `monitoringService.stanjeDanas()`; dan je po podgoričkom vremenu, a ispravka
+  zapisa se ne broji dva puta.
+- **Kontrolne tačke** — za svaku KKT: opasnost, granica, korektivna mjera, verifikacija.
+  „Predloži tekst" popuni polazni tekst za KKT 1–3. KKT 1 i KKT 3 se ne mogu ugasiti.
+- **Termometri** — interna provjera (npr. ledena voda, referentni termometar) i kalibracija.
+  - Rezultat računa server iz referentne i izmjerene vrijednosti (dozvoljeno odstupanje
+    podrazumijevano ±0,5 °C).
+  - Kalibracija bez broja sertifikata se ne prima.
+  - Stanje: ISTEKLA / USKORO (provjera ≤ 7 dana, kalibracija ≤ 30) / VAŽI / NEISPRAVAN.
+  - Neispravan termometar otvara neusaglašenost i zadatak. Na strani HACCP stoji upozorenje
+    da se njime ne mjeri.
+- **Verifikacija sistema** — godišnja revizija HACCP plana, interni audit, vježba povlačenja.
+  „Potrebne izmjene" pravi zadatak. Kartica pokazuje šta nije rađeno, šta kasni i šta uskoro ističe.
+
+„Štampaj HACCP plan" (`/prilozi` → HACCP plan) sklapa dokument iz onoga što je podešeno:
+- tabela KKT-ova;
+- monitoring;
+- termometri;
+- verifikacija;
+- potpisi.
+
+Šta nije upisano, štampa se crveno kao „— upisati —".
+
+**Na Mojoj strani** magacioner i vozač vide „Danas po planu" (šta je urađeno, šta fali, „Upiši"
+otvara baš taj obrazac ili mjerenje) i upozorenje ako juče nešto nije urađeno. Na Kontrolnom
+centru su dvije kartice: „Danas fali po planu · juče propušteno" i „HACCP rokovi".
 
 ---
 
@@ -505,13 +562,18 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 npm run typecheck
 npm run build
 npm run dev          # u drugom prozoru — testovi rade protiv servera koji radi
-npm run test:e2e     # 252 provjere kroz svih pet uloga; izlazni kod 1 ako išta padne
+npm run test:e2e     # 293 provjere kroz svih pet uloga; izlazni kod 1 ako išta padne
 ```
 
 `npm run test:e2e` (fajlovi u `testovi/`) radi **samo na demo bazi** — prije prvog koraka provjeri
 da u bazi stoji svih pet demo naloga sa svojim fiksnim ID-jevima i inače odbije da krene, jer
 testovi prave i brišu podatke. Server i test moraju gledati istu bazu (`DATABASE_URL` iz
 `.env`); drugi server se zadaje sa `APP_URL=`. Jedan test: `npm run test:e2e -- povlacenje`.
+
+Demo baza može imati i ono što je uneseno ručno kroz aplikaciju (npr. drugo skladište). Testovi
+to ne diraju: prijem ide u „Glavni magacin" (`glavnoSkladiste()` u `testovi/pomoc.mjs`),
+isporuka iz skladišta svog lota. Provjera koja traži da je skladište jedino se tada preskače i to
+se ispiše („· preskočeno").
 
 | Test | Šta dokazuje |
 |---|---|
@@ -527,6 +589,7 @@ testovi prave i brišu podatke. Server i test moraju gledati istu bazu (`DATABAS
 | `faza1_haccp` | HOLD → pusti/odbij sa razlogom, povlačenje blokira puštanje, provjera tek uz urađenu mjeru, odstupanje iz obrasca → neusaglašenost, nepotvrđena granica ne zadržava robu |
 | `otpremnice` | 10 probnih otpremnica iz PDF-a tačno do slova, fotografija (i smanjena kao iz pregledača) sa tačnim lotovima, dobavljač po PIB-u, zapamćen artikal, manjak, istekao rok se ne prihvata |
 | `faza2_integritet` | istovremeni unosi ne dobijaju isti broj, lice + nalog ili oba ili ništa, početna i nova lozinka, terenske uloge ne čitaju tuđe, kartice direktora, baza odbija nepoznat izvor |
+| `faza3_sistem` | temperatura obavezna na KKT 1, granica iz Šifarnika postaje pravilo (i nova verzija pri izmjeni), plan monitoringa i „šta danas fali", termometar (ispravan / neispravan → neusaglašenost, kalibracija traži sertifikat), verifikacija sistema, podaci za štampu HACCP plana, izuzetak od četiri oka samo kad je odgovorno lice jedino |
 
 Svaki test briše sve što napravi. Nov tok u aplikaciji = nov test u `testovi/` — dvije greške koje
 su dugo bile na Renderu (neusaglašenost se nije mogla zatvoriti; uprava i provjera znanja
@@ -547,7 +610,10 @@ Ručno, na `npm run dev`, kroz svih pet uloga:
 6. **Prilozi**: štampati rješenje o imenovanju i Prilog 13/14 sa `/prilozi`.
 7. **Provjera znanja**: sa `/provjera-znanja`, ući šifrom sa spiska zaposlenih, odgovoriti na
    pitanja, provjeriti evidenciju na `/prilozi` → Prilog 14.
-8. **Mobilni prikaz**: DevTools na 375px širine, provjeriti `/haccp`, `/isporuka`, `/moja`.
+8. **HACCP plan**: `/haccp-plan` → „Predloži osnovni plan", dodati termometar i upisati
+   provjeru, upisati reviziju plana; pa kao magacioner na `/moja` provjeriti „Danas po planu" i
+   „Upiši"; na `/prilozi` → HACCP plan provjeriti štampu.
+9. **Mobilni prikaz**: DevTools na 375px širine, provjeriti `/haccp`, `/isporuka`, `/moja`.
 
 ---
 
@@ -561,6 +627,8 @@ koji magacioner stvarno koristi, ne enterprise WMS.
 ## Otvoreno
 
 - `npm run bekap` postoji, ali nije u Task Scheduleru — dok ga niko ne doda, ne radi sam.
+- Plan monitoringa i tekst HACCP plana su polazni prijedlog — za svakog klijenta ih konsultant
+  prilagođava stvarnim komorama, vozilima i ritmu rada.
 - Obavještenje o „tišini" klijenta (`dnevni-pregled`) je alat koji se pokreće ručno, ne mejl —
   pravi mejl traži SMTP nalog (poslovna odluka, ne kod).
 - Ugovor i cjenovnik nijesu dio ovog repozitorijuma (vidi `.gitignore` — `prezentacija/` i

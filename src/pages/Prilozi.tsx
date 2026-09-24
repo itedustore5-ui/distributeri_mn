@@ -26,7 +26,7 @@ type HaccpPlanPodaci = {
 const OPISI: Record<Prilog, ReactNode> = {
   resenje: "Rješenje o imenovanju nije zakonski obrazac — to je pisani trag ko sprovodi postupke i ko javlja UBH.",
   prilog13: "Plan sa stanjem (planirano/uskoro/kasni/urađeno) — stavka koja je prošla bez obuke se ne briše, ostaje kao „kasni\".",
-  haccp: "HACCP plan sklopljen iz onoga što je podešeno u aplikaciji — kontrolne tačke, granice, plan monitoringa, termometri, verifikacija. Tekst se mijenja na strani „HACCP plan".",
+  haccp: "HACCP plan sklopljen iz onoga što je podešeno u aplikaciji — kontrolne tačke, granice, plan monitoringa, termometri, verifikacija. Tekst se mijenja na strani „HACCP plan“.",
   prilog14: (
     <>
       Dokaz da HACCP sistem stvarno radi <ZakonskaOznaka clan="36" /> — nije sertifikat o položenom

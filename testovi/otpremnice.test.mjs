@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { pool, prijava, NALOZI, danasCG, posaljiFajl, preuzmi } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, posaljiFajl, preuzmi, glavnoSkladiste } from "./pomoc.mjs";
 
 export const naziv = "Otpremnica: PDF i fotografija → prijem, pamćenje artikala, manjak, istekao rok";
 
@@ -86,7 +86,7 @@ export async function pokreni({ provjeri }) {
       telo: {
         dobavljacId: trag.dobavljacId,
         brojDokumenta: o154.broj,
-        datumPrijema: danasCG(),
+        datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko),
         dokumentId: drugi.tijelo.dokumentId,
         stavke: [
           { artikalId: jogurt.id, brojLota: "JG26092216", rokTrajanja: rok, primljenaKolicina: 47, temperaturaPrijema: 3.2, poOtpremnici: { sifra: "J-010", naziv: "Jogurt 1 kg", kolicina: 50, lot: "JG26092216", rok: "2026-10-02" } },
@@ -105,7 +105,7 @@ export async function pokreni({ provjeri }) {
     const fajl = await preuzmi(marko, `/prijem/${prijem.tijelo.id}/dokument/${detalj.dokumenti[0].id}`);
     provjeri("Otpremnica se otvara iz prijema (isti PDF)", fajl.status === 200 && fajl.tip === "application/pdf" && fajl.sadrzaj.equals(PDF));
     const opet = await marko("/prijem", {
-      telo: { dobavljacId: trag.dobavljacId, datumPrijema: danasCG(), dokumentId: drugi.tijelo.dokumentId, stavke: [{ artikalId: jogurt.id, brojLota: "E2E-X", primljenaKolicina: 1, temperaturaPrijema: 3 }] },
+      telo: { dobavljacId: trag.dobavljacId, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), dokumentId: drugi.tijelo.dokumentId, stavke: [{ artikalId: jogurt.id, brojLota: "E2E-X", primljenaKolicina: 1, temperaturaPrijema: 3 }] },
     });
     if (opet.tijelo?.id) trag.prijemi.push(opet.tijelo.id);
     provjeri("Ista otpremnica se ne veže za drugi prijem (409)", opet.status === 409 && opet.tijelo.error.code === "OTPREMNICA_VEC_VEZANA");
@@ -121,7 +121,7 @@ export async function pokreni({ provjeri }) {
 
     // ── Istekao rok: upisuje se, ali se ne prihvata ─────────────────────────────────────────
     const star = await marko("/prijem", {
-      telo: { dobavljacId: trag.dobavljacId, brojDokumenta: "E2E-ROK", datumPrijema: danasCG(), stavke: [{ artikalId: jogurt.id, brojLota: "JG26090102", rokTrajanja: pomjeri(-3), primljenaKolicina: 30, temperaturaPrijema: 3 }] },
+      telo: { dobavljacId: trag.dobavljacId, brojDokumenta: "E2E-ROK", datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [{ artikalId: jogurt.id, brojLota: "JG26090102", rokTrajanja: pomjeri(-3), primljenaKolicina: 30, temperaturaPrijema: 3 }] },
     });
     trag.prijemi.push(star.tijelo?.id);
     provjeri("Roba sa isteklim rokom se upisuje (to je stiglo)", star.status === 201);
