@@ -1,29 +1,36 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { ShieldCheck, AlertCircle, CheckCircle2 } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 type Pitanje = { id: string; tema: string; tekst: string; ponudjeni_odgovori: string[] };
+type MojTermin = { otvoren: boolean; naziv: string | null; sifra: string | null; zavrseno: boolean };
 
+/** Provjeru radi PRIJAVLJENI zaposleni, svojom šifrom (invarijanta #32) — šifra se ne kuca, server
+ * je uzima iz naloga. Ulaz je sa početne strane (Moja strana / Kontrolni centar). */
 export function ProvjeraZnanja() {
-  const sifraSaMoje = (useLocation().state as { sifra?: string } | null)?.sifra ?? "";
-  const [sifra, setSifra] = useState(sifraSaMoje);
+  const { korisnik } = useAuth();
+  const [termin, setTermin] = useState<MojTermin | null>(null);
   const [ucesnikId, setUcesnikId] = useState<string | null>(null);
-  const [ime, setIme] = useState<string | null>(null);
   const [pitanja, setPitanja] = useState<Pitanje[]>([]);
   const [indeks, setIndeks] = useState(0);
-  const [odgovori, setOdgovori] = useState<Record<string, number>>({});
   const [rezultat, setRezultat] = useState<{ brojTacnih: number; brojPitanja: number } | null>(null);
   const [greska, setGreska] = useState("");
   const [ucitavanje, setUcitavanje] = useState(false);
 
-  const uci = async () => {
+  useEffect(() => {
+    api<MojTermin>("/provjera-znanja/moj-termin")
+      .then(setTermin)
+      .catch(() => setGreska("Stanje provjere nije učitano — osvježite stranu."));
+  }, []);
+
+  const pocni = async () => {
     setGreska("");
     setUcitavanje(true);
     try {
-      const odgovor = await api<{ ucesnikId: string; ime: string | null; pitanja: Pitanje[] }>("/provjera-znanja/uci", { telo: { sifra: sifra.trim() } });
+      const odgovor = await api<{ ucesnikId: string; pitanja: Pitanje[] }>("/provjera-znanja/uci", { telo: {} });
       setUcesnikId(odgovor.ucesnikId);
-      setIme(odgovor.ime);
       setPitanja(odgovor.pitanja);
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Ulazak nije uspio.");
@@ -33,15 +40,24 @@ export function ProvjeraZnanja() {
   };
 
   const odaberi = async (pitanjeId: string, datIndeks: number) => {
-    setOdgovori((o) => ({ ...o, [pitanjeId]: datIndeks }));
-    await api("/provjera-znanja/odgovor", { telo: { ucesnikId, pitanjeId, datIndeks } });
-    if (indeks + 1 < pitanja.length) {
-      setIndeks((i) => i + 1);
-    } else {
-      const zavrseno = await api<{ brojTacnih: number; brojPitanja: number }>("/provjera-znanja/zavrsi", { telo: { ucesnikId } });
-      setRezultat(zavrseno);
+    setGreska("");
+    try {
+      await api("/provjera-znanja/odgovor", { telo: { ucesnikId, pitanjeId, datIndeks } });
+      if (indeks + 1 < pitanja.length) {
+        setIndeks((i) => i + 1);
+      } else {
+        setRezultat(await api<{ brojTacnih: number; brojPitanja: number }>("/provjera-znanja/zavrsi", { telo: { ucesnikId } }));
+      }
+    } catch (e) {
+      setGreska(e instanceof ApiGreska ? e.message : "Odgovor nije sačuvan — pokušajte ponovo.");
     }
   };
+
+  const nazad = (
+    <Link to="/" className="muted-text" style={{ display: "block", textAlign: "center", marginTop: 16, fontSize: 11 }}>
+      ← Nazad u aplikaciju
+    </Link>
+  );
 
   if (rezultat) {
     return (
@@ -49,10 +65,8 @@ export function ProvjeraZnanja() {
         <div className="auth-card" style={{ textAlign: "center" }}>
           <CheckCircle2 size={32} color="#20a477" style={{ margin: "0 auto 12px" }} />
           <h1>Provjera je završena</h1>
-          <p style={{ marginTop: 10 }}>Tačno {rezultat.brojTacnih} od {rezultat.brojPitanja} pitanja. Hvala, {ime ?? "kolega"}.</p>
-          <Link to="/" className="secondary-button" style={{ display: "inline-flex", marginTop: 16, textDecoration: "none" }}>
-            ← Nazad u aplikaciju
-          </Link>
+          <p style={{ marginTop: 10 }}>Tačno {rezultat.brojTacnih} od {rezultat.brojPitanja} pitanja. Hvala, {korisnik?.lice_ime ?? "kolega"}.</p>
+          {nazad}
         </div>
       </div>
     );
@@ -65,6 +79,11 @@ export function ProvjeraZnanja() {
         <div className="auth-card">
           <div className="eyebrow">Pitanje {indeks + 1} od {pitanja.length} · {trenutno.tema}</div>
           <h1 style={{ fontSize: 20, marginTop: 10 }}>{trenutno.tekst}</h1>
+          {greska && (
+            <div className="auth-error" style={{ marginTop: 12 }}>
+              <AlertCircle size={14} /> {greska}
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
             {trenutno.ponudjeni_odgovori.map((odgovor, i) => (
               <button key={i} className="secondary-button full-width" style={{ justifyContent: "flex-start", minHeight: 44 }} onClick={() => odaberi(trenutno.id, i)}>
@@ -77,6 +96,7 @@ export function ProvjeraZnanja() {
     );
   }
 
+  const moze = termin?.otvoren && termin.sifra && !termin.zavrseno;
   return (
     <div className="auth-shell" style={{ gridTemplateColumns: "minmax(0,480px)" }}>
       <div className="auth-card">
@@ -86,8 +106,11 @@ export function ProvjeraZnanja() {
           </div>
           <div>
             <div className="eyebrow">Provjera znanja</div>
-            <h1>Unesite vašu šifru</h1>
-            <p>Šifra je na vašoj cedulji sa spiska zaposlenih — dobijate je od odgovornog lica.</p>
+            <h1>{termin?.naziv ?? "Provjera znanja"}</h1>
+            <p>
+              {korisnik?.lice_ime ?? korisnik?.korisnicko_ime}
+              {termin?.sifra ? <> · šifra <code>{termin.sifra}</code></> : null}
+            </p>
           </div>
         </div>
         {greska && (
@@ -95,16 +118,20 @@ export function ProvjeraZnanja() {
             <AlertCircle size={14} /> {greska}
           </div>
         )}
-        <label style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 20, fontSize: 10, fontWeight: 600, color: "#637481" }}>
-          Šifra
-          <input value={sifra} onChange={(e) => setSifra(e.target.value)} style={{ height: 41, border: "1px solid #dfe6ec", borderRadius: 7, padding: "0 12px" }} />
-        </label>
-        <button className="primary-button auth-submit" onClick={uci} disabled={!sifra.trim() || ucitavanje} style={{ marginTop: 14 }}>
-          {ucitavanje ? "Provjera..." : "Uđi"}
-        </button>
-        <Link to="/" className="muted-text" style={{ display: "block", textAlign: "center", marginTop: 16, fontSize: 11 }}>
-          ← Nazad u aplikaciju
-        </Link>
+        {termin && !termin.otvoren && <p style={{ marginTop: 16 }}>Trenutno nije otvorena nijedna provjera znanja.</p>}
+        {termin?.otvoren && !termin.sifra && <p style={{ marginTop: 16 }}>Vaš nalog nije vezan za zaposlenog sa šifrom — javite se odgovornom licu.</p>}
+        {termin?.otvoren && termin.zavrseno && <p style={{ marginTop: 16 }}>Ovu provjeru ste već završili.</p>}
+        {moze && (
+          <>
+            <p className="muted-text" style={{ marginTop: 16, fontSize: 12 }}>
+              Odgovarate sami, svojim nalogom. Odgovor na pitanje se ne može promijeniti.
+            </p>
+            <button className="primary-button auth-submit" onClick={pocni} disabled={ucitavanje} style={{ marginTop: 14 }}>
+              {ucitavanje ? "Učitavam…" : "Počni"}
+            </button>
+          </>
+        )}
+        {nazad}
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ import { sledljivostRuter } from "./routes/sledljivost.js";
 import { izvozRuter } from "./routes/izvoz.js";
 import { auditRuter } from "./routes/audit.js";
 import { tablaRuter } from "./routes/tabla.js";
-import { provjeraZnanjaRuter, provjeraZnanjaJavniRuter } from "./routes/provjeraZnanja.js";
+import { provjeraZnanjaRuter } from "./routes/provjeraZnanja.js";
 import { firmaRuter } from "./routes/firma.js";
 import { haccpPlanRuter } from "./routes/haccpPlan.js";
 import { povlacenjeRuter } from "./routes/povlacenje.js";
@@ -56,12 +56,12 @@ app.use((_request, response, next) => {
 
 app.use("/api", zahtjevAppZaglavlje);
 
-// ── JAVNO: jedino što radi bez prijave (nalaz A3, faza 4) ──
+// ── JAVNO: jedino što radi bez prijave (nalaz A3, faza 4). Provjera znanja NIJE javna — radi je
+// prijavljeni zaposleni svojom šifrom (invarijanta #32). ──
 app.get("/api/zdravlje", (_request, response) => {
   response.json({ ok: true, izdanje: IZDANJE });
 });
 app.use("/api", authJavniRuter); // prijava, odjava
-app.use("/api", provjeraZnanjaJavniRuter); // ulazak šifrom (invarijanta #32)
 
 // ── GRANICA PRIJAVE: sve ispod traži sesiju. Ruteri NE kače requireAuth sami i nemaju svoj
 // .use — uloge stoje na svakoj ruti, a provjeriRute() ispod to provjerava pri pokretanju. ──

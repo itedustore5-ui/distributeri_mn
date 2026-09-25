@@ -33,6 +33,15 @@ function Zasticeno({ uloge, children }: { uloge?: Uloga[]; children: ReactNode }
   return <Layout>{children}</Layout>;
 }
 
+/** Prijava obavezna, ali bez menija — provjera znanja je preko cijelog ekrana (telefon). */
+function SamoPrijavljen({ children }: { children: ReactNode }) {
+  const { korisnik, ucitavanje } = useAuth();
+  if (ucitavanje) return <Ucitavanje />;
+  if (!korisnik) return <Navigate to="/prijava" replace />;
+  if (korisnik.mora_promijeniti_lozinku) return <PromijeniLozinku />;
+  return <>{children}</>;
+}
+
 function PocetnaPreusmjeri() {
   const { korisnik, ucitavanje } = useAuth();
   if (ucitavanje) return <Ucitavanje />;
@@ -46,7 +55,7 @@ function Rute() {
   return (
     <Routes>
       <Route path="/prijava" element={ucitavanje ? <Ucitavanje /> : korisnik ? <Navigate to="/" replace /> : <Prijava />} />
-      <Route path="/provjera-znanja" element={<ProvjeraZnanja />} />
+      <Route path="/provjera-znanja" element={<SamoPrijavljen><ProvjeraZnanja /></SamoPrijavljen>} />
       <Route path="/" element={<PocetnaPreusmjeri />} />
       <Route path="/tabla" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><Tabla /></Zasticeno>} />
       <Route path="/moja" element={<Zasticeno><Moja /></Zasticeno>} />

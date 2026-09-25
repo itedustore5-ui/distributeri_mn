@@ -35,10 +35,10 @@ export function ProvjeraZnanjaUlaz() {
         <div style={{ flex: 1, minWidth: 200 }}>
           <strong style={{ fontSize: 13 }}>Otvorena je provjera znanja „{termin.naziv}“</strong>
           <div className="muted-text" style={{ fontSize: 11, marginTop: 2 }}>
-            Ulazite svojom šifrom <code>{termin.sifra}</code> — upisaće se sama.
+            Radite je svojim nalogom (šifra <code>{termin.sifra}</code>).
           </div>
         </div>
-        <button className="primary-button" onClick={() => navigate("/provjera-znanja", { state: { sifra: termin.sifra } })}>
+        <button className="primary-button" onClick={() => navigate("/provjera-znanja")}>
           Uđi u provjeru znanja
         </button>
       </div>

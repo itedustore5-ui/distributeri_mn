@@ -1,7 +1,7 @@
 import { pool, upit } from "../db.js";
 import { ApiGreska } from "../greske.js";
 
-// Provjera znanja: termini, ulazak šifrom (invarijanta #32), odgovori koji se ne mogu naduvati,
+// Provjera znanja: termini, ulazak prijavljenog zaposlenog SVOJOM šifrom (invarijanta #32), odgovori koji se ne mogu naduvati,
 // banka pitanja konsultanta (samo njegova — #14) i pitanja firme. Ruta samo provjeri ulaz i ulogu.
 
 export type IzvorPitanja = "sva" | "firma" | "konsultant";
@@ -14,25 +14,43 @@ async function otvorenTermin(): Promise<OtvorenTermin | null> {
   return r.rows[0] ?? null;
 }
 
-/** Ulazak šifrom sa spiska zaposlenih — bez naloga. Isti učesnik se vraća dok ne završi. */
-export async function udji(sifra: string) {
+/** Lice prijavljenog naloga — provjeru radi SAMO on, svojom šifrom (invarijanta #32). Šifra se ne
+ * kuca: tuđa šifra se ne može ni upisati. */
+async function mojeLice(korisnikId: string) {
+  const r = await upit<{ id: string; ime: string; sifra: string }>(
+    `select l.id, l.ime, l.sifra from korisnik k join lice l on l.id = k.lice_id where k.id = $1 and l.aktivan and l.sifra is not null`,
+    [korisnikId],
+  );
+  if (!r.rows[0]) throw new ApiGreska(409, "NALOG_BEZ_SIFRE", "Vaš nalog nije vezan za zaposlenog sa šifrom — javite se odgovornom licu.");
+  return r.rows[0];
+}
+
+/** Provjera je samo njegova: odgovara i završava je samo onaj ko ju je počeo. */
+async function mojUcesnik(ucesnikId: string, korisnikId: string) {
+  const lice = await mojeLice(korisnikId);
+  const u = await upit<{ lice_id: string }>(`select lice_id from ucesnik_znanja where id = $1`, [ucesnikId]);
+  if (!u.rows[0]) throw new ApiGreska(404, "UCESNIK_NE_POSTOJI", "Provjera nije pronađena — uđite ponovo sa svoje strane.");
+  if (u.rows[0].lice_id !== lice.id) throw new ApiGreska(403, "TUDJA_PROVJERA", "Ovo nije vaša provjera.");
+}
+
+/** Ulazak u otvoren termin — prijavljeni zaposleni, svojom šifrom. Isti učesnik se vraća dok ne završi. */
+export async function udji(korisnikId: string) {
   const termin = await otvorenTermin();
   if (!termin) throw new ApiGreska(404, "NEMA_OTVORENE_SESIJE", "Trenutno nije otvorena nijedna provjera znanja.");
-  const lice = await upit<{ id: string; ime: string }>(`select id, ime from lice where sifra = $1 and aktivan`, [sifra]);
-  if (!lice.rows[0]) throw new ApiGreska(404, "SIFRA_NIJE_PREPOZNATA", "Šifra nije prepoznata — provjerite je sa odgovornim licem.");
+  const lice = await mojeLice(korisnikId);
 
   const postojeci = await upit<{ id: string; zavrseno_at: string | null }>(
     `select id, zavrseno_at from ucesnik_znanja where sesija_id = $1 and sifra = $2`,
-    [termin.id, sifra],
+    [termin.id, lice.sifra],
   );
-  if (postojeci.rows[0]?.zavrseno_at) throw new ApiGreska(409, "VEC_ZAVRSENO", "Provjera je već završena za ovu šifru.");
+  if (postojeci.rows[0]?.zavrseno_at) throw new ApiGreska(409, "VEC_ZAVRSENO", "Ovu provjeru ste već završili.");
 
   const ucesnikId =
     postojeci.rows[0]?.id ??
     (
       await pool.query<{ id: string }>(
         `insert into ucesnik_znanja (sesija_id, lice_id, sifra, ime_snapshot) values ($1, $2, $3, $4) returning id`,
-        [termin.id, lice.rows[0].id, sifra, termin.cuva_imena ? lice.rows[0].ime : null],
+        [termin.id, lice.id, lice.sifra, termin.cuva_imena ? lice.ime : null],
       )
     ).rows[0].id;
 
@@ -41,12 +59,13 @@ export async function udji(sifra: string) {
      where aktivno and ($2 = 'sva' or izvor = $2) order by random() limit $1`,
     [termin.broj_pitanja, termin.izvor_pitanja],
   );
-  return { ucesnikId, ime: termin.cuva_imena ? lice.rows[0].ime : null, pitanja: pitanja.rows };
+  return { ucesnikId, ime: lice.ime, sifra: lice.sifra, termin: termin.naziv, pitanja: pitanja.rows };
 }
 
 /** Rezultat ide na Prilog 14 — ne smije se naduvati: jedan odgovor po pitanju, ne više odgovora
  * nego što provjera ima pitanja, i ništa poslije završetka. */
-export async function odgovori(ulaz: { ucesnikId: string; pitanjeId: string; datIndeks: number }) {
+export async function odgovori(ulaz: { ucesnikId: string; pitanjeId: string; datIndeks: number }, korisnikId: string) {
+  await mojUcesnik(ulaz.ucesnikId, korisnikId);
   const stanje = await upit<{ zavrseno_at: string | null; broj_pitanja: number; odgovoreno: number; vec_odgovoreno: boolean }>(
     `select u.zavrseno_at, s.broj_pitanja,
             (select count(*)::int from odgovor_znanja o where o.ucesnik_id = u.id) as odgovoreno,
@@ -70,7 +89,8 @@ export async function odgovori(ulaz: { ucesnikId: string; pitanjeId: string; dat
 }
 
 /** Ponovljeno „završi" vraća upisani rezultat — ne računa ga iznova. */
-export async function zavrsi(ucesnikId: string) {
+export async function zavrsi(ucesnikId: string, korisnikId: string) {
+  await mojUcesnik(ucesnikId, korisnikId);
   const vec = await upit<{ zavrseno_at: string | null; broj_tacnih: number | null; broj_pitanja: number | null }>(
     `select zavrseno_at, broj_tacnih, broj_pitanja from ucesnik_znanja where id = $1`,
     [ucesnikId],

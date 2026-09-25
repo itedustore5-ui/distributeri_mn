@@ -441,13 +441,14 @@ aplikaciji, bez internih ID-jeva, pretraga), pa se štampa ili preuzme CSV sa sv
 
 ### Provjera znanja — pitanja firme i rezultati
 
-**Kako zaposleni ulazi:** sa svoje početne strane u aplikaciji. Dok je termin otvoren, na Mojoj
-strani (magacioner, vozač) i na Kontrolnom centru (odgovorno lice, direktor) stoji kartica
-**„Otvorena je provjera znanja — Uđi"**; šifra sa spiska zaposlenih se upiše sama. Poslije
-završetka tu piše da je provjera urađena. Na strani za prijavu ulaza **nema** (odluka vlasnice).
-Zaposleni koji nema nalog ulazi na adresi `/provjera-znanja` (kartica u Ljudima je daje za
-kopiranje) i upiše šifru (npr. `M-03`). Šifra pušta samo dok postoji **otvoren termin** —
-kartica u Ljudima to ispisuje crveno kad termina nema.
+**Kako zaposleni ulazi:** prijavljen **svojim nalogom**, sa svoje početne strane. Dok je termin
+otvoren, na Mojoj strani (magacioner, vozač) i na Kontrolnom centru (odgovorno lice, direktor)
+stoji kartica **„Otvorena je provjera znanja — Uđi"**. Šifra se **ne kuca**: server uzima šifru
+prijavljenog, pa niko ne može raditi provjeru umjesto drugoga, a tuđu započetu provjeru ne može ni
+odgovarati ni završiti. Poslije završetka na početnoj strani piše da je provjera urađena. Bez
+prijave nema ulaza (ni na strani za prijavu, ni preko adrese). **Zaposleni bez naloga ne radi
+provjeru** — prvo mu se otvori nalog (Ljudi → Svi zaposleni → „Otvori nalog"). Kartica u Ljudima
+crveno javlja kad nema otvorenog termina.
 
 Ljudi → Provjera znanja:
 
@@ -570,7 +571,7 @@ centru su dvije kartice: „Danas fali po planu · juče propušteno" i „HACCP
 - Validacija: Zod na serveru je autoritativna; frontend validacija je samo za UX.
 - `korisnik.uloga` sa klijenta se nikad ne vjeruje — svaka ruta provjerava ulogu iz sesije.
 - Jedna granica prijave (`app.use("/api", requireAuth)`); ispred nje samo javne adrese (prijava,
-  odjava, ulaz u provjeru znanja šifrom). Server pri pokretanju prolazi sve rute i ne kreće ako
+  odjava; provjera znanja NIJE javna). Server pri pokretanju prolazi sve rute i ne kreće ako
   neka nema `requireUloga` (`server/provjeraRuta.ts`).
 - Push: pretplata se prima samo za push servise pregledača (ne „pošalji bilo kud"); sadržaj je
   šifrovan za uređaj; VAPID ključ je po bazi klijenta.
@@ -588,7 +589,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm test             # 308 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 310 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 ```
 
 **`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a
@@ -611,11 +612,11 @@ se ispiše („· preskočeno").
 
 | Test | Šta dokazuje |
 |---|---|
-| `pristup` | svaka uloga vidi svoje adrese i ne vidi tuđe; provjera znanja i `/zdravlje` rade bez prijave |
+| `pristup` | svaka uloga vidi svoje adrese i ne vidi tuđe; bez prijave radi samo `/zdravlje` — ni provjera znanja, ni sa tačnom šifrom |
 | `obavjestenja` | obavještenja za teren, zadaci, KKT 3 pri predaji, neusaglašenost od otvaranja do zatvaranja |
 | `poruke_skladista` | poruke (grupa, pojedinačno, svima, ko je pročitao), ručni zadaci, više skladišta |
 | `povlacenje` | spisak kupaca iz isporuka, lot na HOLD-u, ne zatvara se dok svi nisu zvani |
-| `provjera_znanja` | ulazak šifrom, rezultat se ne može naduvati, Prilog 14 |
+| `provjera_znanja` | ulazi samo prijavljeni, svojom šifrom (tuđa iz zahtjeva se ne gleda); drugi zaposleni ne može odgovarati ni završiti tuđu provjeru; rezultat se ne može naduvati; Prilog 14 |
 | `prilozi_izvoz` | podaci za štampu, svih 14 CSV izvora i kolone koje se prodaju kao dokaz |
 | `sesije` | prijava u bazi kao heš, odjava, promjena lozinke odjavljuje ostale uređaje |
 | `neusaglasenosti_teren` | vozač prijavi problem na isporuci → mjera njemu → samo on je završava, uz opis → provjera; uprava i aktivnost |

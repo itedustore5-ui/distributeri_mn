@@ -124,7 +124,7 @@ export function Moja() {
                 <div style={{ marginTop: 4 }}>
                   <code style={{ fontSize: 13 }}>{lice.sifra}</code>
                 </div>
-                <button className="secondary-button" style={{ marginTop: 10 }} onClick={() => navigate("/provjera-znanja", { state: { sifra: lice.sifra } })}>
+                <button className="secondary-button" style={{ marginTop: 10 }} onClick={() => navigate("/provjera-znanja")}>
                   Uđi u provjeru znanja
                 </button>
               </div>

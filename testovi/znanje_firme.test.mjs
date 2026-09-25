@@ -1,12 +1,12 @@
 // Pitanja firme: odgovorno lice ih unosi, termin ih koristi, rezultat pokazuje ko je položio i sa
 // kojim skorom, statistika po pitanju. Konsultantova banka ostaje skrivena (provjerava pristup.test).
-import { pool, prijava, anonimno, NALOZI } from "./pomoc.mjs";
+import { pool, prijava, NALOZI } from "./pomoc.mjs";
 
 export const naziv = "Pitanja firme i rezultati";
 
 export async function pokreni({ provjeri }) {
   const ana = await prijava(NALOZI.ana);
-  const anon = anonimno();
+  const marko = await prijava(NALOZI.marko);
   const trag = { pitanjeId: null, sesije: [] };
 
   try {
@@ -24,14 +24,13 @@ export async function pokreni({ provjeri }) {
     const s = (await ana("/provjera-znanja/sesije")).tijelo.find((x) => x.id === termin.tijelo.id);
     provjeri("Termin pamti izvor i prag", s?.izvor_pitanja === "firma" && s?.prag_prolaza === 100);
 
-    const lice = (await ana("/lica")).tijelo.find((l) => /Marko/.test(l.ime));
-    const ulaz = await anon("/provjera-znanja/uci", { telo: { sifra: lice.sifra } });
+    const ulaz = await marko("/provjera-znanja/uci", { telo: {} });
     provjeri("Zaposleni dobija pitanje firme", ulaz.status === 200 && ulaz.tijelo.pitanja.length === 1, `${ulaz.status}`);
     const p = ulaz.tijelo.pitanja[0];
     const izvor = (await pool.query(`select izvor, tacan_indeks from pitanje where id = $1`, [p.id])).rows[0];
     provjeri("Pitanje je iz izvora 'firma'", izvor.izvor === "firma");
-    await anon("/provjera-znanja/odgovor", { telo: { ucesnikId: ulaz.tijelo.ucesnikId, pitanjeId: p.id, datIndeks: izvor.tacan_indeks } });
-    await anon("/provjera-znanja/zavrsi", { telo: { ucesnikId: ulaz.tijelo.ucesnikId } });
+    await marko("/provjera-znanja/odgovor", { telo: { ucesnikId: ulaz.tijelo.ucesnikId, pitanjeId: p.id, datIndeks: izvor.tacan_indeks } });
+    await marko("/provjera-znanja/zavrsi", { telo: { ucesnikId: ulaz.tijelo.ucesnikId } });
 
     const rez = (await ana(`/provjera-znanja/rezultati?sesijaId=${termin.tijelo.id}`)).tijelo;
     provjeri("Rezultat: ime, 100 %, položeno", rez.length === 1 && rez[0].ime === "Marko Vuković" && rez[0].posto === 100 && rez[0].prosao === true, JSON.stringify(rez[0]));

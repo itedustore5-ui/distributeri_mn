@@ -194,7 +194,7 @@ PostgreSQL na Supabase (`db/`) · Render, jedan servis po klijentu.
 pregledač  src/pages/*.tsx  ──►  src/lib/api.ts  (zaglavlje x-zahtjev-app, kolačić pilot_sesija)
    │
    ▼
-server/index.ts   1. JAVNO: /api/zdravlje, prijava/odjava, ulaz u provjeru znanja šifrom (javniRuter())
+server/index.ts   1. JAVNO: samo /api/zdravlje i prijava/odjava (javniRuter())
                   2. GRANICA PRIJAVE: app.use("/api", requireAuth) — jedna, za sve ispod
                   3. ruteri /api/*  (server/routes/*.ts) — zod šema, requireUloga NA SVAKOJ RUTI, odgovor
                   provjeriRute() pri startu: ruta bez uloga / ruter sa .use → server ne kreće (invarijanta #44)
@@ -319,7 +319,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-14 testova, 308 provjera (na čistoj bazi; na demo bazi 306 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+14 testova, 310 provjera (na čistoj bazi; na demo bazi 308 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -380,8 +380,8 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     mjeru, ne provjerava je.
 16. **Nalog i lice su dvije stvari, spojene preko `korisnik.lice_id`.** Ime i šifra se čitaju iz
     `lice`, ne prepisuju u `korisnik`.
-17. **Lozinka nije šifra.** Lozinkom se prijavljuje, šifrom (`lice.sifra`) potpisuje i ulazi u
-    provjeru znanja.
+17. **Lozinka nije šifra.** Lozinkom se prijavljuje, šifrom (`lice.sifra`) potpisuje. U provjeri
+    znanja šifra se NE kuca — server je uzima iz naloga prijavljenog (#32).
 18. **Prilog 13 je plan, ne zapis** (`plan_obuke`, `v_plan_obuke` sa stanjem KASNI/USKORO/…).
     Stavka koja je prošla bez obuke se ne briše.
 19. *Ukinuto:* `veza.js` / `dodajOdjavu()` — odjava i promjena lozinke su u `Layout.tsx` i `/moja`.
@@ -413,11 +413,13 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
 30. **Izvoz ne pada zbog jednog nedostajućeg pogleda** — `tabelaPostoji()` prije upita; spisak
     izvora nosi `nedostaje`, `sve.json` listu `nedostaje`, pojedinačni CSV vraća 409.
 31. **Preuzimanje ide kroz `fetch`** (`preuzmiFajl()`), da se greška 401/409/500 ispiše.
-32. **U provjeru znanja se ulazi ŠIFROM SA SPISKA, bez naloga** — `provjeraZnanjaJavniRuter`
-    ispred granice prijave. Rezultat se ne može naduvati: jedan odgovor po pitanju, ništa poslije
-    završetka. **Ulaz se nudi na početnoj strani prijavljenog** (`ProvjeraZnanjaUlaz` na `/moja` i
-    `/tabla`, dok je termin otvoren, šifra se upiše sama), **ne na strani za prijavu** — odluka
-    vlasnice 24.09.2026. Ko nema nalog, ulazi na adresi `/provjera-znanja` koju mu pošalje odgovorno lice.
+32. **Provjeru znanja radi SAMO PRIJAVLJENI zaposleni, SVOJOM šifrom** (odluka vlasnice 25.09.2026).
+    Ulaz, odgovori i završetak su iza granice prijave; šifru server uzima iz naloga (`korisnik.lice_id`
+    → `lice.sifra`) i ne čita je iz zahtjeva, pa se tuđa šifra ne može upisati. Odgovara i završava
+    samo onaj ko je počeo (`TUDJA_PROVJERA`, 403). Nalog bez lica/šifre → `NALOG_BEZ_SIFRE`.
+    Zaposleni bez naloga ne radi provjeru — prvo mu se otvori nalog. Ulaz se nudi na početnoj strani
+    (`ProvjeraZnanjaUlaz` na `/moja` i `/tabla`, dok je termin otvoren), ne na strani za prijavu.
+    Rezultat se ne može naduvati: jedan odgovor po pitanju, ništa poslije završetka.
 33. *Ukinuto:* `generisiFormu` / `talas` — stara verzija. Provjera znanja sada pada samo ako nema
     otvorenog termina ili nema pitanja iz izabranog izvora (tada se termin ne može ni otvoriti).
 34. **Broj dokumenta (NC, isporuka, povlačenje, šifra zaposlenog) samo iz `sljedeciBroj()`**
@@ -537,7 +539,7 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | ~~**1 — HACCP rupe i bekap**~~ ✓ 23.09.2026 | Pusti / odbij lot na HOLD-u. Provjera samo uz urađenu mjeru. Odstupanje u obrascu → neusaglašenost. Potvrđena granica na svim KKT. `npm run bekap`. Test `faza1_haccp` (33 provjere). **Ostalo: Task Scheduler za bekap.** | H1, H2, H3, H4, A1 | urađeno |
 | ~~**2 — Integritet baze**~~ ✓ 24.09.2026 | Brojevi iz `sljedeciBroj()`. 26 višekoračnih upisa u transakciji. CHECK liste za `izvor_tip` (dopuna 22). Uloge na svim GET rutama. Test `faza2_integritet` (30 provjera). Uz to: nalog i početna lozinka pri unosu zaposlenog, „Nova lozinka", kartice direktora, ulaz u provjeru znanja sa prijave. | B1, A2, B2, U1 | urađeno |
 | ~~**3 — HACCP kao sistem**~~ ✓ 24.09.2026 | Plan monitoringa + „šta danas fali" na tabli i Mojoj strani. Termometri (provjera, kalibracija), revizija plana, interni audit, vježba povlačenja, štampa HACCP plana. Izuzetak od četiri oka za malu firmu. Jedan izvor granica. Temperatura obavezna na KKT 1. Dopuna `24_haccp_sistem_cg`, test `faza3_sistem` (41 provjera). | H5, H6, H7, U2, ostatak H4 | urađeno |
-| ~~**4 — Arhitektura i pogon**~~ ✓ 24.09.2026 | Jedna granica prijave + provjera ruta pri startu. SQL pet ruta u servise. `npm test` na sopstvenoj bazi + GitHub Actions. `dogadjaj` ugašen. Push obavještenja (PWA, dopuna 25, test `push`). Uz to: ulaz u provjeru znanja sa početne strane umjesto sa prijave. | A3, A4, A5, B4, A6 | urađeno |
+| ~~**4 — Arhitektura i pogon**~~ ✓ 24.09.2026 | Jedna granica prijave + provjera ruta pri startu. SQL pet ruta u servise. `npm test` na sopstvenoj bazi + GitHub Actions. `dogadjaj` ugašen. Push obavještenja (PWA, dopuna 25, test `push`). Uz to: provjeru znanja radi samo prijavljeni, svojom šifrom, sa početne strane. | A3, A4, A5, B4, A6 | urađeno |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
 **Pilot sa prvim klijentom ide paralelno od faze 1** — pravi magacioner nađe ono što test ne nađe.
@@ -574,7 +576,8 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | rečenica „…količinski manjak, … istekao rok, LOT" prepoznata kao zaglavlje tabele | tri riječi kolona u jednoj rečenici | zaglavlje = kratak red u kom su labele većina, i uzima se prvi kandidat ISPOD kog ima stavki |
 | forma prijema ostavila prvog dobavljača sa spiska kad sa otpremnice nije prepoznat | početna vrijednost polja | nepoznat → prazno („— izaberite dobavljača —") |
 | `pdfjs-dist` na starijem Node-u ne radi | traži Node ≥ 22.13 | `engines.node` u `package.json` — Render bira verziju po njemu |
-| zaposleni nisu znali gdje se ulazi u provjeru znanja | adresa `/provjera-znanja` je stajala samo kao tekst kod Ane | dugme na strani za prijavu i na Mojoj strani (sa šifrom); kartica javlja kad nema otvorenog termina |
+| zaposleni nisu znali gdje se ulazi u provjeru znanja | adresa `/provjera-znanja` je stajala samo kao tekst kod Ane | kartica „Otvorena je provjera znanja — Uđi" na početnoj strani prijavljenog dok je termin otvoren |
+| svako je mogao ukucati tuđu šifru i uraditi provjeru umjesto drugoga | ulaz je bio javan, šifrom sa spiska | samo prijavljeni, šifra iz naloga, odgovor i završetak samo za svog učesnika (#32) |
 | server pao usred testova: `Connection terminated unexpectedly`, neuhvaćen `'error'` | `pg-pool` skida svoj slušalac greške sa klijenta dok je izdat — prekid veze usred transakcije ruši cio proces | `transakcija()` kači svoj slušalac i vraća klijenta sa `release(greska)` (pokvarena veza se ne vraća u bazen); `pool.on("error")`; `connectionTimeoutMillis: 10_000` |
 | testovi odjednom padaju na 400 „Firma ima više skladišta" | vlasnica je na demo bazi (preko Rendera) dodala svoje skladište; testovi su pretpostavljali jedno | testovi biraju skladište izričito; tuđe skladište se nikad ne gasi — provjera „posljednje aktivno" bi inače ugasila Glavni magacin |
 | Vite: `Unterminated string`, a stranica bijela | u nizu pod `"…"` tekst „HACCP plan" zatvoren ASCII navodnikom | unutar koda: „…“ (zatvara se sa “, U+201C) |

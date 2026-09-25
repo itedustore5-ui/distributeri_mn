@@ -68,35 +68,24 @@ export function ProvjeraZnanjaKartica({ verzija, onOsvjezi }: { verzija: number;
   const prikazaniRezultati = rezultati.filter((r) => !filterSesija || r.sesija_id === filterSesija);
   const aktivnaPitanja = pitanja.filter((p) => p.aktivno).length;
   const otvoreni = sesije.filter((s) => s.otvoren);
-  const adresaProvjere = `${window.location.origin}/provjera-znanja`;
-  const [kopirano, setKopirano] = useState(false);
 
   return (
     <>
       <div className="panel no-print" style={{ minHeight: "auto", marginBottom: 14 }}>
-        <div style={{ padding: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={{ flex: 1, minWidth: 260 }}>
-            <span className="meta-label">Kako zaposleni ulazi</span>
-            <p style={{ fontSize: 12, margin: "4px 0 0" }}>
-              Sa svoje početne strane u aplikaciji (Moja strana, Kontrolni centar): dok je termin otvoren, tamo stoji{" "}
-              <b>„Uđi u provjeru znanja“</b> i šifra se upiše sama. Zaposleni koji nema nalog ulazi na adresi{" "}
-              <a href={adresaProvjere} target="_blank" rel="noreferrer"><code>{adresaProvjere}</code></a> (kopirajte je i pošaljite) i
-              upisuje šifru sa spiska „Svi zaposleni“ (npr. <code>M-03</code>).
-            </p>
-            <p style={{ fontSize: 12, margin: "6px 0 0" }}>
-              {otvoreni.length > 0 ? (
-                <>Otvoren termin: <b>{otvoreni.map((s) => s.naziv).join(", ")}</b> — šifre sada rade.</>
-              ) : (
-                <b className="danas-fali">Nema otvorenog termina — dok ga ne otvorite (dugme „Otvori termin" gore desno), šifra neće pustiti nikoga.</b>
-              )}
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="secondary-button" onClick={() => navigator.clipboard?.writeText(adresaProvjere).then(() => setKopirano(true))}>
-              {kopirano ? "Kopirano ✓" : "Kopiraj adresu"}
-            </button>
-            <a className="secondary-button" href={adresaProvjere} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>Otvori</a>
-          </div>
+        <div style={{ padding: 16 }}>
+          <span className="meta-label">Kako zaposleni ulazi</span>
+          <p style={{ fontSize: 12, margin: "4px 0 0" }}>
+            Prijavljen <b>svojim nalogom</b>, sa svoje početne strane (Moja strana, Kontrolni centar): dok je termin otvoren, tamo
+            stoji <b>„Uđi u provjeru znanja“</b>. Šifra se ne kuca — aplikacija uzima šifru prijavljenog, pa niko ne može raditi
+            provjeru umjesto drugoga. Zaposleni bez naloga ne može raditi provjeru — prvo mu otvorite nalog (Svi zaposleni → „Otvori nalog“).
+          </p>
+          <p style={{ fontSize: 12, margin: "6px 0 0" }}>
+            {otvoreni.length > 0 ? (
+              <>Otvoren termin: <b>{otvoreni.map((s) => s.naziv).join(", ")}</b> — zaposleni ga sada vide na svojoj strani.</>
+            ) : (
+              <b className="danas-fali">Nema otvorenog termina — dok ga ne otvorite (dugme „Otvori termin“ gore desno), niko ne može ući.</b>
+            )}
+          </p>
         </div>
       </div>
       <p className="muted-text no-print" style={{ fontSize: 11, marginBottom: 14, maxWidth: 720 }}>

@@ -2,43 +2,42 @@ import { Router } from "express";
 import { z } from "zod";
 import { asyncRuta } from "../greske.js";
 import { requireUloga, sviPrijavljeni, type AuthZahtjev } from "../auth.js";
-import { javniRuter } from "../provjeraRuta.js";
 import { tijelo } from "../validacija.js";
 import * as znanje from "../services/provjeraZnanjaService.js";
 
-// --- Ulazak šifrom sa spiska zaposlenih (invarijanta #32) — BEZ naloga za prijavu. ---
-export const provjeraZnanjaJavniRuter = javniRuter();
+export const provjeraZnanjaRuter = Router();
 
-const uciSchema = z.object({ sifra: z.string().trim().min(1) });
-
-provjeraZnanjaJavniRuter.post(
+// --- Provjeru radi PRIJAVLJENI zaposleni, SVOJOM šifrom (invarijanta #32): šifru server uzima iz
+// naloga — ne kuca se, pa se tuđa ne može upisati. Odgovara i završava samo onaj ko je počeo. ---
+provjeraZnanjaRuter.post(
   "/provjera-znanja/uci",
-  asyncRuta(async (request, response) => {
-    const { sifra } = tijelo(uciSchema, request.body);
-    response.json(await znanje.udji(sifra));
+  sviPrijavljeni(),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    response.json(await znanje.udji(request.korisnik!.id));
   }),
 );
 
 const odgovorSchema = z.object({ ucesnikId: z.string().uuid(), pitanjeId: z.string().uuid(), datIndeks: z.number().int() });
 
-provjeraZnanjaJavniRuter.post(
+provjeraZnanjaRuter.post(
   "/provjera-znanja/odgovor",
-  asyncRuta(async (request, response) => {
-    await znanje.odgovori(tijelo(odgovorSchema, request.body));
+  sviPrijavljeni(),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    await znanje.odgovori(tijelo(odgovorSchema, request.body), request.korisnik!.id);
     response.status(204).end();
   }),
 );
 
-provjeraZnanjaJavniRuter.post(
+provjeraZnanjaRuter.post(
   "/provjera-znanja/zavrsi",
-  asyncRuta(async (request, response) => {
+  sviPrijavljeni(),
+  asyncRuta(async (request: AuthZahtjev, response) => {
     const ucesnikId = z.string().uuid().parse(request.body?.ucesnikId);
-    response.json(await znanje.zavrsi(ucesnikId));
+    response.json(await znanje.zavrsi(ucesnikId, request.korisnik!.id));
   }),
 );
 
-// --- Iza prijave: termini, banka pitanja (samo izvodjac — invarijanta #14), pitanja firme, rezultati. ---
-export const provjeraZnanjaRuter = Router();
+// --- Termini, banka pitanja (samo izvodjac — invarijanta #14), pitanja firme, rezultati. ---
 
 // Početna strana prijavljenog nudi ulaz kad je termin otvoren (ne strana za prijavu).
 provjeraZnanjaRuter.get(

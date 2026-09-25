@@ -32,8 +32,9 @@ const NE_SMIJE = {
 export async function pokreni({ provjeri }) {
   const anon = anonimno();
   provjeri("Bez prijave: /zdravlje radi", (await anon("/zdravlje")).status === 200);
-  const uci = await anon("/provjera-znanja/uci", { telo: { sifra: "NEPOSTOJECA-SIFRA" } });
-  provjeri("Bez prijave: ulazak u provjeru znanja šifrom nije zaključan (nije 401)", uci.status !== 401, `${uci.status} ${uci.tijelo?.error?.code ?? ""}`);
+  // Provjeru znanja radi samo prijavljeni zaposleni, svojom šifrom (invarijanta #32).
+  const uci = await anon("/provjera-znanja/uci", { telo: { sifra: "M-02" } });
+  provjeri("Bez prijave: u provjeru znanja se ne ulazi ni sa tačnom šifrom (401)", uci.status === 401, `${uci.status} ${uci.tijelo?.error?.code ?? ""}`);
   provjeri("Bez prijave: Kontrolni centar je zaključan (401)", (await anon("/tabla")).status === 401);
 
   for (const [kljuc, adrese] of Object.entries(MORA)) {
