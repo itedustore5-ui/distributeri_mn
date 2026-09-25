@@ -9,9 +9,16 @@ export const IZVORI_IZVOZA = [
   { kod: "lotovi", naziv: "Lotovi", izvor: "lot" },
   { kod: "isporuke", naziv: "Isporuke", izvor: "v_izvoz_isporuke" },
   { kod: "isporuke_stavke", naziv: "Stavke isporuka", izvor: "isporuka_stavka" },
+  // Nalaz R-20: bez ovih izvora inspektor nije dobijao D1, provjere mjera, termometre, verifikaciju
+  // sistema ni dnevnik kretanja zaliha — sve je bilo u bazi, ali ne i u izvozu.
+  { kod: "kontrole_vozila", naziv: "Kontrole vozila (D1)", izvor: "v_izvoz_kontrole_vozila" },
+  { kod: "kretanja_zalihe", naziv: "Kretanja zaliha", izvor: "v_izvoz_kretanja_zalihe" },
   { kod: "neusaglasenosti", naziv: "Neusaglašenosti", izvor: "neusaglasenost" },
   { kod: "korektivne_mjere", naziv: "Korektivne mjere", izvor: "korektivna_mjera" },
+  { kod: "provjere_nc", naziv: "Provjere neusaglašenosti", izvor: "v_izvoz_provjere_nc" },
   { kod: "mjerenja", naziv: "Temperaturna mjerenja", izvor: "mjerenje_temperature" },
+  { kod: "termometri", naziv: "Provjere termometara", izvor: "v_izvoz_termometri" },
+  { kod: "verifikacija_sistema", naziv: "Verifikacija sistema", izvor: "v_izvoz_verifikacija_sistema" },
   { kod: "zapisi", naziv: "Dnevni zapisi", izvor: "v_trag_ispravki" },
   { kod: "povlacenja", naziv: "Povlačenja", izvor: "povlacenje" },
   { kod: "povlacenje_kontakti", naziv: "Kontakti povlačenja", izvor: "povlacenje_kontakt" },

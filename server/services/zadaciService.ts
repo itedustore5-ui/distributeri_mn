@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { pool, upit, transakcija } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import type { Uloga } from "../auth.js";
-import { logKreiranje } from "./auditService.js";
+import { logKreiranje, logIzmjenaReda, stanjeReda } from "./auditService.js";
 
 // Odakle je zadatak ili obavještenje došlo (izvor_tip + izvor_id). ISTI spisak stoji kao CHECK u
 // db/22_integritet_cg.sql, proširen u 24_haccp_sistem_cg.sql (nalaz B2) — nov izvor se dodaje na OBA mjesta, inače upis pada u bazi.
@@ -164,6 +164,7 @@ export async function izmijeniZadatak(zadatakId: string, ulaz: IzmjenaZadatka, k
     );
     const red = zadatak.rows[0];
     if (!red) throw new ApiGreska(404, "ZADATAK_NE_POSTOJI", "Zadatak nije pronađen.");
+    const prije = await stanjeReda(klijent, "zadatak", zadatakId);
 
     if (ulaz.dodijeljenoKorisnikId !== undefined) {
       if (!vodiSistem(korisnik.uloga)) throw new ApiGreska(403, "NEDOZVOLJENO", "Zadatke dodjeljuje odgovorno lice.");
@@ -191,6 +192,8 @@ export async function izmijeniZadatak(zadatakId: string, ulaz: IzmjenaZadatka, k
         [ulaz.status, zadatakId],
       );
     }
+    // Ko je kome prebacio zadatak i ko ga je zatvorio — bez ovoga se to nije vidjelo nigdje (R-06).
+    await logIzmjenaReda(klijent, { korisnikId: korisnik.id, entitetTip: "zadatak", entitetId: zadatakId, prije, poslije: await stanjeReda(klijent, "zadatak", zadatakId) });
   });
 }
 

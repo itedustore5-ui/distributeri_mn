@@ -35,8 +35,48 @@ async function zabiljezi(klijent: PoolClient | typeof pool, ulaz: ZabiljeziInput
 export const logKreiranje = (klijent: PoolClient | typeof pool, ulaz: Omit<ZabiljeziInput, "akcija">) =>
   zabiljezi(klijent, { ...ulaz, akcija: "KREIRANJE" });
 
-export const logIzmjena = (klijent: PoolClient | typeof pool, ulaz: Omit<ZabiljeziInput, "akcija">) =>
+/** Izmjena bez „prije" ne govori ništa (nalaz R-06) — zato je stara vrijednost obavezna po tipu.
+ * Za izmjenu reda tabele koristiti `logIzmjenaReda` (sama računa šta se promijenilo). */
+export const logIzmjena = (klijent: PoolClient | typeof pool, ulaz: Omit<ZabiljeziInput, "akcija" | "stareVrijednosti"> & { stareVrijednosti: Record<string, unknown> }) =>
   zabiljezi(klijent, { ...ulaz, akcija: "IZMJENA" });
+
+// Tabele čiji se red čita za audit. Spisak je zatvoren — naziv tabele ide u SQL.
+const TABELE_AUDITA = [
+  "artikal", "dobavljac", "kupac", "skladiste", "vozilo", "lice", "korisnik", "firma", "zadatak", "plan_obuke",
+  "plan_monitoringa", "kontrolna_tacka", "mjerni_uredjaj", "pitanje", "sesija_znanja", "isporuka", "lot", "prijem_stavka",
+] as const;
+export type TabelaAudita = (typeof TABELE_AUDITA)[number];
+// Ne ulazi u audit: tehnička polja i ono što se ne smije ni čuvati van svoje tabele.
+const BEZ_AUDITA = new Set(["updated_at", "created_at", "lozinka_hash", "sadrzaj"]);
+
+/** Red tabele kao objekat — stanje „prije" ili „poslije" izmjene (R-06). `zakljucaj` = `for update`,
+ * da se između čitanja i izmjene red ne promijeni. */
+export async function stanjeReda(klijent: PoolClient, tabela: TabelaAudita, id: string, zakljucaj = false): Promise<Record<string, unknown> | null> {
+  if (!TABELE_AUDITA.includes(tabela)) throw new Error(`Tabela ${tabela} nije na spisku za audit.`);
+  const r = await klijent.query<{ red: Record<string, unknown> }>(`select to_jsonb(t) as red from ${tabela} t where id = $1${zakljucaj ? " for update" : ""}`, [id]);
+  const red = r.rows[0]?.red;
+  if (!red) return null;
+  return Object.fromEntries(Object.entries(red).filter(([k]) => !BEZ_AUDITA.has(k)));
+}
+
+/** Upisuje samo ono što se promijenilo: `stare_vrijednosti` = prije, `nove_vrijednosti` = poslije,
+ * po istim ključevima. `dodatno` ide uz nove (npr. razlog). Bez promjene i bez dodatnog — ništa. */
+export async function logIzmjenaReda(
+  klijent: PoolClient,
+  ulaz: { korisnikId: string | null; entitetTip: string; entitetId: string; prije: Record<string, unknown> | null; poslije: Record<string, unknown> | null; dodatno?: Record<string, unknown> },
+) {
+  const prije = ulaz.prije ?? {};
+  const poslije = ulaz.poslije ?? {};
+  const kljucevi = Array.from(new Set([...Object.keys(prije), ...Object.keys(poslije)])).filter((k) => JSON.stringify(prije[k] ?? null) !== JSON.stringify(poslije[k] ?? null));
+  if (kljucevi.length === 0 && !ulaz.dodatno) return;
+  await logIzmjena(klijent, {
+    korisnikId: ulaz.korisnikId,
+    entitetTip: ulaz.entitetTip,
+    entitetId: ulaz.entitetId,
+    stareVrijednosti: Object.fromEntries(kljucevi.map((k) => [k, prije[k] ?? null])),
+    noveVrijednosti: { ...Object.fromEntries(kljucevi.map((k) => [k, poslije[k] ?? null])), ...ulaz.dodatno },
+  });
+}
 
 export const logPromjenaStatusa = (klijent: PoolClient | typeof pool, ulaz: Omit<ZabiljeziInput, "akcija">) =>
   zabiljezi(klijent, { ...ulaz, akcija: "PROMJENA_STATUSA" });

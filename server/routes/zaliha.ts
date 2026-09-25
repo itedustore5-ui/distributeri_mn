@@ -4,7 +4,7 @@ import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, type AuthZahtjev } from "../auth.js";
 import { lanacNaprijedZaLot } from "../services/sledljivostService.js";
-import { otpisiZalihu } from "../services/otpisService.js";
+import { otpisiZalihu, odlukaOKarantinu } from "../services/otpisService.js";
 import { str, tijelo } from "../validacija.js";
 
 export const zalihaRuter = Router();
@@ -61,6 +61,22 @@ zalihaRuter.post(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(otpisSchema, request.body);
     await otpisiZalihu(str(request.params.id), ulaz, request.korisnik!.id);
+    response.status(204).end();
+  }),
+);
+
+// Roba vraćena sa isporuke (karantin prihvaćenog lota): odgovorno lice je pušta ili otpisuje (R-03).
+const karantinSchema = z.object({
+  odluka: z.enum(["PUSTI", "OTPISI"]),
+  kolicina: z.number().positive(),
+  razlog: z.string().trim().min(3, "Upišite šta je pregledano (npr. temperatura u redu, ambalaža čitava)."),
+});
+
+zalihaRuter.post(
+  "/lotovi/:id/karantin",
+  requireUloga("bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    await odlukaOKarantinu(str(request.params.id), tijelo(karantinSchema, request.body), request.korisnik!.id);
     response.status(204).end();
   }),
 );

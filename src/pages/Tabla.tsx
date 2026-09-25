@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall, ClipboardList, DatabaseBackup, ClipboardCheck, Gauge } from "lucide-react";
+import { AlertTriangle, Thermometer, Truck, PackageX, Clock3, BookOpen, ArrowDownToLine, PackageCheck, PhoneCall, ClipboardList, DatabaseBackup, ClipboardCheck, Gauge, CalendarX } from "lucide-react";
 import { api, ApiGreska, preuzmiFajl } from "../lib/api";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal } from "../components/Zajednicko";
@@ -29,6 +29,8 @@ type TablaPodaci = {
     monitoringFali: number;
     monitoringJuce: number;
     haccpRokovi: number;
+    robaIstekao: number;
+    robaUskoro: number;
   };
   operativno: { prijemiDanas: number; isporukeDanas: number; zapisiDanas: number };
 };
@@ -74,6 +76,8 @@ export function Tabla() {
     { naslov: "Temperature van opsega (24h)", vrijednost: k.temperatureVanOpsega, ikonica: <Thermometer size={18} />, putanja: "/haccp", detalj: "temperature", tona: k.temperatureVanOpsega > 0 ? "danger" : "warning" },
     { naslov: "Vozila nisu spremna", vrijednost: k.vozilaNijeSpremno, ikonica: <Truck size={18} />, putanja: "/vozila", detalj: "vozila", tona: k.vozilaNijeSpremno > 0 ? "danger" : "warning" },
     { naslov: "Lotovi na HOLD-u", vrijednost: k.lotoviNaHoldu, ikonica: <PackageX size={18} />, putanja: "/zalihe", stanje: { status: "HOLD" }, tona: k.lotoviNaHoldu > 0 ? "danger" : "warning" },
+    // Rok robe (R-02): istekla roba se ne isporučuje, a stoji u zalihama dok je neko ne otpiše.
+    { naslov: `Rok robe: isteklo ${k.robaIstekao} · ističe za 7 dana ${k.robaUskoro}`, vrijednost: k.robaIstekao + k.robaUskoro, ikonica: <CalendarX size={18} />, putanja: "/zalihe", stanje: { status: "PRIHVACEN", rok: k.robaIstekao > 0 ? "istekao" : "uskoro" }, detalj: "rok-robe", tona: k.robaIstekao > 0 ? "danger" : "warning" },
     { naslov: "Zakašnjeli zadaci", vrijednost: k.zadaciZakasnili, ikonica: <Clock3 size={18} />, putanja: "#zadaci", tona: k.zadaciZakasnili > 0 ? "danger" : "warning" },
     { naslov: "Knjižice ističu/istekle", vrijednost: k.knjizicIstice, ikonica: <BookOpen size={18} />, putanja: "/ljudi", detalj: "knjizice", tona: k.knjizicIstice > 0 ? "danger" : "warning" },
     // Plan monitoringa (faza 3): šta danas još nije urađeno; juče propušteno je već rupa u zapisima.

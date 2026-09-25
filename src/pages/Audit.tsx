@@ -8,15 +8,26 @@ type AuditRed = {
   entitet_tip: string;
   entitet_id: string;
   korisnicko_ime: string | null;
+  stare_vrijednosti: Record<string, unknown> | null;
   nove_vrijednosti: Record<string, unknown> | null;
   created_at: string;
 };
 
-function formatirajDetalje(vrijednosti: Record<string, unknown> | null): string {
-  if (!vrijednosti) return "—";
-  const parovi = Object.entries(vrijednosti).filter(([, v]) => v !== null && v !== undefined && v !== "");
-  if (parovi.length === 0) return "—";
-  return parovi.map(([kljuc, v]) => `${kljuc}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join(" · ");
+const prikaz = (v: unknown) => (v === null || v === undefined || v === "" ? "∅" : typeof v === "object" ? JSON.stringify(v) : String(v));
+
+/** Kod izmjene: „polje: bilo → sada" (R-06); inače samo nove vrijednosti. */
+function formatirajDetalje(stare: Record<string, unknown> | null, nove: Record<string, unknown> | null): string {
+  if (!nove && !stare) return "—";
+  const kljucevi = Array.from(new Set([...Object.keys(stare ?? {}), ...Object.keys(nove ?? {})]));
+  const parovi = kljucevi
+    .map((k) => {
+      const imaStaro = !!stare && k in stare;
+      const novo = nove?.[k];
+      if (imaStaro) return `${k}: ${prikaz(stare![k])} → ${prikaz(novo)}`;
+      return novo === null || novo === undefined || novo === "" ? null : `${k}: ${prikaz(novo)}`;
+    })
+    .filter(Boolean);
+  return parovi.length === 0 ? "—" : parovi.join(" · ");
 }
 
 export function Audit() {
@@ -63,7 +74,7 @@ export function Audit() {
                   <td>{a.korisnicko_ime ?? "sistem"}</td>
                   <td>{a.akcija}</td>
                   <td><code>{a.entitet_tip}</code></td>
-                  <td className="muted-text">{formatirajDetalje(a.nove_vrijednosti)}</td>
+                  <td className="muted-text">{formatirajDetalje(a.stare_vrijednosti, a.nove_vrijednosti)}</td>
                 </tr>
               ))}
             </tbody>

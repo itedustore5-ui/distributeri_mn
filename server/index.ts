@@ -29,6 +29,7 @@ import { povlacenjeRuter } from "./routes/povlacenje.js";
 import { bekapRuter } from "./routes/bekap.js";
 import { pushRuter } from "./routes/push.js";
 import { pokreniSlanjePush } from "./services/pushService.js";
+import { pokreniProvjeruRokova } from "./services/rokoviService.js";
 import { pokreniSedmicniBekap } from "./services/bekapService.js";
 import { pripremiSesije } from "./auth.js";
 
@@ -40,6 +41,9 @@ const IZDANJE = process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? "lokalno";
 
 const app = express();
 app.disable("x-powered-by");
+// Render stoji ispred servera kao jedan proksi: bez ovoga je request.ip adresa proksija za sve
+// korisnike (ograničenje pokušaja prijave i IP u auditu — nalaz R-11).
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "200kb" })); // MORA ostati i MORA biti prvo
 
 app.use((_request, response, next) => {
@@ -143,6 +147,7 @@ const start = async () => {
   });
   pokreniSedmicniBekap();
   pokreniSlanjePush().catch((e) => console.error("Push obavještenja nisu pokrenuta:", e));
+  pokreniProvjeruRokova();
 
   const shutdown = async () => {
     await vite?.close();

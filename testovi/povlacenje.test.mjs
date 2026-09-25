@@ -1,25 +1,31 @@
 // Povlačenje (čl. 28) od početka do zatvaranja: spisak kupaca iz stvarnih isporuka, lot odmah
 // blokiran za dalju isporuku, ne zatvara se dok svi nisu obaviješteni, zadatak se zatvara sam.
 // Briše sve što napravi i vraća lot i zalihu u stanje od prije.
-import { pool, prijava, NALOZI, danasCG } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, nijeIstekao, rashladnoVozilo, d1Prolazi } from "./pomoc.mjs";
 
 export const naziv = "Povlačenje od početka do zatvaranja";
 
 export async function pokreni({ provjeri }) {
   const ana = await prijava(NALOZI.ana);
   const marko = await prijava(NALOZI.marko);
-  const trag = { isporuke: [], povlacenjeId: null, ncId: null, kontakti: [], lotId: null, lotStatusPrije: null, zalihaPrije: [], mjerenja: [] };
+  const trag = { isporuke: [], povlacenjeId: null, ncId: null, kontakti: [], lotId: null, lotStatusPrije: null, zalihaPrije: [], mjerenja: [], kontrole: [], vozilo: null };
 
   try {
-    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => Number(l.dostupno) >= 2);
+    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => Number(l.dostupno) >= 2 && nijeIstekao(l));
     if (!lot) throw new Error("U demo bazi nema prihvaćenog lota sa bar 2 komada na zalihi.");
     trag.lotId = lot.id;
     trag.lotStatusPrije = lot.status;
     trag.zalihaPrije = (await pool.query(`select id, status, kolicina from zaliha where lot_id = $1`, [lot.id])).rows;
     const kupac = (await ana("/kupci")).tijelo[0];
+    // Demo lotovi su roba pod režimom — idu rashladnim vozilom, uz današnju D1.
+    const vozilo = await rashladnoVozilo(ana);
+    if (vozilo) {
+      trag.vozilo = { id: vozilo.id, status: vozilo.status };
+      trag.kontrole.push(await d1Prolazi(ana, vozilo));
+    }
 
     // Isporuka jednog komada — da povlačenje ima kome da zove.
-    const isp = await ana("/isporuke", { telo: { kupacId: kupac.id, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), napomena: "E2E-POVLACENJE", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
+    const isp = await ana("/isporuke", { telo: { kupacId: kupac.id, vozilId: vozilo?.id, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), napomena: "E2E-POVLACENJE", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
     trag.isporuke.push(isp.tijelo?.id);
     provjeri("Isporuka iz lota", isp.status === 201, `${isp.status}`);
     const detalj = (await ana(`/isporuke/${isp.tijelo.id}`)).tijelo;
@@ -43,7 +49,7 @@ export async function pokreni({ provjeri }) {
     const lotPosle = (await pool.query(`select status from lot where id = $1`, [lot.id])).rows[0].status;
     const dostupno = (await pool.query(`select coalesce(sum(kolicina), 0) as n from zaliha where lot_id = $1 and status = 'DOSTUPNO'`, [lot.id])).rows[0].n;
     provjeri("Lot pod povlačenjem je na HOLD-u, zaliha u karantinu", lotPosle === "HOLD" && Number(dostupno) === 0, `${lotPosle}, dostupno ${dostupno}`);
-    const druga = await ana("/isporuke", { telo: { kupacId: kupac.id, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
+    const druga = await ana("/isporuke", { telo: { kupacId: kupac.id, vozilId: vozilo?.id, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
     if (druga.status === 201) trag.isporuke.push(druga.tijelo.id);
     provjeri("Lot pod povlačenjem se više ne može isporučiti (409)", druga.status === 409, druga.tijelo?.error?.message);
 
@@ -67,6 +73,9 @@ export async function pokreni({ provjeri }) {
       const stavke = isporuke.length ? (await k.query(`select id from isporuka_stavka where isporuka_id = any($1)`, [isporuke])).rows.map((r) => r.id) : [];
       const sve = [...isporuke, ...stavke, trag.povlacenjeId, trag.ncId, ...trag.kontakti, ...trag.mjerenja].filter(Boolean);
       await k.query(`delete from obavjestenje where izvor_id = any($1)`, [sve]);
+      // „Ne predajte lot" ide i na TUĐE isporuke u pripremi sa istim lotom (demo baza ih ima) —
+      // vezano je za njihov id, pa se briše po tekstu ovog testa.
+      await k.query(`delete from obavjestenje where izvor_tip = 'isporuka' and naslov like 'Ne predajte lot%' and poruka like 'Pokrenuto povlačenje %: E2E%'`);
       await k.query(`delete from audit_log where entitet_id = any($1)`, [sve]);
       await k.query(`delete from dogadjaj where entitet_id = any($1)`, [sve]);
       await k.query(`delete from kretanje_zalihe where referenca_id = any($1)`, [sve]);
@@ -81,6 +90,11 @@ export async function pokreni({ provjeri }) {
         await k.query(`delete from isporuka_stavka where isporuka_id = any($1)`, [isporuke]);
         await k.query(`delete from isporuka where id = any($1)`, [isporuke]);
       }
+      if (trag.kontrole.length) {
+        await k.query(`delete from audit_log where entitet_id = any($1)`, [trag.kontrole]);
+        await k.query(`delete from kontrola_vozila where id = any($1)`, [trag.kontrole]);
+      }
+      if (trag.vozilo) await k.query(`update vozilo set status = $1 where id = $2`, [trag.vozilo.status, trag.vozilo.id]);
       if (trag.lotId) {
         await k.query(`update lot set status = $1 where id = $2`, [trag.lotStatusPrije, trag.lotId]);
         await k.query(`delete from zaliha where lot_id = $1 and not (id = any($2))`, [trag.lotId, trag.zalihaPrije.map((z) => z.id)]);

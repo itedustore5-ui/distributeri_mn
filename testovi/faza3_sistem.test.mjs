@@ -82,12 +82,16 @@ export async function pokreni({ provjeri }) {
     const t0 = (await direktor("/tabla")).tijelo.kriticno;
     const d0 = (await direktor("/tabla/detalj/monitoring")).tijelo;
     provjeri("Kontrolni centar: kartica „danas fali\" i lista iza nje", t0.monitoringFali >= 1 && d0.redovi.some((r) => r.sta === "E2E temperatura komore 9"));
-    const mjeri = (v) => marko("/mjerenja", { telo: { kontrolnaTackaId: trag.tacka, vrijednost: v } });
+    // Mjerenje nosi termometar (R-23): test ima svoj, provjeren — ne zavisi od stanja demo baze.
+    const pomocni = await ana("/mjerni-uredjaji", { telo: { naziv: "E2E-F3 pomoćni termometar", intervalProvjereMjeseci: 1 } });
+    trag.pomocniUredjaj = pomocni.tijelo?.id;
+    await marko(`/mjerni-uredjaji/${trag.pomocniUredjaj}/provjera`, { telo: { datum: danasCG(), vrsta: "INTERNA", referentna: 0, izmjereno: 0 } });
+    const mjeri = (v) => marko("/mjerenja", { telo: { kontrolnaTackaId: trag.tacka, vrijednost: v, mjerniUredjajId: trag.pomocniUredjaj } });
     await mjeri(3.1);
     await mjeri(3.4);
     const s1 = await danasZa(marko, stavka.tijelo.id);
     provjeri("Posle dva mjerenja — stavka je urađena", s1?.uradjeno === 2 && s1.fali === 0);
-    const zp = await marko("/zapisi", { telo: { obrazacKod: "P9", datum: danasCG(), podaci: { kante_zatvorene: true } } });
+    const zp = await marko("/zapisi", { telo: { obrazacKod: "P9", datum: danasCG(), podaci: { kante_zatvorene: true, izneseno: true } } });
     trag.zapisi.push(zp.tijelo?.id);
     const o1 = await danasZa(marko, obr.tijelo.id);
     provjeri("Sedmična stavka: jedan zapis ove sedmice je dovoljan", o1?.uradjeno >= 1 && o1.fali === 0 && o1.rok === "do nedjelje");
@@ -168,10 +172,11 @@ export async function pokreni({ provjeri }) {
       const mjere = nc.length ? (await k.query(`select id from korektivna_mjera where neusaglasenost_id = any($1)`, [nc])).rows.map((r) => r.id) : [];
       const mjerenja = trag.tacka ? (await k.query(`select id from mjerenje_temperature where kontrolna_tacka_id = $1`, [trag.tacka])).rows.map((r) => r.id) : [];
       const pravila = (await k.query(`select id from pravilo_kontrole where artikal_id = $1 or kontrolna_tacka_id = $2`, [trag.artikal, trag.tacka])).rows.map((r) => r.id);
-      const provjere = trag.uredjaj ? (await k.query(`select id from provjera_uredjaja where uredjaj_id = $1`, [trag.uredjaj])).rows.map((r) => r.id) : [];
+      const uredjaji = [trag.uredjaj, trag.pomocniUredjaj].filter(Boolean);
+      const provjere = (await k.query(`select id from provjera_uredjaja where uredjaj_id = any($1)`, [uredjaji])).rows.map((r) => r.id);
       const verif = trag.verifikacije.filter(Boolean);
       const zapisi = trag.zapisi.filter(Boolean);
-      const sve = [...planovi, ...nc, ...mjere, ...mjerenja, ...pravila, ...provjere, ...verif, ...zapisi, trag.artikal, trag.tacka, trag.uredjaj].filter(Boolean);
+      const sve = [...planovi, ...nc, ...mjere, ...mjerenja, ...pravila, ...provjere, ...verif, ...zapisi, trag.artikal, trag.tacka, ...uredjaji].filter(Boolean);
       await k.query(`delete from obavjestenje where izvor_id = any($1)`, [sve]);
       await k.query(`delete from zadatak where izvor_id = any($1)`, [sve]);
       await k.query(`delete from audit_log where entitet_id = any($1)`, [sve]);
@@ -183,7 +188,7 @@ export async function pokreni({ provjeri }) {
       await k.query(`delete from mjerenje_temperature where id = any($1)`, [mjerenja]);
       await k.query(`delete from pravilo_kontrole where id = any($1)`, [pravila]);
       await k.query(`delete from provjera_uredjaja where id = any($1)`, [provjere]);
-      await k.query(`delete from mjerni_uredjaj where id = $1`, [trag.uredjaj]);
+      await k.query(`delete from mjerni_uredjaj where id = any($1)`, [uredjaji]);
       await k.query(`delete from verifikacija_sistema where id = any($1)`, [verif]);
       await k.query(`delete from zapis where id = any($1)`, [zapisi]);
       await k.query(`delete from kontrolna_tacka where id = $1`, [trag.tacka]);

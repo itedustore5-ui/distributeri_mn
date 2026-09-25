@@ -106,11 +106,11 @@ export async function pokreni({ provjeri }) {
     provjeri("H2: drugo lice provjerava i zatvara", drugi.status === 200 && drugi.tijelo.status === "ZATVORENA");
 
     // ── H3: odstupanje u dnevnom obrascu ────────────────────────────────────────────────────
-    const bez = await marko("/zapisi", { telo: { obrazacKod: "P7", datum: danasCG(), podaci: { temperatura: 3 }, odstupanje: false } });
+    const bez = await marko("/zapisi", { telo: { obrazacKod: "P7", datum: danasCG(), podaci: { tragovi: false, mjesto: "E2E rampa i komora 1" }, odstupanje: false } });
     trag.zapisi.push(bez.tijelo?.id);
     provjeri("H3: zapis bez odstupanja ne otvara ništa", bez.status === 201 && bez.tijelo.neusaglasenost === null);
     const sa = await marko("/zapisi", {
-      telo: { obrazacKod: "P7", datum: danasCG(), podaci: { temperatura: 8.6 }, odstupanje: true, korektivnaMjera: "E2E roba premještena u komoru 1" },
+      telo: { obrazacKod: "P7", datum: danasCG(), podaci: { tragovi: true, mjesto: "E2E rampa" }, odstupanje: true, korektivnaMjera: "E2E postavljene klopke, rampa očišćena" },
     });
     trag.zapisi.push(sa.tijelo?.id);
     provjeri("H3: odstupanje otvara neusaglašenost", sa.status === 201 && !!sa.tijelo.neusaglasenost, sa.tijelo?.neusaglasenost);
@@ -122,7 +122,7 @@ export async function pokreni({ provjeri }) {
     provjeri("H3: na listi piše iz kog obrasca je došla", naListi?.izvor_oznaka?.startsWith("Obrazac P7"), naListi?.izvor_oznaka);
     provjeri("H3: odgovorno lice dobija zadatak i obavještenje", (await ana("/zadaci?moji=1")).tijelo.some((z) => z.izvor_id === ncZap.id) && (await obavj(ana)).some((o) => o.izvor_id === ncZap.id));
     const isp = await marko("/zapisi", {
-      telo: { obrazacKod: "P7", datum: danasCG(), podaci: { temperatura: 8.6 }, odstupanje: true, korektivnaMjera: "E2E ispravljen opis", ispravljaId: sa.tijelo.id },
+      telo: { obrazacKod: "P7", datum: danasCG(), podaci: { tragovi: true, mjesto: "E2E rampa i ulaz" }, odstupanje: true, korektivnaMjera: "E2E ispravljen opis", ispravljaId: sa.tijelo.id },
     });
     trag.zapisi.push(isp.tijelo?.id);
     provjeri("H3: ispravka istog zapisa ne otvara drugu neusaglašenost", isp.status === 201 && isp.tijelo.neusaglasenost === null);

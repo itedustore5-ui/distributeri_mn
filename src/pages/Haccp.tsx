@@ -2,17 +2,47 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Plus, Thermometer, ClipboardList, AlertTriangle } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
+import { useSlanje } from "../lib/slanje";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
+import { IzborTermometra, useIzborTermometra } from "../components/Termometar";
 import { useAuth } from "../lib/auth";
 
 type KontrolnaTacka = { id: string; sifra: string; naziv: string };
-type Mjerenje = { id: string; kontrolna_tacka_naziv: string; broj_lota: string | null; vrijednost: string; izmjereno_at: string; rezultat: string; izmjerio: string | null };
-type Lot = { id: string; artikal_naziv: string; broj_lota: string };
-type ObrazacPolje = { kljuc: string; oznaka: string; tip: "text" | "number" | "checkbox" };
+type Mjerenje = {
+  id: string;
+  kontrolna_tacka_naziv: string;
+  broj_lota: string | null;
+  vrijednost: string;
+  izmjereno_at: string;
+  rezultat: string;
+  izmjerio: string | null;
+  termometar: string | null;
+  termometar_oznaka: string | null;
+  upitno: boolean;
+};
+type Lot = { id: string; artikal_naziv: string; broj_lota: string; status: string; dostupno: string; karantin: string };
+type ObrazacPolje = { kljuc: string; oznaka: string; tip: "text" | "number" | "checkbox"; odstupanjeAko?: boolean; obavezno?: boolean };
 type Obrazac = { kod: string; naziv: string; uloge: string[]; polja: ObrazacPolje[] };
-type Zapis = { id: string; obrazac_kod: string; datum: string; izvrsilac: string; odstupanje: boolean; korektivna_mjera: string | null; podaci: Record<string, unknown>; naknadno_dana: number };
+type Zapis = {
+  id: string;
+  obrazac_kod: string;
+  datum: string;
+  izvrsilac: string;
+  odstupanje: boolean;
+  korektivna_mjera: string | null;
+  podaci: Record<string, unknown>;
+  naknadno_dana: number;
+  ispravlja_id: string | null;
+  vazeci: boolean;
+  uneo_korisnik_id: string | null;
+};
+
+/** Odgovori iz kojih slijedi odstupanje (R-08) — isto pravilo kao na serveru (obrasciService). */
+function odstupanjaIzPolja(obrazac: Obrazac, podaci: Record<string, unknown>) {
+  return obrazac.polja.filter((p) => p.tip === "checkbox" && p.odstupanjeAko !== undefined && podaci[p.kljuc] === p.odstupanjeAko).map((p) => `${p.oznaka} — ${podaci[p.kljuc] ? "da" : "ne"}`);
+}
 
 export function Haccp() {
   const { korisnik } = useAuth();
@@ -25,8 +55,9 @@ export function Haccp() {
   const saPlana = useLocation().state as { obrazac?: string; mjerenje?: string } | null;
   const [modalMjerenje, setModalMjerenje] = useState<boolean>(!!saPlana?.mjerenje);
   const [neispravni, setNeispravni] = useState<string[]>([]);
-  const [modalZapis, setModalZapis] = useState<Obrazac | null>(null);
+  const [modalZapis, setModalZapis] = useState<{ obrazac: Obrazac; ispravlja?: Zapis } | null>(null);
   const [filterObrazac, setFilterObrazac] = useState("");
+  const vodiSistem = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
 
   const ucitaj = () => {
     api<Mjerenje[]>("/mjerenja").then(setMjerenja);
@@ -35,7 +66,8 @@ export function Haccp() {
 
   useEffect(() => {
     api<KontrolnaTacka[]>("/kontrolne-tacke").then(setTacke);
-    api<Lot[]>("/lotovi?status=PRIHVACEN").then(setLotovi);
+    // Mjeri se i zadržan lot (HOLD, karantin) — ponovno mjerenje je dokaz za zatvaranje neusaglašenosti (R-22).
+    api<Lot[]>("/lotovi").then((svi) => setLotovi(svi.filter((l) => (l.status === "PRIHVACEN" || l.status === "HOLD") && Number(l.dostupno) + Number(l.karantin) > 0)));
     // Invarijanta #25: obrazac nosi `uloge` — svako vidi samo obrasce svoje uloge.
     fetch("/obrasci-cg.json")
       .then((r) => r.json())
@@ -43,14 +75,16 @@ export function Haccp() {
         const moji = svi.filter((o) => !korisnik || o.uloge.includes(korisnik.uloga));
         setObrasci(moji);
         const trazeni = saPlana?.obrazac ? moji.find((o) => o.kod === saPlana.obrazac) : undefined;
-        if (trazeni) setModalZapis(trazeni);
+        if (trazeni) setModalZapis({ obrazac: trazeni });
       });
     // Termometar koji nije prošao provjeru — mjerenje njime ne vrijedi (faza 3).
-    api<{ naziv: string; oznaka: string | null; stanje: string; aktivan: boolean }[]>("/mjerni-uredjaji")
-      .then((u) => setNeispravni(u.filter((x) => x.aktivan && x.stanje === "NEISPRAVAN").map((x) => `${x.naziv}${x.oznaka ? ` (${x.oznaka})` : ""}`)))
+    api<{ naziv: string; oznaka: string | null; stanje: string }[]>("/termometri")
+      .then((u) => setNeispravni(u.filter((x) => x.stanje === "NEISPRAVAN").map((x) => `${x.naziv}${x.oznaka ? ` (${x.oznaka})` : ""}`)))
       .catch(() => undefined);
     ucitaj();
   }, []);
+
+  const upitnih = mjerenja.filter((m) => m.upitno).length;
 
   return (
     <>
@@ -75,6 +109,15 @@ export function Haccp() {
           <span>Termometar nije prošao provjeru: {neispravni.join(", ")} — ne mjerite njime dok se ne zamijeni ili kalibriše.</span>
         </div>
       )}
+      {upitnih > 0 && (
+        <div className="upozorenje-traka">
+          <AlertTriangle size={16} />
+          <span>
+            {upitnih === 1 ? "Jedno mjerenje je upitno" : `${upitnih} mjerenja su upitna`} — urađena termometrom koji je na sljedećoj provjeri pao.
+            Pregledajte ih (označena ispod) i po potrebi izmjerite ponovo.
+          </span>
+        </div>
+      )}
 
       <div className="section-heading">
         <div>
@@ -91,6 +134,7 @@ export function Haccp() {
                 <th>Vrijednost</th>
                 <th>Vrijeme</th>
                 <th>Izmjerio</th>
+                <th>Termometar</th>
                 <th>Rezultat</th>
               </tr>
             </thead>
@@ -102,6 +146,10 @@ export function Haccp() {
                   <td>{m.vrijednost}°C</td>
                   <td className="muted-text">{new Date(m.izmjereno_at).toLocaleString("sr-Latn-ME")}</td>
                   <td className="muted-text">{m.izmjerio ?? "—"}</td>
+                  <td className="muted-text">
+                    {m.termometar ? `${m.termometar}${m.termometar_oznaka ? ` (${m.termometar_oznaka})` : ""}` : "—"}
+                    {m.upitno && <> <StatusBadge status="FAIL" tekst="upitno" /></>}
+                  </td>
                   <td><StatusBadge status={m.rezultat} /></td>
                 </tr>
               ))}
@@ -114,9 +162,9 @@ export function Haccp() {
         <div>
           <h2><ClipboardList size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />Dnevni obrasci <ZakonskaOznaka clan="35" /> <ZakonskaOznaka clan="47" /></h2>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {obrasci.map((o) => (
-            <button key={o.kod} className="small-action" onClick={() => setModalZapis(o)}>
+            <button key={o.kod} className="small-action" onClick={() => setModalZapis({ obrazac: o })}>
               {o.kod} — {o.naziv}
             </button>
           ))}
@@ -138,18 +186,29 @@ export function Haccp() {
                 <th>Izvršilac</th>
                 <th>Odstupanje</th>
                 <th>Korektivna mjera</th>
+                <th />
               </tr>
             </thead>
             <tbody>
-              {zapisi.filter((z) => !filterObrazac || z.obrazac_kod === filterObrazac).map((z) => (
-                <tr key={z.id}>
-                  <td>{z.obrazac_kod}</td>
-                  <td className="muted-text">{z.datum}<NaknadnoOznaka dana={z.naknadno_dana} /></td>
-                  <td>{z.izvrsilac}</td>
-                  <td>{z.odstupanje ? <StatusBadge status="OTVORENA" tekst="Da" /> : <span className="muted-text">Ne</span>}</td>
-                  <td className="muted-text">{z.korektivna_mjera ?? "—"}</td>
-                </tr>
-              ))}
+              {zapisi.filter((z) => !filterObrazac || z.obrazac_kod === filterObrazac).map((z) => {
+                const obrazac = obrasci.find((o) => o.kod === z.obrazac_kod);
+                // Ispravlja se posljednja verzija; terenska uloga samo svoj zapis (R-07).
+                const mozeIspraviti = z.vazeci && !!obrazac && (vodiSistem || z.uneo_korisnik_id === korisnik?.id);
+                return (
+                  <tr key={z.id} style={z.vazeci ? undefined : { opacity: 0.55 }}>
+                    <td>
+                      {z.obrazac_kod}
+                      {z.ispravlja_id && <span className="muted-text"> · ispravka</span>}
+                      {!z.vazeci && <span className="muted-text"> · ispravljen</span>}
+                    </td>
+                    <td className="muted-text">{z.datum}<NaknadnoOznaka dana={z.naknadno_dana} /></td>
+                    <td>{z.izvrsilac}</td>
+                    <td>{z.odstupanje ? <StatusBadge status="OTVORENA" tekst="Da" /> : <span className="muted-text">Ne</span>}</td>
+                    <td className="muted-text">{z.korektivna_mjera ?? "—"}</td>
+                    <td>{mozeIspraviti && <button className="small-action" onClick={() => setModalZapis({ obrazac: obrazac!, ispravlja: z })}>Ispravi</button>}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -158,7 +217,7 @@ export function Haccp() {
       {modalMjerenje && (
         <NovoMjerenjeModal key={tacke.length} tacke={tacke} pocetnaTacka={saPlana?.mjerenje} lotovi={lotovi} onClose={() => setModalMjerenje(false)} onCreated={ucitaj} />
       )}
-      {modalZapis && <NoviZapisModal obrazac={modalZapis} onClose={() => setModalZapis(null)} onCreated={ucitaj} />}
+      {modalZapis && <NoviZapisModal obrazac={modalZapis.obrazac} ispravlja={modalZapis.ispravlja} onClose={() => setModalZapis(null)} onCreated={ucitaj} />}
     </>
   );
 }
@@ -170,10 +229,14 @@ function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, onClose, onCreated }: 
   const [napomena, setNapomena] = useState("");
   const [rezultat, setRezultat] = useState<string | null>(null);
   const [greska, setGreska] = useState("");
+  const { termometri, termometarId, setTermometarId } = useIzborTermometra();
 
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      const r = await api<{ rezultat: string }>("/mjerenja", { telo: { kontrolnaTackaId, lotId: lotId || undefined, vrijednost: Number(vrijednost), napomena: napomena || undefined } });
+      const r = await api<{ rezultat: string }>("/mjerenja", {
+        telo: { kontrolnaTackaId, lotId: lotId || undefined, vrijednost: Number(vrijednost), napomena: napomena || undefined, mjerniUredjajId: termometarId || undefined },
+      });
       setRezultat(r.rezultat);
       onCreated();
     } catch (e) {
@@ -192,8 +255,9 @@ function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, onClose, onCreated }: 
     );
   }
 
+  const trebaTermometar = termometri.length > 0 && !termometarId;
   return (
-    <Modal naslov="Novo temperaturno mjerenje" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!kontrolnaTackaId || !vrijednost}>Sačuvaj</button></>}>
+    <Modal naslov="Novo temperaturno mjerenje" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !kontrolnaTackaId || !vrijednost || trebaTermometar}>Sačuvaj</button></>}>
       <div className="form-grid">
         <label>
           Kontrolna tačka
@@ -205,26 +269,36 @@ function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, onClose, onCreated }: 
           Lot (opciono)
           <select value={lotId} onChange={(e) => setLotId(e.target.value)}>
             <option value="">— nije vezano za lot —</option>
-            {lotovi.map((l) => <option key={l.id} value={l.id}>{l.artikal_naziv} · {l.broj_lota}</option>)}
+            {lotovi.map((l) => <option key={l.id} value={l.id}>{l.artikal_naziv} · {l.broj_lota}{l.status === "HOLD" ? " (zadržan)" : ""}</option>)}
           </select>
         </label>
         <label>Vrijednost (°C) <ZakonskaOznaka clan="36" /><input type="number" step="0.1" value={vrijednost} onChange={(e) => setVrijednost(e.target.value)} /></label>
-        <label>Napomena<input value={napomena} onChange={(e) => setNapomena(e.target.value)} /></label>
+        <IzborTermometra termometri={termometri} value={termometarId} onChange={setTermometarId} obavezan />
+        <label style={{ gridColumn: "1 / -1" }}>Napomena<input value={napomena} onChange={(e) => setNapomena(e.target.value)} /></label>
       </div>
+      {lotId && <p className="muted-text" style={{ fontSize: 11, margin: "0 20px 12px" }}>Lot se ocjenjuje po granici svog artikla.</p>}
     </Modal>
   );
 }
 
-function NoviZapisModal({ obrazac, onClose, onCreated }: { obrazac: Obrazac; onClose: () => void; onCreated: () => void }) {
-  const [datum, setDatum] = useState(lokalniDatum());
-  const [podaci, setPodaci] = useState<Record<string, unknown>>({});
-  const [odstupanje, setOdstupanje] = useState(false);
-  const [korektivnaMjera, setKorektivnaMjera] = useState("");
+function NoviZapisModal({ obrazac, ispravlja, onClose, onCreated }: { obrazac: Obrazac; ispravlja?: Zapis; onClose: () => void; onCreated: () => void }) {
+  const [datum, setDatum] = useState(ispravlja?.datum ?? lokalniDatum());
+  // Da/ne se ne podrazumijeva — ni „da", ni „ne" (R-08: nije odgovoreno ≠ u redu).
+  const [podaci, setPodaci] = useState<Record<string, unknown>>(ispravlja?.podaci ?? {});
+  const [rucnoOdstupanje, setRucnoOdstupanje] = useState(ispravlja?.odstupanje ?? false);
+  const [korektivnaMjera, setKorektivnaMjera] = useState(ispravlja?.korektivna_mjera ?? "");
   const [greska, setGreska] = useState("");
 
+  const izPolja = odstupanjaIzPolja(obrazac, podaci);
+  const odstupanje = rucnoOdstupanje || izPolja.length > 0;
+  const neodgovoreno = obrazac.polja.filter((p) => (p.tip === "checkbox" && typeof podaci[p.kljuc] !== "boolean") || (p.obavezno && p.tip !== "checkbox" && !String(podaci[p.kljuc] ?? "").trim()));
+
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      await api("/zapisi", { telo: { obrazacKod: obrazac.kod, datum, podaci, odstupanje, korektivnaMjera: korektivnaMjera || undefined } });
+      await api("/zapisi", {
+        telo: { obrazacKod: obrazac.kod, datum, podaci, odstupanje, korektivnaMjera: korektivnaMjera.trim() || undefined, ispravljaId: ispravlja?.id },
+      });
       onCreated();
       onClose();
     } catch (e) {
@@ -233,35 +307,55 @@ function NoviZapisModal({ obrazac, onClose, onCreated }: { obrazac: Obrazac; onC
   };
 
   return (
-    <Modal naslov={`${obrazac.kod} — ${obrazac.naziv}`} onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={odstupanje && !korektivnaMjera.trim()}>Sačuvaj</button></>}>
+    <Modal
+      naslov={`${ispravlja ? "Ispravka — " : ""}${obrazac.kod} — ${obrazac.naziv}`}
+      podnaslov={ispravlja ? "Stari zapis ostaje sačuvan i vidljiv; važi ovaj novi." : undefined}
+      onClose={onClose}
+      greska={greska}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || neodgovoreno.length > 0 || (odstupanje && !korektivnaMjera.trim())}>Sačuvaj</button></>}
+    >
       <div className="form-grid">
-        <label>Datum<input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} /></label>
+        <label>Datum<input type="date" value={datum} disabled={!!ispravlja} onChange={(e) => setDatum(e.target.value)} /></label>
         {obrazac.polja.map((polje) => (
           <label key={polje.kljuc}>
             {polje.oznaka}
             {polje.tip === "checkbox" ? (
-              <select value={podaci[polje.kljuc] ? "da" : "ne"} onChange={(e) => setPodaci((p) => ({ ...p, [polje.kljuc]: e.target.value === "da" }))}>
+              <select
+                value={typeof podaci[polje.kljuc] === "boolean" ? (podaci[polje.kljuc] ? "da" : "ne") : ""}
+                onChange={(e) => setPodaci((p) => ({ ...p, [polje.kljuc]: e.target.value === "" ? undefined : e.target.value === "da" }))}
+                style={polje.odstupanjeAko !== undefined && podaci[polje.kljuc] === polje.odstupanjeAko ? { borderColor: "#df686c" } : undefined}
+              >
+                <option value="">— izaberite —</option>
                 <option value="da">Da</option>
                 <option value="ne">Ne</option>
               </select>
             ) : (
-              <input value={(podaci[polje.kljuc] as string) ?? ""} onChange={(e) => setPodaci((p) => ({ ...p, [polje.kljuc]: e.target.value }))} />
+              <input
+                type={polje.tip === "number" ? "number" : "text"}
+                value={(podaci[polje.kljuc] as string) ?? ""}
+                onChange={(e) => setPodaci((p) => ({ ...p, [polje.kljuc]: e.target.value }))}
+              />
             )}
           </label>
         ))}
       </div>
       <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-        <label>
-          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="checkbox" checked={odstupanje} onChange={(e) => setOdstupanje(e.target.checked)} style={{ width: "auto", height: "auto" }} /> Ima odstupanja
-          </span>
-        </label>
+        {izPolja.length > 0 ? (
+          <p style={{ fontSize: 12, color: "#c34e55", margin: 0 }}>Odstupanje: {izPolja.join("; ")}. Upišite šta je preduzeto.</p>
+        ) : (
+          <label>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={rucnoOdstupanje} onChange={(e) => setRucnoOdstupanje(e.target.checked)} style={{ width: "auto", height: "auto" }} /> Ima drugih odstupanja
+            </span>
+          </label>
+        )}
         {odstupanje && (
           <label>
             Korektivna mjera <ZakonskaOznaka clan="36" />
             <input value={korektivnaMjera} onChange={(e) => setKorektivnaMjera(e.target.value)} placeholder="Odstupanje bez zapisane mjere je nalaz protiv firme." />
           </label>
         )}
+        {neodgovoreno.length > 0 && <p className="muted-text" style={{ fontSize: 11, margin: 0 }}>Odgovorite na: {neodgovoreno.map((p) => p.oznaka).join(", ")}.</p>}
       </div>
     </Modal>
   );

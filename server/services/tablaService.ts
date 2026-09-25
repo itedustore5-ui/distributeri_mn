@@ -4,6 +4,7 @@ import { danasCG } from "../vrijeme.js";
 import { stanjeDanas } from "./monitoringService.js";
 import { listaUredjaja, stanjeVerifikacije } from "./haccpPlanService.js";
 import { IZVOR_OZNAKA, IME } from "./sqlDijelovi.js";
+import { brojPoRoku, SQL_ROK_ROBE } from "./rokoviService.js";
 
 // Kontrolni centar: brojevi na karticama, „Aktivnost uživo" i lista iza svakog broja
 // (faza 4: SQL iz rute u servis). Ruta samo provjeri ulogu.
@@ -27,7 +28,7 @@ const HITNO = ["ISTEKLA", "NEISPRAVAN", "KASNI", "NIJE_RADJENO"];
  * UTC, pa bi između ponoći i 1–2h tabla pokazivala jučerašnje brojke. */
 export async function pregledTable() {
   const danas = danasCG();
-  const [monitoring, rokovi] = await Promise.all([stanjeDanas(), haccpRokovi()]);
+  const [monitoring, rokovi, robaRok] = await Promise.all([stanjeDanas(), haccpRokovi(), brojPoRoku()]);
   const [nc, temp, vozila, lotovi, zadaci, zadaciOtvoreni, prijemi, isporuke, knjizice, povlacenja, zapisi] = await Promise.all([
     upit(`select ozbiljnost, count(*)::int as broj from neusaglasenost where status not in ('ZATVORENA') group by ozbiljnost`),
     upit(`select count(*)::int as broj from mjerenje_temperature where rezultat = 'FAIL' and izmjereno_at > now() - interval '24 hours'`),
@@ -57,6 +58,9 @@ export async function pregledTable() {
       monitoringFali: monitoring.stavke.filter((s) => s.fali > 0).length,
       monitoringJuce: monitoring.juce.length,
       haccpRokovi: rokovi.filter((r) => HITNO.includes(r.stanje)).length,
+      // Rok robe na slobodnoj zalihi (R-02): isteklo se ne isporučuje, uskoro = narednih 7 dana.
+      robaIstekao: robaRok.istekao,
+      robaUskoro: robaRok.uskoro,
     },
     operativno: {
       prijemiDanas: prijemi.rows[0]?.broj ?? 0,
@@ -209,6 +213,15 @@ const DETALJ: Record<string, { naslov: string; kolone: Kolona[]; sql: string; sa
     sql: `select i.broj, k.naziv as kupac, i.status, ${IME("i.vozac_korisnik_id")} as vozac, v.registarski_broj as vozilo, ${VRIJEME("i.potvrdjeno_at")} as predato
           from isporuka i join kupac k on k.id = i.kupac_id left join vozilo v on v.id = i.vozilo_id
           where i.datum_isporuke = $1 order by i.created_at desc`,
+  },
+  "rok-robe": {
+    naslov: "Rok trajanja robe na zalihi — istekao ili ističe za 7 dana",
+    prazno: "Nema robe kojoj rok ističe.",
+    kolone: [
+      { kljuc: "artikal", naziv: "Artikal" }, { kljuc: "lot", naziv: "Lot" }, { kljuc: "dobavljac", naziv: "Dobavljač" }, { kljuc: "magacin", naziv: "Magacin" },
+      { kljuc: "rok", naziv: "Rok" }, { kljuc: "dostupno", naziv: "Na zalihi" }, { kljuc: "stanje", naziv: "Stanje", vrsta: "status" },
+    ],
+    sql: SQL_ROK_ROBE,
   },
   zapisi: {
     naslov: "Dnevni zapisi danas",

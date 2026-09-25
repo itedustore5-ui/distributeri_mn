@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Printer, Download, Search } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
+import { useSlanje } from "../lib/slanje";
 import { lokalniDatum } from "../lib/vrijeme";
 import { preuzmiCsv } from "../lib/csv";
 import { PageHeader, Modal, ZakonskaOznaka, StampaZaglavlje } from "../components/Zajednicko";
@@ -57,12 +58,14 @@ export function Zalihe() {
   const [lotovi, setLotovi] = useState<Lot[]>([]);
   const [otpisLot, setOtpisLot] = useState<Lot | null>(null);
   const [holdOdluka, setHoldOdluka] = useState<{ lot: Lot; odluka: "PRIHVATI" | "ODBIJI" } | null>(null);
+  const [karantinOdluka, setKarantinOdluka] = useState<{ lot: Lot; odluka: "PUSTI" | "OTPISI" } | null>(null);
   const odlucuje = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
 
-  // Sa Kontrolnog centra ("Lotovi na HOLD-u") stiže sa već izabranim statusom.
-  const [status, setStatus] = useState((useLocation().state as { status?: string } | null)?.status ?? "PRIHVACEN");
+  // Sa Kontrolnog centra ("Lotovi na HOLD-u", "Rok robe") stiže sa već izabranim statusom ili rokom.
+  const saKartice = useLocation().state as { status?: string; rok?: string } | null;
+  const [status, setStatus] = useState(saKartice?.status ?? "PRIHVACEN");
   const [pretraga, setPretraga] = useState("");
-  const [rok, setRok] = useState("");
+  const [rok, setRok] = useState(saKartice?.rok ?? "");
   const [dobavljac, setDobavljac] = useState("");
   const [artikal, setArtikal] = useState("");
   const [magacin, setMagacin] = useState("");
@@ -264,6 +267,13 @@ export function Zalihe() {
                         {mozeOtpisati && Number(l.dostupno) > 0 && (
                           <button className="small-action" onClick={() => setOtpisLot(l)}>Otpiši</button>
                         )}
+                        {/* Roba vraćena sa isporuke čeka pregled u karantinu prihvaćenog lota (R-03). */}
+                        {odlucuje && l.status === "PRIHVACEN" && Number(l.karantin) > 0 && (
+                          <>
+                            <button className="small-action" onClick={() => setKarantinOdluka({ lot: l, odluka: "PUSTI" })}>Iz karantina: pusti</button>
+                            <button className="small-action odstupanje-dugme" onClick={() => setKarantinOdluka({ lot: l, odluka: "OTPISI" })}>Iz karantina: otpiši</button>
+                          </>
+                        )}
                         {odlucuje && l.status === "HOLD" && (
                           <>
                             <button className="small-action" onClick={() => setHoldOdluka({ lot: l, odluka: "PRIHVATI" })}>Pusti</button>
@@ -291,6 +301,17 @@ export function Zalihe() {
           }}
         />
       )}
+      {karantinOdluka && (
+        <KarantinModal
+          lot={karantinOdluka.lot}
+          odluka={karantinOdluka.odluka}
+          onClose={() => setKarantinOdluka(null)}
+          onSacuvano={() => {
+            setKarantinOdluka(null);
+            ucitaj();
+          }}
+        />
+      )}
       {otpisLot && (
         <OtpisModal
           lot={otpisLot}
@@ -310,6 +331,7 @@ function OtpisModal({ lot, onClose, onSacuvano }: { lot: Lot; onClose: () => voi
   const [razlog, setRazlog] = useState("");
   const [greska, setGreska] = useState("");
 
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
       await api(`/lotovi/${lot.id}/otpis`, { method: "POST", telo: { kolicina: Number(kolicina), razlog } });
@@ -327,7 +349,7 @@ function OtpisModal({ lot, onClose, onSacuvano }: { lot: Lot; onClose: () => voi
       podnaslov={`${lot.artikal_naziv} · dostupno ${lot.dostupno}`}
       onClose={onClose}
       greska={greska}
-      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!validno}>Sačuvaj otpis</button></>}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !validno}>Sačuvaj otpis</button></>}
     >
       <div className="form-grid" style={{ padding: 20 }}>
         <label>
@@ -351,6 +373,7 @@ function HoldOdlukaModal({ lot, odluka, onClose, onSacuvano }: { lot: Lot; odluk
   const kolicina = Number(lot.karantin) > 0 ? Number(lot.karantin) : Number(lot.primljena_kolicina);
   const pusti = odluka === "PRIHVATI";
 
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
       await api(`/prijem/${lot.prijem_id}/lot/${lot.id}/odluka`, { method: "PATCH", telo: { odluka, kolicina, napomena: razlog.trim() } });
@@ -366,7 +389,7 @@ function HoldOdlukaModal({ lot, odluka, onClose, onSacuvano }: { lot: Lot; odluk
       podnaslov={`${lot.artikal_naziv} · ${kolicina} u karantinu`}
       onClose={onClose}
       greska={greska}
-      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={razlog.trim().length < 3}>{pusti ? "Pusti u prodaju" : "Odbij robu"}</button></>}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || razlog.trim().length < 3}>{pusti ? "Pusti u prodaju" : "Odbij robu"}</button></>}
     >
       <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
         <p className="muted-text" style={{ fontSize: 11, margin: 0 }}>
@@ -377,6 +400,53 @@ function HoldOdlukaModal({ lot, odluka, onClose, onSacuvano }: { lot: Lot; odluk
         <label>
           Razlog <ZakonskaOznaka clan="36" />
           <textarea rows={3} value={razlog} onChange={(e) => setRazlog(e.target.value)} placeholder={pusti ? "npr. ponovljeno mjerenje 3,8 °C, roba ispravna" : "npr. povrat dobavljaču — prekid hladnog lanca"} />
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+/** Roba vraćena sa isporuke (odbijena ili nepredata) stoji u karantinu dok je odgovorno lice ne
+ * pregleda (nalaz R-03): vraća se u prodaju ili otpisuje — uvijek sa onim što je pregledano. */
+function KarantinModal({ lot, odluka, onClose, onSacuvano }: { lot: Lot; odluka: "PUSTI" | "OTPISI"; onClose: () => void; onSacuvano: () => void }) {
+  const [kolicina, setKolicina] = useState(String(Number(lot.karantin)));
+  const [razlog, setRazlog] = useState("");
+  const [greska, setGreska] = useState("");
+  const pusti = odluka === "PUSTI";
+
+  const { radim, salji } = useSlanje();
+  const posalji = async () => {
+    try {
+      await api(`/lotovi/${lot.id}/karantin`, { telo: { odluka, kolicina: Number(kolicina), razlog: razlog.trim() } });
+      onSacuvano();
+    } catch (e) {
+      setGreska(e instanceof ApiGreska ? e.message : "Odluka nije sačuvana.");
+    }
+  };
+
+  const validno = Number(kolicina) > 0 && Number(kolicina) <= Number(lot.karantin) && razlog.trim().length >= 3;
+
+  return (
+    <Modal
+      naslov={pusti ? `Iz karantina u prodaju — ${lot.broj_lota}` : `Otpis iz karantina — ${lot.broj_lota}`}
+      podnaslov={`${lot.artikal_naziv} · ${Number(lot.karantin)} u karantinu (povrat sa isporuke)`}
+      onClose={onClose}
+      greska={greska}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !validno}>{pusti ? "Vrati u prodaju" : "Otpiši"}</button></>}
+    >
+      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+        <p className="muted-text" style={{ fontSize: 11, margin: 0 }}>
+          {pusti
+            ? "Roba je bila van magacina. Vratite je u prodaju samo ako je pregledana: temperatura, ambalaža, rok."
+            : "Roba izlazi iz magacina (uništenje ili povrat dobavljaču) i upisuje se u dnevnik kretanja zalihe."}
+        </p>
+        <label>
+          Količina
+          <input type="number" step="0.001" max={lot.karantin} value={kolicina} onChange={(e) => setKolicina(e.target.value)} />
+        </label>
+        <label>
+          Šta je pregledano <ZakonskaOznaka clan="36" />
+          <textarea rows={3} value={razlog} onChange={(e) => setRazlog(e.target.value)} placeholder={pusti ? "npr. 3,6 °C, ambalaža čitava, rok 12.10." : "npr. prekid hladnog lanca, oštećena ambalaža"} />
         </label>
       </div>
     </Modal>

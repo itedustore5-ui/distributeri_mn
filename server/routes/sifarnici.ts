@@ -4,7 +4,7 @@ import { pool, upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, type AuthZahtjev, sviPrijavljeni } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
-import { logKreiranje, logIzmjena } from "../services/auditService.js";
+import { logKreiranje, logIzmjenaReda, stanjeReda } from "../services/auditService.js";
 import { uskladiPravilaArtikla } from "../services/pravilaService.js";
 
 export const sifarniciRuter = Router();
@@ -42,12 +42,15 @@ sifarniciRuter.patch(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(dobavljacSchema, request.body);
+    const id = str(request.params.id);
     await transakcija(async (klijent) => {
+      const prije = await stanjeReda(klijent, "dobavljac", id, true);
+      if (!prije) throw new ApiGreska(404, "DOBAVLJAC_NE_POSTOJI", "Dobavljač nije pronađen.");
       await klijent.query(
         `update dobavljac set naziv = $1, pib = $2, adresa = $3, telefon = $4, email = $5 where id = $6`,
-        [ulaz.naziv, ulaz.pib ?? null, ulaz.adresa ?? null, ulaz.telefon ?? null, ulaz.email || null, request.params.id],
+        [ulaz.naziv, ulaz.pib ?? null, ulaz.adresa ?? null, ulaz.telefon ?? null, ulaz.email || null, id],
       );
-      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "dobavljac", entitetId: str(request.params.id), noveVrijednosti: ulaz });
+      await logIzmjenaReda(klijent, { korisnikId: request.korisnik!.id, entitetTip: "dobavljac", entitetId: id, prije, poslije: await stanjeReda(klijent, "dobavljac", id) });
     });
     response.status(204).end();
   }),
@@ -87,12 +90,15 @@ sifarniciRuter.patch(
   requireUloga("bzr", "izvodjac", "operater"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(kupacSchema, request.body);
+    const id = str(request.params.id);
     await transakcija(async (klijent) => {
+      const prije = await stanjeReda(klijent, "kupac", id, true);
+      if (!prije) throw new ApiGreska(404, "KUPAC_NE_POSTOJI", "Kupac nije pronađen.");
       await klijent.query(
         `update kupac set naziv = $1, adresa = $2, telefon = $3, email = $4 where id = $5`,
-        [ulaz.naziv, ulaz.adresa ?? null, ulaz.telefon, ulaz.email || null, request.params.id],
+        [ulaz.naziv, ulaz.adresa ?? null, ulaz.telefon, ulaz.email || null, id],
       );
-      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "kupac", entitetId: str(request.params.id), noveVrijednosti: ulaz });
+      await logIzmjenaReda(klijent, { korisnikId: request.korisnik!.id, entitetTip: "kupac", entitetId: id, prije, poslije: await stanjeReda(klijent, "kupac", id) });
     });
     response.status(204).end();
   }),
@@ -139,7 +145,10 @@ sifarniciRuter.patch(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(artikalSchema.partial(), request.body);
+    const id = str(request.params.id);
     await transakcija(async (klijent) => {
+      const prije = await stanjeReda(klijent, "artikal", id, true);
+      if (!prije) throw new ApiGreska(404, "ARTIKAL_NE_POSTOJI", "Artikal nije pronađen.");
       await klijent.query(
         `update artikal set
            naziv = coalesce($1, naziv), jedinica_mjere = coalesce($2, jedinica_mjere),
@@ -156,11 +165,11 @@ sifarniciRuter.patch(
           ulaz.tempMax ?? null,
           ulaz.rokTrajanjaDana ?? null,
           ulaz.granicaPotvrdio ?? null,
-          request.params.id,
+          id,
         ],
       );
-      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "artikal", entitetId: str(request.params.id), noveVrijednosti: ulaz });
-      await uskladiPravilaArtikla(klijent, str(request.params.id), request.korisnik!.id);
+      await logIzmjenaReda(klijent, { korisnikId: request.korisnik!.id, entitetTip: "artikal", entitetId: id, prije, poslije: await stanjeReda(klijent, "artikal", id) });
+      await uskladiPravilaArtikla(klijent, id, request.korisnik!.id);
     });
     response.status(204).end();
   }),
@@ -219,12 +228,13 @@ sifarniciRuter.patch(
     }
     try {
       await transakcija(async (klijent) => {
-        const rezultat = await klijent.query(
+        const prije = await stanjeReda(klijent, "skladiste", id, true);
+        if (!prije) throw new ApiGreska(404, "SKLADISTE_NE_POSTOJI", "Skladište nije pronađeno.");
+        await klijent.query(
           `update skladiste set naziv = $1, adresa = $2, aktivan = coalesce($3, aktivan) where id = $4`,
           [ulaz.naziv, ulaz.adresa || null, ulaz.aktivan ?? null, id],
         );
-        if (rezultat.rowCount === 0) throw new ApiGreska(404, "SKLADISTE_NE_POSTOJI", "Skladište nije pronađeno.");
-        await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "skladiste", entitetId: id, noveVrijednosti: ulaz });
+        await logIzmjenaReda(klijent, { korisnikId: request.korisnik!.id, entitetTip: "skladiste", entitetId: id, prije, poslije: await stanjeReda(klijent, "skladiste", id) });
       });
     } catch (e) {
       if ((e as { code?: string }).code === JEDINSTVEN_NAZIV) throw new ApiGreska(409, "SKLADISTE_POSTOJI", "Skladište sa tim nazivom već postoji.");

@@ -2,7 +2,8 @@ import express, { Router } from "express";
 import { z } from "zod";
 import { upit, pool } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
-import { requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
+import { requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, samoMoje, type AuthZahtjev } from "../auth.js";
+import { kljucIzZaglavlja } from "../services/kljucService.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajPrijem, donesiOdlukuOLotu, izmijeniStavku } from "../services/prijemService.js";
 import { prepoznajVrstu, procitajOtpremnicu } from "../services/otpremnicaService.js";
@@ -32,11 +33,14 @@ prijemRuter.get(
 prijemRuter.get(
   "/prijem/:id",
   requireUloga("operater", "bzr", "izvodjac"),
-  asyncRuta(async (request, response) => {
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    // Magacioner vidi prijem samo u svom prozoru datuma — isto kao lista (R-13).
+    const uloga = request.korisnik!.uloga;
     const prijem = await upit(
       `select p.*, d.naziv as dobavljac_naziv, s.naziv as skladiste_naziv from prijem p
-       join dobavljac d on d.id = p.dobavljac_id left join skladiste s on s.id = p.skladiste_id where p.id = $1`,
-      [request.params.id],
+       join dobavljac d on d.id = p.dobavljac_id left join skladiste s on s.id = p.skladiste_id
+       where p.id = $1 ${samoMoje(uloga) ? `and ${ogranicenjeDatuma(uloga, "p.datum_prijema")}` : ""}`,
+      [str(request.params.id)],
     );
     if (!prijem.rows[0]) throw new ApiGreska(404, "PRIJEM_NE_POSTOJI", "Prijem nije pronađen.");
     const stavke = await upit(
@@ -78,6 +82,7 @@ const noviPrijemSchema = z.object({
   datumPrijema: z.string(),
   napomena: z.string().optional(),
   dokumentId: z.string().uuid().optional(),
+  mjerniUredjajId: z.string().uuid().optional(),
   stavke: z.array(stavkaSchema).min(1),
 });
 
@@ -114,10 +119,12 @@ prijemRuter.post(
 prijemRuter.get(
   "/prijem/:id/dokument/:dokumentId",
   requireUloga("operater", "bzr", "izvodjac"),
-  asyncRuta(async (request, response) => {
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const uloga = request.korisnik!.uloga;
     const r = await upit<{ mime: string; naziv_fajla: string | null; sadrzaj: Buffer }>(
-      `select mime, naziv_fajla, sadrzaj from prijem_dokument where id = $1 and prijem_id = $2`,
-      [request.params.dokumentId, request.params.id],
+      `select d.mime, d.naziv_fajla, d.sadrzaj from prijem_dokument d join prijem p on p.id = d.prijem_id
+       where d.id = $1 and d.prijem_id = $2 ${samoMoje(uloga) ? `and ${ogranicenjeDatuma(uloga, "p.datum_prijema")}` : ""}`,
+      [str(request.params.dokumentId), str(request.params.id)],
     );
     const d = r.rows[0];
     if (!d) throw new ApiGreska(404, "DOKUMENT_NE_POSTOJI", "Otpremnica nije pronađena.");
@@ -133,7 +140,7 @@ prijemRuter.post(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviPrijemSchema, request.body);
     provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumPrijema);
-    const prijemId = await kreirajPrijem(ulaz, request.korisnik!.id);
+    const prijemId = await kreirajPrijem(ulaz, request.korisnik!.id, kljucIzZaglavlja(request.headers["x-kljuc-zahtjeva"]));
     response.status(201).json({ id: prijemId });
   }),
 );
@@ -152,8 +159,8 @@ prijemRuter.patch(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(izmjenaStavkeSchema, request.body);
     const prijem = await upit<{ datum_prijema: string }>(
-      `select p.datum_prijema from lot l join prijem p on p.id = l.prijem_id where l.id = $1`,
-      [str(request.params.lotId)],
+      `select p.datum_prijema from lot l join prijem p on p.id = l.prijem_id where l.id = $1 and l.prijem_id = $2`,
+      [str(request.params.lotId), str(request.params.prijemId)],
     );
     if (!prijem.rows[0]) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Stavka prijema nije pronađena.");
     // Izmjena je upis — isti prozor kao za novi prijem, inače magacioner mijenja staru stavku koja čeka odluku.

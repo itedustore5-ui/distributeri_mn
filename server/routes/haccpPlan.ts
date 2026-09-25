@@ -4,7 +4,7 @@ import { upit, transakcija } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, izvrsilacZa, NA_TERENU, type AuthZahtjev, sviPrijavljeni } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
-import { logKreiranje, logIzmjena } from "../services/auditService.js";
+import { logKreiranje, logIzmjenaReda, stanjeReda } from "../services/auditService.js";
 import { UCESTALOSTI, stavkePlana, stanjeDanas, pregledRupa, osnovniPlan } from "../services/monitoringService.js";
 import { listaUredjaja, zabiljeziProvjeru, stanjeVerifikacije, zabiljeziVerifikaciju, haccpPlan, VRSTE_VERIFIKACIJE } from "../services/haccpPlanService.js";
 
@@ -102,7 +102,10 @@ haccpPlanRuter.patch(
       request.body,
     );
     await transakcija(async (klijent) => {
-      const r = await klijent.query(
+      const id = str(request.params.id);
+      const prije = await stanjeReda(klijent, "plan_monitoringa", id, true);
+      if (!prije) throw new ApiGreska(404, "STAVKA_NE_POSTOJI", "Stavka plana nije pronađena.");
+      await klijent.query(
         `update plan_monitoringa set
            naziv = coalesce($1, naziv), ucestalost = coalesce($2, ucestalost), puta = coalesce($3, puta),
            uloga = case when $4::boolean then $5::uloga_t else uloga end,
@@ -113,11 +116,10 @@ haccpPlanRuter.patch(
           u.naziv ?? null, u.ucestalost ?? null, u.puta ?? null,
           u.uloga !== undefined, u.uloga ?? null,
           u.skladisteId !== undefined, u.skladisteId ?? null,
-          u.napomena ?? null, u.aktivan ?? null, str(request.params.id),
+          u.napomena ?? null, u.aktivan ?? null, id,
         ],
       );
-      if (r.rowCount === 0) throw new ApiGreska(404, "STAVKA_NE_POSTOJI", "Stavka plana nije pronađena.");
-      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "plan_monitoringa", entitetId: str(request.params.id), noveVrijednosti: u });
+      await logIzmjenaReda(klijent, { korisnikId: request.korisnik!.id, entitetTip: "plan_monitoringa", entitetId: id, prije, poslije: await stanjeReda(klijent, "plan_monitoringa", id) });
     });
     response.status(204).end();
   }),
@@ -172,7 +174,8 @@ haccpPlanRuter.patch(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const u = tijelo(tackaSchema.omit({ sifra: true }).partial().extend({ aktivan: z.boolean().optional() }), request.body);
     await transakcija(async (klijent) => {
-      const t = (await klijent.query<{ sifra: string }>(`select sifra from kontrolna_tacka where id = $1 for update`, [str(request.params.id)])).rows[0];
+      const id = str(request.params.id);
+      const t = (await stanjeReda(klijent, "kontrolna_tacka", id, true)) as { sifra: string } | null;
       if (!t) throw new ApiGreska(404, "TACKA_NE_POSTOJI", "Kontrolna tačka nije pronađena.");
       if (u.aktivan === false && NEZAMJENJIVE.includes(t.sifra)) {
         throw new ApiGreska(409, "TACKA_NEZAMJENJIVA", `${t.sifra} koriste prijem i isporuka — ne može se isključiti.`);
@@ -181,15 +184,24 @@ haccpPlanRuter.patch(
         `update kontrolna_tacka set naziv = coalesce($1, naziv), opis = coalesce($2, opis), opasnost = coalesce($3, opasnost),
            korektivna_mjera = coalesce($4, korektivna_mjera), verifikacija = coalesce($5, verifikacija), aktivan = coalesce($6, aktivan)
          where id = $7`,
-        [u.naziv ?? null, u.opis ?? null, u.opasnost ?? null, u.korektivnaMjera ?? null, u.verifikacija ?? null, u.aktivan ?? null, str(request.params.id)],
+        [u.naziv ?? null, u.opis ?? null, u.opasnost ?? null, u.korektivnaMjera ?? null, u.verifikacija ?? null, u.aktivan ?? null, id],
       );
-      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "kontrolna_tacka", entitetId: str(request.params.id), noveVrijednosti: u });
+      await logIzmjenaReda(klijent, { korisnikId: request.korisnik!.id, entitetTip: "kontrolna_tacka", entitetId: id, prije: t, poslije: await stanjeReda(klijent, "kontrolna_tacka", id) });
     });
     response.status(204).end();
   }),
 );
 
 // ─── Mjerni uređaji ──────────────────────────────────────────────────────────────────────────────
+// Izbor termometra pri mjerenju (R-23) — svako ko mjeri (i vozač pri predaji) vidi samo naziv i stanje.
+haccpPlanRuter.get(
+  "/termometri",
+  sviPrijavljeni(),
+  asyncRuta(async (_request, response) => {
+    response.json((await listaUredjaja(true)).map((u) => ({ id: u.id, naziv: u.naziv, oznaka: u.oznaka, lokacija: u.lokacija, stanje: u.stanje })));
+  }),
+);
+
 haccpPlanRuter.get(
   "/mjerni-uredjaji",
   requireUloga("operater", "bzr", "izvodjac", "uprava"),
@@ -229,16 +241,18 @@ haccpPlanRuter.patch(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const u = tijelo(uredjajSchema.partial().extend({ aktivan: z.boolean().optional() }), request.body);
     await transakcija(async (klijent) => {
-      const r = await klijent.query(
+      const id = str(request.params.id);
+      const prije = await stanjeReda(klijent, "mjerni_uredjaj", id, true);
+      if (!prije) throw new ApiGreska(404, "UREDJAJ_NE_POSTOJI", "Mjerni uređaj nije pronađen.");
+      await klijent.query(
         `update mjerni_uredjaj set naziv = coalesce($1, naziv), oznaka = coalesce($2, oznaka), lokacija = coalesce($3, lokacija),
            interval_provjere_mjeseci = coalesce($4, interval_provjere_mjeseci),
            interval_kalibracije_mjeseci = case when $5::boolean then $6::int else interval_kalibracije_mjeseci end,
            aktivan = coalesce($7, aktivan), updated_at = now()
          where id = $8`,
-        [u.naziv ?? null, u.oznaka ?? null, u.lokacija ?? null, u.intervalProvjereMjeseci ?? null, u.intervalKalibracijeMjeseci !== undefined, u.intervalKalibracijeMjeseci ?? null, u.aktivan ?? null, str(request.params.id)],
+        [u.naziv ?? null, u.oznaka ?? null, u.lokacija ?? null, u.intervalProvjereMjeseci ?? null, u.intervalKalibracijeMjeseci !== undefined, u.intervalKalibracijeMjeseci ?? null, u.aktivan ?? null, id],
       );
-      if (r.rowCount === 0) throw new ApiGreska(404, "UREDJAJ_NE_POSTOJI", "Mjerni uređaj nije pronađen.");
-      await logIzmjena(klijent, { korisnikId: request.korisnik!.id, entitetTip: "mjerni_uredjaj", entitetId: str(request.params.id), noveVrijednosti: u });
+      await logIzmjenaReda(klijent, { korisnikId: request.korisnik!.id, entitetTip: "mjerni_uredjaj", entitetId: id, prije, poslije: await stanjeReda(klijent, "mjerni_uredjaj", id) });
     });
     response.status(204).end();
   }),

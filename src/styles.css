@@ -453,3 +453,4 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
 .form-grid label.odgovor-red { flex-direction: row; align-items: center; gap: 8px; }
 .form-grid label.odgovor-red input[type="radio"] { width: auto; height: auto; }
 .form-grid label.odgovor-red input:not([type="radio"]) { flex: 1; }
+.vehicle-card.warning { border-top: 3px solid var(--orange); }

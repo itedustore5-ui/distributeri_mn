@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Check } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
+import { useSlanje } from "../lib/slanje";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
@@ -15,6 +16,7 @@ type Nc = {
   prijavio: string | null;
   prijavio_korisnik_id: string | null;
   izvor_oznaka: string | null;
+  izvor_tip?: string;
   mjera_za_mene: boolean;
   mjera_kod: string | null;
   created_at: string;
@@ -206,7 +208,9 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
       if (otvorenaMjera?.dodijeljeno_korisnik_id === mojId) return "Mjera je dodijeljena vama: uradite je, upišite ispod šta je urađeno i označite „Urađeno“.";
       return `Čeka da ${otvorenaMjera?.dodijeljeno ?? "odgovorno lice"} uradi mjeru${otvorenaMjera?.rok ? ` (rok ${datum(otvorenaMjera.rok)})` : ""}.`;
     }
-    return vodiSistem ? "Mjera je urađena — provjerite na licu mjesta i zatvorite. Ne može provjeriti ista osoba koja je uradila mjeru." : "Mjera je urađena — čeka provjeru odgovornog lica.";
+    // Iz kontrole se zatvara tek kad ponovna kontrola prođe (R-22) — server to provjerava i kaže šta fali.
+    const ponovo = detalj.izvor_tip === "mjerenje_temperature" ? " Prije zatvaranja mora postojati novo mjerenje u granici." : detalj.izvor_tip === "kontrola_vozila" ? " Prije zatvaranja nova kontrola vozila (D1) mora proći." : detalj.izvor_tip === "mjerni_uredjaj" ? " Prije zatvaranja termometar mora proći novu provjeru." : "";
+    return vodiSistem ? `Mjera je urađena — provjerite na licu mjesta i zatvorite. Ne može provjeriti ista osoba koja je uradila mjeru.${ponovo}` : `Mjera je urađena — čeka provjeru odgovornog lica.${ponovo}`;
   })();
 
   return (
@@ -344,6 +348,7 @@ function NovaNcModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [ozbiljnost, setOzbiljnost] = useState("SREDNJI");
   const [greska, setGreska] = useState("");
 
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
       await api("/neusaglasenosti", { telo: { opis, ozbiljnost } });
@@ -360,7 +365,7 @@ function NovaNcModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
       podnaslov="Odgovorno lice dobija obavještenje i određuje mjeru"
       onClose={onClose}
       greska={greska}
-      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={opis.trim().length < 3}>Prijavi</button></>}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || opis.trim().length < 3}>Prijavi</button></>}
     >
       <div className="form-grid">
         <label style={{ gridColumn: "1 / -1" }}>

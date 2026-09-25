@@ -88,10 +88,22 @@ export async function zabiljeziProvjeru(uredjajId: string, ulaz: ProvjeraUlaz, i
     await logKreiranje(klijent, { korisnikId, entitetTip: "provjera_uredjaja", entitetId: p.rows[0].id, noveVrijednosti: { uredjajId, ...ulaz, rezultat } });
 
     let neusaglasenost: string | null = null;
+    let upitnaMjerenja = 0;
     if (rezultat === "NEISPRAVAN") {
       const oznaka = `${u.naziv}${u.oznaka ? ` (${u.oznaka})` : ""}`;
       const broj = await sljedeciBrojNc(klijent);
-      const opis = `Mjerni uređaj ${oznaka} nije prošao ${ulaz.vrsta === "KALIBRACIJA" ? "kalibraciju" : "provjeru"}${imaMjerenje ? `: referentno ${ulaz.referentna} °C, pokazao ${ulaz.izmjereno} °C` : ""}. Mjerenja njime od posljednje ispravne provjere su upitna.`;
+      // Koliko je mjerenja urađeno njime od posljednje ispravne provjere (R-23) — ta su upitna i
+      // na strani HACCP nose oznaku; bez ovoga se nije znalo ni da postoje.
+      const upitna = (
+        await klijent.query<{ n: number }>(
+          `select count(*)::int as n from mjerenje_temperature m
+           where m.mjerni_uredjaj_id = $1
+             and m.izmjereno_at > coalesce((select max(created_at) from provjera_uredjaja where uredjaj_id = $1 and rezultat = 'ISPRAVAN'), '-infinity'::timestamptz)`,
+          [uredjajId],
+        )
+      ).rows[0].n;
+      upitnaMjerenja = upitna;
+      const opis = `Mjerni uređaj ${oznaka} nije prošao ${ulaz.vrsta === "KALIBRACIJA" ? "kalibraciju" : "provjeru"}${imaMjerenje ? `: referentno ${ulaz.referentna} °C, pokazao ${ulaz.izmjereno} °C` : ""}. Mjerenja njime od posljednje ispravne provjere su upitna: ${upitna} (označena na strani HACCP).`;
       const nc = await klijent.query<{ id: string }>(
         `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
          values ($1, 'VISOK', 'OTVORENA', 'mjerni_uredjaj', $2, $3, $4) returning id`,
@@ -108,13 +120,13 @@ export async function zabiljeziProvjeru(uredjajId: string, ulaz: ProvjeraUlaz, i
       });
       await obavijestiUlogu(klijent, "bzr", {
         naslov: `Termometar nije prošao provjeru — ${oznaka}`,
-        poruka: `${broj}. Ne mjeriti njime dok se ne zamijeni ili kalibriše.`,
+        poruka: `${broj}. Ne mjeriti njime dok se ne zamijeni ili kalibriše.${upitna > 0 ? ` Upitnih mjerenja od posljednje ispravne provjere: ${upitna} — pregledajte ih na strani HACCP.` : ""}`,
         ozbiljnost: "VISOK",
         izvorTip: "mjerni_uredjaj",
         izvorId: uredjajId,
       });
     }
-    return { id: p.rows[0].id, rezultat, neusaglasenost };
+    return { id: p.rows[0].id, rezultat, neusaglasenost, upitnaMjerenja };
   });
 }
 

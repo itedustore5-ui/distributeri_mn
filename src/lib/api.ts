@@ -14,24 +14,52 @@ export class ApiGreska extends Error {
 type Opcije = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   telo?: unknown;
+  /** Ključ zahtjeva (noviKljuc) — server isti ključ ne upisuje dvaput. */
+  kljuc?: string;
 };
+
+// Isti upis (metoda + adresa + tijelo) koji je već u toku ne šalje se ponovo — drugi klik dobija
+// odgovor prvog (nalaz R-10). Čitanja (GET) se ne diraju.
+const uToku = new Map<string, Promise<unknown>>();
 
 export async function api<T = unknown>(putanja: string, opcije: Opcije = {}): Promise<T> {
   const metoda = opcije.method ?? (opcije.telo ? "POST" : "GET");
+  if (metoda === "GET") return posalji<T>(putanja, metoda, opcije);
+  const kljucMape = `${metoda} ${putanja} ${opcije.telo !== undefined ? JSON.stringify(opcije.telo) : ""}`;
+  const vec = uToku.get(kljucMape);
+  if (vec) return vec as Promise<T>;
+  const zahtjev = posalji<T>(putanja, metoda, opcije).finally(() => uToku.delete(kljucMape));
+  uToku.set(kljucMape, zahtjev);
+  return zahtjev;
+}
+
+async function posalji<T>(putanja: string, metoda: string, opcije: Opcije): Promise<T> {
   const zaglavlja: Record<string, string> = { "x-zahtjev-app": "1" };
   if (opcije.telo !== undefined) zaglavlja["Content-Type"] = "application/json";
+  if (opcije.kljuc) zaglavlja["x-kljuc-zahtjeva"] = opcije.kljuc;
 
-  const odgovor = await fetch(`/api${putanja}`, {
-    method: metoda,
-    credentials: "include",
-    headers: zaglavlja,
-    body: opcije.telo !== undefined ? JSON.stringify(opcije.telo) : undefined,
-  });
+  let odgovor: Response;
+  try {
+    odgovor = await fetch(`/api${putanja}`, {
+      method: metoda,
+      credentials: "include",
+      headers: zaglavlja,
+      body: opcije.telo !== undefined ? JSON.stringify(opcije.telo) : undefined,
+    });
+  } catch {
+    throw new ApiGreska(0, "NEMA_VEZE", "Nema veze sa serverom — provjerite internet pa pokušajte ponovo. Unos je ostao u formi.");
+  }
 
   if (odgovor.status === 204) return undefined as T;
 
   const tekst = await odgovor.text();
-  const podaci = tekst ? JSON.parse(tekst) : null;
+  let podaci: { error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null = null;
+  try {
+    podaci = tekst ? JSON.parse(tekst) : null;
+  } catch {
+    // Render vraća HTML stranicu (502/503) dok se servis budi ili restartuje.
+    throw new ApiGreska(odgovor.status, "SERVER_NEDOSTUPAN", "Server trenutno ne odgovara — pokušajte ponovo za minut. Unos je ostao u formi.");
+  }
 
   if (!odgovor.ok) {
     const greska = podaci?.error;

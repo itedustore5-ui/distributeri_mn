@@ -1,7 +1,9 @@
 import { transakcija, upit } from "../db.js";
+import { ApiGreska } from "../greske.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
+import { javiIsporukeSaLotom } from "./lotBlokadaService.js";
 
 export type RezultatMjerenja = "PASS" | "FAIL" | "WARNING";
 
@@ -25,6 +27,44 @@ export function evaluirajPravilo(pravilo: Pick<PraviloKontrole, "min_vrijednost"
   return "PASS";
 }
 
+/** Pravilo po kom se ocjenjuje mjerenje na tački: pravilo ARTIKLA lota, pa opšte pravilo tačke —
+ * isto na prijemu, u magacinu i pri predaji (nalaz R-09: ručno mjerenje je uzimalo posljednje
+ * pravilo tačke, bez obzira na artikal, pa je lot mogao biti ocijenjen po granici drugog artikla). */
+export async function praviloZaMjerenje(kontrolnaTackaId: string, lotId?: string | null) {
+  let artikalId: string | null = null;
+  if (lotId) {
+    const lot = (await upit<{ artikal_id: string }>(`select artikal_id from lot where id = $1`, [lotId])).rows[0];
+    if (!lot) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Lot nije pronađen.");
+    artikalId = lot.artikal_id;
+  }
+  const r = await upit<PraviloKontrole>(
+    `select id, min_vrijednost, max_vrijednost from pravilo_kontrole
+     where kontrolna_tacka_id = $1 and aktivan and (artikal_id = $2 or artikal_id is null)
+     order by artikal_id nulls last, created_at desc limit 1`,
+    [kontrolnaTackaId, artikalId],
+  );
+  return r.rows[0] ?? null;
+}
+
+/** Termometar kojim je mjereno (nalaz R-23): mora biti u upotrebi i ne smije biti pao na posljednjoj
+ * provjeri — mjerenje neispravnim termometrom ne dokazuje ništa. */
+export async function provjeriTermometar(uredjajId: string | null | undefined) {
+  if (!uredjajId) return null;
+  const u = (
+    await upit<{ naziv: string; oznaka: string | null; aktivan: boolean; posljednji: string | null }>(
+      `select u.naziv, u.oznaka, u.aktivan,
+              (select p.rezultat from provjera_uredjaja p where p.uredjaj_id = u.id order by p.datum desc, p.created_at desc limit 1) as posljednji
+       from mjerni_uredjaj u where u.id = $1`,
+      [uredjajId],
+    )
+  ).rows[0];
+  if (!u || !u.aktivan) throw new ApiGreska(404, "UREDJAJ_NE_POSTOJI", "Izabrani termometar ne postoji ili više nije u upotrebi.");
+  if (u.posljednji === "NEISPRAVAN") {
+    throw new ApiGreska(409, "UREDJAJ_NEISPRAVAN", `${u.naziv}${u.oznaka ? ` (${u.oznaka})` : ""} nije prošao posljednju provjeru — mjerite drugim termometrom.`);
+  }
+  return uredjajId;
+}
+
 type NoviMjerenjeInput = {
   kontrolnaTackaId: string;
   praviloKontroleId: string | null;
@@ -33,6 +73,8 @@ type NoviMjerenjeInput = {
   vrijednost: number;
   izmjerioKorisnikId: string;
   napomena?: string;
+  /** Termometar (R-23) — provjeren sa provjeriTermometar prije poziva. */
+  mjerniUredjajId?: string | null;
   /** false kad je lot samo trag (npr. KKT 3 pri predaji) — roba u magacinu nije bila u vozilu. */
   holdLota?: boolean;
 };
@@ -58,9 +100,9 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
 
   return transakcija(async (klijent) => {
     const mjerenje = await klijent.query<{ id: string }>(
-      `insert into mjerenje_temperature (kontrolna_tacka_id, pravilo_kontrole_id, lot_id, vozilo_id, vrijednost, izmjereno_at, izmjerio_korisnik_id, rezultat, napomena)
-       values ($1, $2, $3, $4, $5, now(), $6, $7, $8) returning id`,
-      [ulaz.kontrolnaTackaId, ulaz.praviloKontroleId, ulaz.lotId ?? null, ulaz.vozilId ?? null, ulaz.vrijednost, ulaz.izmjerioKorisnikId, rezultat, napomena ?? null],
+      `insert into mjerenje_temperature (kontrolna_tacka_id, pravilo_kontrole_id, lot_id, vozilo_id, vrijednost, izmjereno_at, izmjerio_korisnik_id, rezultat, napomena, mjerni_uredjaj_id)
+       values ($1, $2, $3, $4, $5, now(), $6, $7, $8, $9) returning id`,
+      [ulaz.kontrolnaTackaId, ulaz.praviloKontroleId, ulaz.lotId ?? null, ulaz.vozilId ?? null, ulaz.vrijednost, ulaz.izmjerioKorisnikId, rezultat, napomena ?? null, ulaz.mjerniUredjajId ?? null],
     );
     const mjerenjeId = mjerenje.rows[0].id;
     if (nepotvrdjena && ocjena === "FAIL") {
@@ -77,7 +119,7 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
       korisnikId: ulaz.izmjerioKorisnikId,
       entitetTip: "mjerenje_temperature",
       entitetId: mjerenjeId,
-      noveVrijednosti: { vrijednost: ulaz.vrijednost, rezultat },
+      noveVrijednosti: { vrijednost: ulaz.vrijednost, rezultat, mjerniUredjajId: ulaz.mjerniUredjajId ?? null },
     });
 
     let neusaglasenostId: string | null = null;
@@ -127,6 +169,7 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
           entitetId: ulaz.lotId,
           noveVrijednosti: { status: "HOLD", razlog: "temperatura_van_opsega" },
         });
+        await javiIsporukeSaLotom(klijent, ulaz.lotId, `Temperatura van granice (${ulaz.vrijednost} °C) — lot je zadržan`, ulaz.izmjerioKorisnikId);
       }
     }
 

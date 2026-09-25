@@ -31,6 +31,8 @@ export async function provjeriDemoBazu() {
 }
 
 export const danasCG = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Podgorica" });
+/** Lot sa isteklim rokom se ne isporučuje (R-02) — demo lotovi vremenom isteknu, testovi biraju važeće. */
+export const nijeIstekao = (l) => !l.rok_trajanja || String(l.rok_trajanja).slice(0, 10) >= danasCG();
 
 // Skladište u koje testovi primaju robu: „Glavni magacin" iz demo podataka. Demo baza može imati i
 // druga aktivna skladišta (unesena ručno kroz aplikaciju) — tada prijem bez izbora vraća 400.
@@ -39,12 +41,24 @@ export async function glavnoSkladiste(k) {
   return (aktivna.find((s) => s.naziv === "Glavni magacin") ?? aktivna[0])?.id;
 }
 
+/** Rashladno vozilo spremno za isporuku — roba pod režimom ide samo njim (R-05). */
+export async function rashladnoVozilo(k) {
+  return (await k("/vozila")).tijelo.find((v) => v.status === "SPREMNO" && v.temp_kontrolisano);
+}
+/** D1 koja prolazi (temperatura u sredini granice vozila) — predaja traži današnju D1 (R-05).
+ * Vraća id kontrole, za čišćenje. */
+export async function d1Prolazi(k, vozilo) {
+  const t = vozilo.temp_min != null && vozilo.temp_max != null ? (Number(vozilo.temp_min) + Number(vozilo.temp_max)) / 2 : 3;
+  const r = await k("/kontrole-vozila", { telo: { vozilId: vozilo.id, cistoca: true, opremaOk: true, vrataOk: true, temperatura: t } });
+  if (r.status !== 201) throw new Error(`D1 nije upisana (${r.status}): ${r.tijelo?.error?.message ?? ""}`);
+  return r.tijelo.kontrolaId;
+}
 /** Klijent bez prijave — za javne adrese (zdravlje, ulazak u provjeru znanja šifrom). */
 export function anonimno() {
   return zahtjev(null);
 }
 
-/** Prijavljen klijent: `k(putanja, { method, telo })` → { status, tijelo }. */
+/** Prijavljen klijent: `k(putanja, { method, telo, zaglavlja })` → { status, tijelo }. */
 export async function prijava(nalog) {
   const r = await fetch(`${BAZA}/auth/prijava`, {
     method: "POST",
@@ -60,10 +74,10 @@ export async function prijava(nalog) {
 }
 
 function zahtjev(kolacic) {
-  return async (putanja, { method, telo } = {}) => {
+  return async (putanja, { method, telo, zaglavlja } = {}) => {
     const odg = await fetch(`${BAZA}${putanja}`, {
       method: method ?? (telo === undefined ? "GET" : "POST"),
-      headers: { "x-zahtjev-app": "1", "Content-Type": "application/json", ...(kolacic ? { cookie: kolacic } : {}) },
+      headers: { "x-zahtjev-app": "1", "Content-Type": "application/json", ...(kolacic ? { cookie: kolacic } : {}), ...zaglavlja },
       body: telo === undefined ? undefined : JSON.stringify(telo),
     });
     const tekst = await odg.text();

@@ -5,7 +5,7 @@ Ovdje je sve što se ne vidi iz koda: mapa aplikacije, zašto je nešto tako, š
 dirati, šta je poznato da ne valja, i na čemu se već izgubilo vrijeme.
 
 Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — upiši ovdje.
-Posljednji pregled koda i usklađivanje ovog fajla: **24.09.2026.** (Ranija verzija ovog fajla
+Posljednji pregled koda i usklađivanje ovog fajla: **25.09.2026.** (revizija + talasi popravki 1 i 2) (Ranija verzija ovog fajla
 opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje u ovom kodu nema.)
 
 ---
@@ -191,7 +191,8 @@ React 19 + TypeScript + Vite (`src/`) · Express 5 + TypeScript (`server/`, pokr
 PostgreSQL na Supabase (`db/`) · Render, jedan servis po klijentu.
 
 ```
-pregledač  src/pages/*.tsx  ──►  src/lib/api.ts  (zaglavlje x-zahtjev-app, kolačić pilot_sesija)
+pregledač  src/pages/*.tsx  ──►  src/lib/api.ts  (zaglavlje x-zahtjev-app, kolačić pilot_sesija;
+                                                x-kljuc-zahtjeva za nov prijem i novu isporuku)
    │
    ▼
 server/index.ts   1. JAVNO: samo /api/zdravlje i prijava/odjava (javniRuter())
@@ -203,6 +204,7 @@ server/index.ts   1. JAVNO: samo /api/zdravlje i prijava/odjava (javniRuter())
 server/services/*.ts   SQL i poslovna pravila, transakcije, audit (audit_log — jedini dnevnik)
                        brojevi dokumenata SAMO iz brojeviService.sljedeciBroj()
                        pushService: petlja 5 s šalje potvrđena obavještenja na telefone
+                       rokoviService: 30 s po startu pa svaki sat — „Istekao rok“ odgovornom licu
    │
    ▼
 PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_migracije
@@ -217,18 +219,18 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Šifarnici | `/sifarnici` | `sifarnici.ts` | `skladisteService` | `kupac`, `dobavljac`, `artikal`, `skladiste` |
 | Prijem — KKT 1 | `/prijem` | `prijem.ts` | `prijemService`, `haccpService` | `prijem`, `prijem_stavka`, `lot`, `zaliha`, `kretanje_zalihe` |
 | Otpremnica (PDF / fotografija) | `/prijem` → Novi prijem | `prijem.ts` (`/prijem/otpremnica`) | `otpremnicaService` | `prijem_dokument`, `artikal_dobavljaca`, `prijem_stavka.po_otpremnici` |
-| Zalihe, otpis | `/zalihe` | `zaliha.ts` | `otpisService` | `zaliha`, `kretanje_zalihe` |
-| HACCP — KKT 2, obrasci | `/haccp` | `haccp.ts` | `haccpService` | `kontrolna_tacka`, `pravilo_kontrole`, `mjerenje_temperature`, `zapis` (+ `public/obrasci-cg.json`) |
+| Zalihe, otpis, karantin povrata | `/zalihe` | `zaliha.ts` | `otpisService` (+ `rokoviService` — rok robe) | `zaliha`, `kretanje_zalihe` |
+| HACCP — KKT 2, obrasci | `/haccp` | `haccp.ts` | `haccpService` (`praviloZaMjerenje`, `provjeriTermometar`), `obrasciService` (čita `public/obrasci-cg.json`, ocjenjuje odgovore) | `kontrolna_tacka`, `pravilo_kontrole`, `mjerenje_temperature` (+ `mjerni_uredjaj_id`), `zapis` |
 | Neusaglašenosti | `/neusaglasenosti` | `neusaglasenosti.ts` | `ncService` | `neusaglasenost`, `korektivna_mjera`, `verifikacija` |
-| Vozila — D1 | `/vozila` | `vozila.ts` | `vozilaService` | `vozilo`, `kontrola_vozila` |
-| Isporuka — KKT 3 | `/isporuka` | `isporuka.ts` | `isporukaService` | `isporuka`, `isporuka_stavka` |
+| Vozila — D1 | `/vozila` | `vozila.ts` | `vozilaService` (ocjena temperature po granici vozila, `D1_DANAS`) | `vozilo` (režim od–do), `kontrola_vozila` (+ granica i ocjena temperature) |
+| Isporuka — KKT 3 | `/isporuka` | `isporuka.ts` | `isporukaService` (+ `lotBlokadaService` — „Ne predajte lot“, `kljucService` — ključ zahtjeva) | `isporuka`, `isporuka_stavka`, `kljuc_zahtjeva` |
 | Sledljivost, povlačenje | `/sledljivost` | `sledljivost.ts`, `povlacenje.ts` | `sledljivostService`, `povlacenjeService` | `povlacenje`, `povlacenje_kontakt`, `v_sledljivost_*` |
 | Zadaci, obavještenja, poruke | `/moja`, `/tabla`, `/poruke` | `zadaci.ts`, `poruke.ts` | `zadaciService`, `porukeService` | `zadatak`, `obavjestenje`, `poruka` |
 | Obavještenja na telefon (push) | `/moja` → „Obavještenja na telefon"; `public/sw.js`, `public/manifest.webmanifest` | `push.ts` | `pushService` | `push_pretplata`, `web_push_kljuc`, `obavjestenje.push_poslato_at` |
 | Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | `tablaService` (+ `monitoringService`, `haccpPlanService` za kartice „Danas fali po planu", „HACCP rokovi") | čita sve (aktivnost = unija domenskih tabela) |
 | HACCP plan: plan monitoringa, kontrolne tačke, termometri, verifikacija sistema | `/haccp-plan`; štampa `/prilozi` → HACCP plan; „Danas po planu" na `/moja` | `haccpPlan.ts` | `monitoringService` (šta danas fali), `haccpPlanService` (termometri, verifikacija, podaci za štampu), `pravilaService` (granica artikla → pravilo) | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`, `kontrolna_tacka` (opasnost, mjera, verifikacija) |
 | Prilozi, izvještaji, izvoz | `/prilozi`, `/izvjestaji` | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
-| Audit | `/audit` | `audit.ts` | `auditService` | `audit_log` (`dogadjaj` se od faze 4 ne puni — stari redovi ostaju) |
+| Audit | `/audit` („bilo → sada“) | `audit.ts` | `auditService` (`stanjeReda`, `logIzmjenaReda`) | `audit_log` (`dogadjaj` se od faze 4 ne puni — stari redovi ostaju) |
 | Bekap | `/tabla` (kartica) | `bekap.ts` | `bekapService` | `bekap_log` |
 | Podešavanje (konsultant) | `/admin` | `firma.ts`, `provjeraZnanja.ts` | — | `firma`, banka pitanja konsultanta |
 
@@ -241,10 +243,10 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | Uloga | Ko | Prva strana | Upis unazad (`PROZOR`) | Šta radi |
 |---|---|---|:-:|---|
 | `izvodjac` | konsultantkinja | `/tabla` | 30 dana | sve što i `bzr` + Podešavanje, banka pitanja konsultanta; otvara sve naloge osim `izvodjac` |
-| `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, HACCP plan (plan monitoringa, termometri, verifikacija), izvoz, poruke |
+| `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, karantin povrata sa isporuke (pusti / otpiši), mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, HACCP plan (plan monitoringa, termometri, verifikacija), izvoz, poruke |
 | `uprava` | direktor | `/tabla` | — (samo gleda) | Kontrolni centar (kartice otvaraju listu iza broja, `/tabla/detalj`), aktivnost uživo, zalihe, sledljivost i povlačenja (čitanje), HACCP plan (čitanje), poruke; bez zadataka i unosa |
-| `operater` | magacioner | `/moja` | 1 | prijem, zalihe i otpis, obrasci P3–P10, isporuka, prijava problema, SVOJA korektivna mjera; „Danas po planu" na Mojoj strani; provjera termometra (API) |
-| `vozac` | vozač | `/moja` | 1 | isporuka i potvrda sa temperaturom (KKT 3), kontrola vozila D1, prijava problema, SVOJA mjera; „Danas po planu" |
+| `operater` | magacioner | `/moja` | 1 | prijem, zalihe i otpis, obrasci P3–P10 (i ispravka SVOG zapisa — #57), isporuka (samo svoje — #51), prijava problema, SVOJA korektivna mjera; „Danas po planu" na Mojoj strani; provjera termometra (API) |
+| `vozac` | vozač | `/moja` | 1 | isporuka i potvrda sa temperaturom (KKT 3) — samo dodijeljene (#51), kontrola vozila D1 (sa temperaturom — #55), prijava problema, SVOJA mjera; „Danas po planu" |
 
 `PROZOR`, `NA_TERENU`, `ogranicenjeDatuma()`, `provjeriProzorUpisa()`, `izvrsilacZa()`,
 `samoMoje()`, `smijeDodijelitiUlogu()` — sve u `server/auth.ts`.
@@ -257,15 +259,16 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | **plan monitoringa** | `plan_monitoringa`: šta (mjerenje na KKT / obrazac / D1 za vozilo), koliko često, koliko puta, ko (uloga, skladište) | ništa se ne blokira — „Danas po planu" na `/moja`, kartica „Danas fali po planu · juče propušteno" na tabli, propušteni dani na `/haccp-plan` |
 | **KKT 1 — prijem** | stavke sa lotom (bez lota odbijeno), temperatura **obavezna za robu pod režimom** (`TEMPERATURA_OBAVEZNA`), ocjena po `pravilo_kontrole` KKT1 artikla | mjerenje FAIL → neusaglašenost + zadatak + obavještenje `bzr` i uprava + **lot na HOLD**. Artikal sa NEPOTVRĐENOM granicom → samo WARNING i obavještenje `bzr`, bez HOLD-a (invarijanta #5) |
 | odluka o lotu | `bzr`: prihvati / HOLD / odbij (odbijanje traži razlog). **Istekao rok se ne prihvata i ne pušta** (`ROK_ISTEKAO`); pri prijemu takve robe `bzr` odmah dobija obavještenje | prihvaćeno → zaliha DOSTUPNO + kretanje PRIJEM; HOLD → KARANTIN + kretanje PRIJEM; magacioner dobija obavještenje |
-| **lot na HOLD-u** | `bzr`: **pusti** (razlog obavezan) ili **odbij** — na `/zalihe` i `/prijem` | pušteno iz karantina → DOSTUPNO, kretanje RELEASE 0; odbijeno → karantin 0, kretanje OTPIS. Zadržan pri prijemu (zaliha još ne postoji) → pušten = PRIJEM. **Ne pušta se dok je povlačenje U_TOKU** |
-| **KKT 2 — skladištenje** | ručno mjerenje na `/haccp` | kao KKT 1 (ako je vezano za lot — HOLD) |
-| obrasci P3–P10 | `zapis` iz `public/obrasci-cg.json`; odstupanje traži korektivnu mjeru (tekst) | neusaglašenost odmah u „čeka provjeru" — mjera iz obrasca je upisana kao urađena, potpisuje je ko je unio zapis; zadatak + obavještenje `bzr`. Ispravka zapisa ne otvara drugu |
-| **D1 — vozilo** | kontrola prije utovara (vidi samo vozač, invarijanta #24) | vozilo NIJE_SPREMNO → isporuka tim vozilom odbijena; neusaglašenost |
-| **KKT 3 — isporuka** | potvrda + temperatura pri predaji (obavezna za robu pod režimom); ocjena SAMO po pravilu KKT3 artikla | FAIL → neusaglašenost; lot u magacinu se NE zadržava (problem je u prevozu) |
-| **termometar** | interna provjera (referentna vs izmjereno — rezultat računa server) ili kalibracija (broj sertifikata obavezan) | NEISPRAVAN → neusaglašenost + zadatak + obavještenje `bzr`; traka upozorenja na `/haccp`. Istekla provjera/kalibracija → kartica „HACCP rokovi" |
+| **lot na HOLD-u** | `bzr`: **pusti** (razlog obavezan) ili **odbij** — na `/zalihe` i `/prijem` | pušteno iz karantina → DOSTUPNO, kretanje RELEASE 0; odbijeno → karantin 0, kretanje OTPIS. Zadržan pri prijemu (zaliha još ne postoji) → pušten = PRIJEM. **Ne pušta se dok je povlačenje U_TOKU**. Čim lot pređe na HOLD (mjerenje ili povlačenje), isporuke U_PRIPREMI sa njim dobijaju „Ne predajte lot“ (#53) |
+| **KKT 2 — skladištenje** | ručno mjerenje na `/haccp`; lot po granici SVOG artikla (#59), uz izabran termometar (#60) | kao KKT 1 (ako je vezano za lot — HOLD) |
+| obrasci P3–P10 | `zapis` iz `public/obrasci-cg.json`; da/ne bez podrazumijevanog odgovora; odstupanje slijedi i iz odgovora (`odstupanjeAko`, #58) i traži korektivnu mjeru; ispravka po #57 | neusaglašenost odmah u „čeka provjeru" — mjera iz obrasca je upisana kao urađena, potpisuje je ko je unio zapis; zadatak + obavještenje `bzr`. Ispravka zapisa ne otvara drugu |
+| **D1 — vozilo** | kontrola prije utovara (vidi samo vozač, invarijanta #24): čistoća, oprema, vrata + temperatura po granici rashladnog vozila (#55) | vozilo NIJE_SPREMNO → isporuka tim vozilom odbijena; neusaglašenost (temperatura → VISOK). „Spremno“ važi za dan kontrole; predaja traži današnju D1 |
+| **KKT 3 — isporuka** | potvrda + temperatura pri predaji (obavezna za robu pod režimom); ocjena SAMO po pravilu KKT3 artikla. U trenutku predaje server PONOVO provjerava lot i zalihu, sve stavke obavezne (#48) | FAIL → neusaglašenost; lot u magacinu se NE zadržava (problem je u prevozu). Nepredato i odbijeno → KARANTIN, `bzr` pušta ili otpisuje (#49) |
+| **rok robe** | `rokoviService`: lot sa isteklim rokom na slobodnoj zalihi | ne isporučuje se — ni priprema, ni izmjena, ni predaja (`ROK_ISTEKAO`); ne vraća se iz karantina; kartica „Rok robe“ na tabli; `bzr` obavještenje jednom po lotu (#50) |
+| **termometar** | interna provjera (referentna vs izmjereno — rezultat računa server) ili kalibracija (broj sertifikata obavezan) | NEISPRAVAN → neusaglašenost (sa brojem upitnih mjerenja) + zadatak + obavještenje `bzr`; traka upozorenja na `/haccp`; mjerenja njime od posljednje dobre provjere „upitna“; njime se više ne mjeri (#60). Istekla provjera/kalibracija → kartica „HACCP rokovi" |
 | **verifikacija sistema** | revizija HACCP plana, interni audit, vježba povlačenja — jednom godišnje | POTREBNE_IZMJENE → zadatak (`verifikacija_sistema`); KASNI / NIJE_RADJENO → „HACCP rokovi" |
 | problem na isporuci | „Problem" na isporuci → neusaglašenost vezana za isporuku | zadatak + obavještenje `bzr` |
-| **neusaglašenost** | 4 koraka: prijava → mjera (kome, rok) → urađeno (samo dodijeljeni, uz opis) → provjera drugog lica | provjera SAMO iz „čeka provjeru"; mjeru koja se provjerava bira server (posljednja urađena), ne pregledač. Zadatak se zatvara sam; prijavilac dobija obavještenje. Izuzetak od četiri oka — invarijanta #41 |
+| **neusaglašenost** | 4 koraka: prijava → mjera (kome, rok) → urađeno (samo dodijeljeni, uz opis) → provjera drugog lica | provjera SAMO iz „čeka provjeru"; mjeru koja se provjerava bira server (posljednja urađena), ne pregledač. Zadatak se zatvara sam; prijavilac dobija obavještenje. Izuzetak od četiri oka — invarijanta #41. Iz kontrole (mjerenje, D1, termometar) — tek kad ponovna kontrola prođe (#61) |
 | **povlačenje** (čl. 28) | kontakti iz stvarnih isporuka lota | lot na HOLD, zaliha u karantin; zatvara se tek kad su svi pozvani |
 
 ### Migracije (`npm run migriraj`, redoslijed nije proizvoljan)
@@ -297,6 +300,8 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `23_otpremnice_cg` | `prijem_dokument` (PDF/slika u bazi — ulazi u bekap), `artikal_dobavljaca` (zapamćena veza „njihov → naš artikal"), `prijem_stavka.po_otpremnici` |
 | `24_haccp_sistem_cg` | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`; `kontrolna_tacka` + opasnost/mjera/verifikacija; `verifikacija.izuzetak_cetiri_oka`; proširene CHECK liste izvora; pravila KKT1/KKT3 iz postojećih granica artikala |
 | `25_push_cg` | `push_pretplata` (po uređaju), `web_push_kljuc` (VAPID, jedan po bazi), `obavjestenje.push_poslato_at` (izlazni red; sva ranija označena kao poslata) |
+| `26_talas1_cg` | CHECK zaliha ≥ 0 i količine stavke isporuke (`NOT VALID`, pa provjera starih redova — ako ne prođe, samo `notice`, a pravilo važi za nove upise); `kljuc_zahtjeva` (R-10) |
+| `27_talas2_cg` | `mjerenje_temperature.mjerni_uredjaj_id` (R-23); `kontrola_vozila` + `granica_min/max`, `temperatura_ok` (R-05); jedinstven `zapis.ispravlja_id` (R-07, u `do`-bloku — grananje na staroj bazi daje `notice`); pogledi za izvoz `v_izvoz_kontrole_vozila`, `v_izvoz_provjere_nc`, `v_izvoz_termometri`, `v_izvoz_verifikacija_sistema`, `v_izvoz_kretanja_zalihe` (R-20) |
 
 Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim brojem.
 
@@ -319,7 +324,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-14 testova, 310 provjera (na čistoj bazi; na demo bazi 308 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+16 testova, 409 provjera (na čistoj bazi; na demo bazi 407 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -331,12 +336,21 @@ istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišlj
 „šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
 četiri oka — `faza3_sistem`), i push (pretplata po uređaju, šifrovan sadržaj koji dešifruje samo
 „uređaj", najviše jednom, 410 briše uređaj, odjava samo svog — `push`; push servis glumi lokalni
-HTTP server). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
+HTTP server), i talas 1 revizije (predaja zadržanog lota, isteklog lota i više nego što je na zalihi,
+povrat u karantin i odluka o njemu, tuđa isporuka, isti ključ zahtjeva, sve stavke, ograničenje prijave
+po imenu, stari prijem po adresi — `talas1`), i talas 2 (D1 sa temperaturom i današnja D1 za predaju, rashladno
+vozilo za robu pod režimom, audit „prije“, ispravka zapisa, odstupanje iz odgovora, lot po granici svog artikla,
+termometar i „upitna“ mjerenja, ponovna kontrola prije zatvaranja, novi izvori izvoza — `talas2`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
 fiksnim ID-jevima) i brišu sve što naprave. Nov tok u aplikaciji = nov test.
 
 Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
 Testovi to **ne diraju**: prijem ide u „Glavni magacin" (`glavnoSkladiste()`), isporuka iz
 skladišta svog lota; provjera koja traži JEDNO skladište se tada preskače i ispiše „· preskočeno".
+Demo lotovi vremenom isteknu (rok je računat od dana punjenja) — test koji isporučuje demo lot bira
+važeći (`nijeIstekao()` iz `pomoc.mjs`). Demo lotovi su roba pod režimom — isporuka ide rashladnim vozilom
+(`rashladnoVozilo()`), a predaja uz današnju D1 (`d1Prolazi()`, temperatura u sredini granice vozila); test
+vraća status vozila i briše svoje kontrole. Test koji mjeri pravi svoj ispravan termometar — ne oslanja se
+na termometre demo baze.
 
 ---
 
@@ -479,6 +493,68 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     rutu. Ostale rute još imaju ponešto SQL-a, većinom liste (`sifarnici` 9 upita, `haccp`,
     `haccpPlan`, `prijem` po 5, `neusaglasenosti` 4, `isporuka`, `povlacenje`, `zaliha` po 3,
     `vozila`, `firma`, `auth` po 2, `audit` 1) — sele se kad se diraju.
+48. **Predaja se provjerava U TRENUTKU PREDAJE, ne samo pri pripremi** (`potvrdiIsporuku`, R-01).
+    Između pripreme i predaje lot može biti zadržan ili povučen, isteći mu rok, a roba otpisana. Za
+    svaku stavku sa predatom količinom: lot PRIHVAĆEN (`LOT_BLOKIRAN`), rok nije istekao
+    (`ROK_ISTEKAO`), na zalihi ima dovoljno (`NEDOVOLJNO_ZALIHE`) — red zalihe `for update` do kraja
+    transakcije. **Zaliha nikad u minusu** — i CHECK u bazi (26). Potvrda mora obuhvatiti SVE stavke,
+    svaku jednom (`STAVKE_NEPOTPUNE`, R-16); ono što nije predato je 0, ne izostavljeno.
+49. **Roba koja se vraća sa isporuke ide u KARANTIN, ne u slobodnu zalihu** (R-03). Nepredato i
+    odbijeno se premješta DOSTUPNO → KARANTIN (kretanje HOLD 0 sa razlogom), `bzr` dobija obavještenje,
+    a na `/zalihe` robu pušta (RELEASE 0) ili otpisuje (OTPIS) — `odlukaOKarantinu()`, uz opis šta je
+    pregledano. Samo za PRIHVAĆEN lot; zadržan lot se rješava u cjelini (nalaz H1). Lot koji je već
+    zadržan ima svu robu u karantinu, pa se tada ništa ne premješta.
+50. **Lot sa isteklim rokom se ne isporučuje** (R-02) — ni nova isporuka, ni izmjena, ni predaja; iz
+    karantina se ne vraća u prodaju, samo otpisuje. Rok se računa po Podgorici (#11). Kartica „Rok
+    robe“ na tabli i lista iza nje (`SQL_ROK_ROBE`) imaju isti uslov kao brojanje (`brojPoRoku`).
+    „Istekao rok“ `bzr` dobija JEDNOM po lotu (`javiIstekleLotove`, provjera svaki sat).
+51. **Magacioner i vozač rade samo sa SVOJIM isporukama** (R-04): onom koju su spremili
+    (`uneo_korisnik_id`) ili koja im je dodijeljena (`vozac_korisnik_id`) — detalj (404), izmjena i
+    potvrda (403 `NIJE_VASA_ISPORUKA`). **Predaju potvrđuje dodijeljeni vozač**; bez vozača — onaj ko
+    je spremio. Isto za prijem (R-13): detalj i otpremnica samo u prozoru datuma (#6), a stavka se
+    mijenja samo preko SVOG prijema (`l.prijem_id`).
+52. **Nov prijem i nova isporuka nose ključ zahtjeva** (`x-kljuc-zahtjeva`, R-10) — jedan po otvorenoj
+    formi (`noviKljuc()`). Server ga zauzima u ISTOJ transakciji kao upis (`zauzmiKljuc`); isti ključ
+    istog korisnika vraća prvi rezultat. U pregledaču dugme je zaključano dok zahtjev traje
+    (`useSlanje()`), a `api()` isti upis koji je već u toku ne šalje ponovo. Izmjene, odluke i
+    potvrde štiti status (drugi pokušaj → 409).
+53. **Zadržan lot javlja isporukama u pripremi** (`javiIsporukeSaLotom`): kad lot pređe na HOLD
+    (mjerenje van granice ili povlačenje), vozač i onaj ko je isporuku spremio dobijaju „Ne predajte
+    lot …“ — i za isporuke koje nisu njegove (demo baza ih ima; testovi to čiste po tekstu).
+54. **Server stoji iza Render proksija** — `app.set("trust proxy", 1)`, pa je `request.ip` adresa
+    korisnika. Ograničenje pokušaja prijave je po IP + korisničkom imenu (R-11): tuđi pogrešni
+    pokušaji iz istog magacina ne zaključavaju druge.
+55. **D1 ocjenjuje i temperaturu, a „spremno“ važi samo za dan kontrole** (R-05, `vozilaService`).
+    Rashladno vozilo mora imati režim od–do (`GRANICA_VOZILA_OBAVEZNA`); D1 rashladnog vozila bez
+    temperature se ne prima; van granice = NIJE PROŠAO (neusaglašenost VISOK). Granica po kojoj je
+    ocijenjeno se upisuje uz kontrolu. Da/ne bez podrazumijevanog odgovora — „Sačuvaj“ bez klika ne
+    upisuje „prošao“. Roba pod režimom ide samo rashladnim vozilom (`VOZILO_OBAVEZNO`,
+    `VOZILO_BEZ_REZIMA`). **Predaja traži današnju D1 tog vozila** (`D1_NIJE_URADJENA`); pala D1 ne
+    zaustavlja potvrdu već utovarene robe (neusaglašenost vozila je otvorena).
+56. **Izmjena pamti „prije“** (R-06). `logIzmjena` po tipu traži `stareVrijednosti`; izmjena reda =
+    `stanjeReda(…, for update)` prije, `logIzmjenaReda` poslije — upisuju se samo promijenjena polja, sa
+    obje vrijednosti. Heš lozinke i sadržaj fajla ne ulaze u audit. Novi red je `logKreiranje`, ne izmjena.
+    Tabele za `stanjeReda` su na zatvorenom spisku (`TABELE_AUDITA`) — naziv ide u SQL.
+57. **Zapis se ispravlja jednom, istim obrascem, u svom prozoru** (R-07). Ispravlja se posljednja
+    verzija (`ZAPIS_VEC_ISPRAVLJEN`, jedinstven `ispravlja_id`); ispravka nosi datum zapisa koji ispravlja;
+    terenska uloga samo svoj zapis (`NIJE_VAS_ZAPIS`). Odstupanje koje unese tek ispravka otvara
+    neusaglašenost; isto odstupanje u lancu ne otvara drugu.
+58. **Odstupanje slijedi iz odgovora, ne samo iz kvačice** (R-08, `obrasciService`). U
+    `obrasci-cg.json` da/ne polje nosi `odstupanjeAko`, tekst `obavezno`. Server odbija nepoznato polje,
+    neodgovoreno da/ne i prazan obavezan tekst; `odstupanje = kvačica ILI odgovor`; neusaglašenost kaže iz
+    kog odgovora. `uloge` obrasca se provjeravaju i na serveru (#25). Nov obrazac: odmah sa `odstupanjeAko`.
+59. **Mjerenje lota se ocjenjuje po granici NJEGOVOG artikla** (R-09) — `praviloZaMjerenje()`: pravilo
+    artikla lota na toj tački, pa opšte pravilo tačke. Isto na prijemu, u magacinu i pri predaji.
+60. **Mjerenje pamti termometar** (R-23, `mjerenje_temperature.mjerni_uredjaj_id`). Ručno mjerenje bez
+    termometra se ne prima čim firma ima aktivan termometar (`TERMOMETAR_OBAVEZAN`; kad nijedan nije
+    ispravan — `NEMA_ISPRAVNOG_TERMOMETRA`); neispravnim se ne mjeri (`UREDJAJ_NEISPRAVAN`, i na prijemu i
+    pri predaji). „Upitno“ = izmjereno termometrom čija je SLJEDEĆA provjera pala. Spisak za izbor
+    (`/termometri`) vide svi prijavljeni — i vozač pri predaji.
+61. **Neusaglašenost iz kontrole se zatvara tek kad ponovna kontrola prođe** (R-22,
+    `ncService.stoFaliZaZatvaranje`): mjerenje pri predaji → nova D1 vozila prošla; mjerenje lota koji je
+    još na zalihi → novo mjerenje lota u granici (odbijen ili prodat lot — ne treba); mjerenje bez lota →
+    novo na istoj tački; D1 → nova D1 prošla; termometar → nova ispravna provjera. Vozilo ili termometar
+    isključen iz upotrebe — ne treba. `PONOVNA_KONTROLA_POTREBNA` kaže šta tačno fali.
 
 ---
 
@@ -530,6 +606,33 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | U2 | ✓ **riješeno u fazi 3 (24.09.2026)** | ~~Pravilo četiri oka nema izlaz za malu firmu.~~ Izabran svjesno potpisan izuzetak (ne uprava, ne konsultant umjesto firme) — invarijanta #41. |
 | U3 | **N** | Jedan `izvodjac` nalog po bazi — ako konsultantkinja dobije saradnika, dijele nalog i ne vidi se ko je šta uradio. |
 
+### Revizija 25.09.2026 — nalazi R-01 … R-37
+
+Puna revizija (12 faza, dokazi, „NIJE UTVRĐENO“ gdje se nije moglo provjeriti) je izvještaj van
+repozitorijuma. Ovdje samo stanje.
+
+| # | | Nalaz | Stanje |
+|---|:-:|---|---|
+| R-01 | K | Potvrda isporuke nije provjeravala lot ni zalihu (zaliha u minusu, predaja povučenog lota) | ✓ talas 1 — #48, #53 |
+| R-02 | K | Istekao rok nije blokirao isporuku | ✓ talas 1 — #50 |
+| R-03 | V | Vraćena roba išla u slobodnu zalihu bez procjene | ✓ talas 1 — #49 |
+| R-04 | V | Terenska uloga radila sa tuđom isporukom | ✓ talas 1 — #51 |
+| R-05 | V | Kontrola vozila (D1) ne ocjenjuje temperaturu; status bez datuma; kvačice unaprijed označene | ✓ talas 2 — #55 |
+| R-06 | V | Audit ne pamti staru vrijednost („prije“) | ✓ talas 2 — #56 (i: sopstvena lozinka, firma, zadatak, „obuka obavljena“ sada pišu audit; pitanja firme i termini provjere znanja još ne) |
+| R-07 | V | Ispravka dnevnog zapisa: grananje ispravki, nema dugmeta u ekranu | ✓ talas 2 — #57, dugme „Ispravi“ |
+| R-08 | V | Odstupanje u DHP obrascima je ručna kvačica, ne slijedi iz vrijednosti | ✓ talas 2 — #58 |
+| R-09 | V | Ručno mjerenje ne gleda artikal | ✓ talas 2 — #59 |
+| R-10 | V | Dupli klik pravio duple zapise | ✓ talas 1 — #52 |
+| R-11 | V | Ograničenje prijave iza Render proksija važilo za sve | ✓ talas 1 — #54 |
+| R-12 | V | Supabase Data API i RLS | **NIJE UTVRĐENO** — provjeriti u Supabase panelu (vidi „Otvoreno“) |
+| R-13 | S | Magacioner čitao bilo koji prijem; stavka mijenjana bez provjere prijema | ✓ talas 1 — #51 |
+| R-16 | S | Potvrda sa djelimičnim spiskom stavki | ✓ talas 1 — #48 |
+| R-26 | S | Bez interneta / 502 → generička poruka | ✓ djelimično (pregledač: „Nema veze…“, „Server ne odgovara…“); ZodError i loš UUID → 500 ostaje |
+| R-20 | S | Izvoz bez D1, provjera NC, termometara, verifikacije sistema, kretanja zaliha | ✓ talas 2 — pogledi `v_izvoz_*` (27) |
+| R-22 | S | Nema ponovne kontrole poslije korektivne mjere | ✓ talas 2 — #61 |
+| R-23 | S | Mjerenje ne pamti termometar | ✓ talas 2 — #60 |
+| R-14, R-15, R-17 – R-19, R-21, R-24, R-25, R-27 – R-37 | S/N | Rezervacija zalihe, otkaz isporuke, jedinstvena serija, izvor istine za količine, bekap sa heševima, izlazna otpremnica, straničenje, zdravlje baze, CSP/HSTS, … | otvoreno |
+
 ---
 
 ## Plan izmjena po fazama
@@ -540,6 +643,9 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | ~~**2 — Integritet baze**~~ ✓ 24.09.2026 | Brojevi iz `sljedeciBroj()`. 26 višekoračnih upisa u transakciji. CHECK liste za `izvor_tip` (dopuna 22). Uloge na svim GET rutama. Test `faza2_integritet` (30 provjera). Uz to: nalog i početna lozinka pri unosu zaposlenog, „Nova lozinka", kartice direktora, ulaz u provjeru znanja sa prijave. | B1, A2, B2, U1 | urađeno |
 | ~~**3 — HACCP kao sistem**~~ ✓ 24.09.2026 | Plan monitoringa + „šta danas fali" na tabli i Mojoj strani. Termometri (provjera, kalibracija), revizija plana, interni audit, vježba povlačenja, štampa HACCP plana. Izuzetak od četiri oka za malu firmu. Jedan izvor granica. Temperatura obavezna na KKT 1. Dopuna `24_haccp_sistem_cg`, test `faza3_sistem` (41 provjera). | H5, H6, H7, U2, ostatak H4 | urađeno |
 | ~~**4 — Arhitektura i pogon**~~ ✓ 24.09.2026 | Jedna granica prijave + provjera ruta pri startu. SQL pet ruta u servise. `npm test` na sopstvenoj bazi + GitHub Actions. `dogadjaj` ugašen. Push obavještenja (PWA, dopuna 25, test `push`). Uz to: provjeru znanja radi samo prijavljeni, svojom šifrom, sa početne strane. | A3, A4, A5, B4, A6 | urađeno |
+| ~~**Talas 1 revizije**~~ ✓ 25.09.2026 | Predaja provjerava lot, rok i zalihu u trenutku predaje; zaliha nikad u minusu (CHECK); povrat u karantin + pusti/otpiši; istekao rok blokiran + kartica „Rok robe“ + obavještenje; samo svoje isporuke i prijemi; ključ zahtjeva + zaključano dugme; „Ne predajte lot“; `trust proxy`. Dopuna `26_talas1_cg`, test `talas1` (44 provjere). | R-01, R-02, R-03, R-04, R-10, R-11, R-13, R-16 | urađeno |
+| ~~**Talas 2 revizije**~~ ✓ 25.09.2026 | D1 sa temperaturom po granici vozila, „spremno danas“, rashladno vozilo za robu pod režimom, D1 prije predaje; audit „prije → poslije“; ispravka zapisa („Ispravi“, jednom, svoj); odstupanje iz odgovora u obrascu; lot po granici svog artikla; termometar na mjerenju i „upitna“ mjerenja; ponovna kontrola prije zatvaranja; 5 novih izvora izvoza. Dopuna `27_talas2_cg`, test `talas2` (53 provjere). | R-05 – R-09, R-20, R-22, R-23 | urađeno |
+| **Talas 3 revizije** | Rezervacija zalihe pri pripremi, otkaz isporuke sa razlogom, jedinstvena serija i rok po artiklu, izlazna otpremnica za štampu, PIB/adresa kupca, jedna temperatura po grupi režima pri predaji. | R-14, R-15, R-17, R-21, R-28, R-37 | predlog |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
 **Pilot sa prvim klijentom ide paralelno od faze 1** — pravi magacioner nađe ono što test ne nađe.
@@ -586,6 +692,12 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 | test server ostaje na portu poslije testa | `tsx` komanda pokreće DIJETE-proces; gašenje roditelja ga ne gasi | `node --import tsx server/index.ts` — jedan proces |
 | `tijelo()` vraćao ulazni tip šeme (`brojPitanja?: number` iako ima `.default`) | potpis `ZodType<T>` bira ulazni tip | `tijelo<S extends ZodTypeAny>(…): output<S>` |
 | web-push upozorava „BadJwtToken" | VAPID `subject` = localhost; Apple ga odbija | na Renderu `RENDER_EXTERNAL_URL`, lokalno `mailto:` (ili `VAPID_SUBJECT=`) |
+| zaliha −3 poslije potvrde isporuke | količina se provjeravala samo pri pripremi; otpis između pripreme i predaje nije se vidio | provjera u trenutku predaje, red zalihe `for update`, CHECK u bazi (#48) |
+| iza Render proksija 8 pogrešnih pokušaja jednog magacionera zaključa prijavu svima | bez `trust proxy` je `request.ip` adresa proksija | `app.set("trust proxy", 1)` + ključ IP i ime (#54) |
+| testovi na demo bazi odjednom padaju na `ROK_ISTEKAO` | demo lotovi imaju rok od dana punjenja baze | `nijeIstekao()` — test bira važeći lot |
+| `faza3` na demo bazi: mjerenja odbijena (`TERMOMETAR_OBAVEZAN`) | testni termometar iz prolaza 24.09. ostao u demo bazi NEISPRAVAN (čišćenje tada nije prošlo); novo pravilo traži termometar čim postoji aktivan, a upotrebljivog nije bilo | test pravi svoj ispravan termometar; server kaže `NEMA_ISPRAVNOG_TERMOMETRA`; ostatak isključen kroz aplikaciju (ne obrisan) |
+| test je u P7 upisivao `temperatura` — polje koje obrazac nema — i prolazilo je | server nije znao šta obrazac ima; `podaci` su bili bilo kakav objekat | `obrasciService` čita isti `obrasci-cg.json` kao pregledač i odbija nepoznato polje (#58) |
+| push test pada samo u punom prolazu na demo bazi („2“ umjesto „1“) | povlačenje demo lota javilo je „Ne predajte lot“ i TUĐOJ isporuci u pripremi (vlasnica ju je unijela) — obavještenje vezano za njen id, čišćenje ga nije brisalo, pa ga je push poslao Marku | čišćenje po tekstu testa; nov tok koji obavještava TUĐE zapise → provjeriti čišćenje svih testova koji ga okidaju |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |
 
 ### Gdje se zapravo testira
@@ -622,7 +734,9 @@ npm test             # sopstvena čista baza + sopstveni server; izlazni kod 1 a
 ```
 
 Pa ručno na telefonu (375 px): `/moja` za vozača i magacionera (i „Danas po planu" → „Upiši"),
-potvrda isporuke sa temperaturom, „Prijavi problem".
+potvrda isporuke sa temperaturom, „Prijavi problem". Povrat: potvrda sa manje predatim → `/zalihe`
+„Iz karantina: pusti / otpiši" kod odgovornog lica. Vozilo: D1 sa temperaturom van granice → „Nije spremno“,
+pa nova D1 → „Spremno danas“. HACCP: obrazac sa odgovorom koji je odstupanje, pa „Ispravi“.
 
 ---
 
@@ -647,6 +761,19 @@ početak za distributera, ali ga konsultant za svakog klijenta prilagođava stva
 vozilima i ritmu rada — prazno polje se u štampi vidi kao crveno „— upisati —". Faza 3 nije
 prošla ručni klik kroz pregledač (samo build, typecheck i E2E kroz API) — prvo korišćenje na
 Renderu je i prva vizuelna provjera.
+
+**R-12 — Supabase Data API i RLS: NIJE UTVRĐENO.** Aplikacija ide na bazu direktno (`pg`), ali
+Supabase uz svaki projekat nudi i svoj REST pristup (Data API) sa javnim `anon` ključem. Ako je za
+šemu `public` uključen, a RLS na tabelama isključen, ko ima ključ čita i piše bazu mimo aplikacije i
+mimo svih pravila ovdje. Provjeriti u Supabase panelu (Project Settings → Data API): isključiti ga
+za `public`, ili uključiti RLS na svim tabelama. Za svaku bazu klijenta.
+
+**Roba pod režimom ide samo rashladnim vozilom (#55).** Ako klijent ima i preuzimanje u magacinu (kupac
+dolazi sam), takva isporuka se sada ne može upisati bez vozila — tada treba dodati „preuzima kupac“ (sa
+temperaturom pri predaji), ne ukidati pravilo. Odluka vlasnice kad se pojavi.
+
+**Na demo bazi je isključen (ne obrisan) termometar „E2E ubodni termometar (T-99)“** — ostatak testa od
+24.09. Može se obrisati kad vlasnica želi; isključen ne smeta ni prikazu ni testovima.
 
 **Bekap se ne pokreće sam** dok `npm run bekap` nije u Task Scheduleru na računaru
 konsultantkinje. Skripta postoji i radi; raspored je odluka vlasnice (računar mora biti uključen

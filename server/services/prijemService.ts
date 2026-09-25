@@ -1,12 +1,13 @@
 import type { PoolClient } from "pg";
 import { transakcija, upit, pool } from "../db.js";
 import { ApiGreska } from "../greske.js";
-import { logKreiranje, logOdluka, logIzmjena } from "./auditService.js";
-import { evaluirajPravilo, zabiljeziMjerenje } from "./haccpService.js";
+import { logKreiranje, logOdluka, logIzmjenaReda } from "./auditService.js";
+import { evaluirajPravilo, zabiljeziMjerenje, provjeriTermometar } from "./haccpService.js";
 import { kreirajObavjestenje, obavijestiUlogu } from "./zadaciService.js";
 import { kljucArtikla } from "./otpremnicaService.js";
 import { danasCG } from "../vrijeme.js";
 import { odrediSkladiste } from "./skladisteService.js";
+import { zauzmiKljuc, upisiRezultatKljuca } from "./kljucService.js";
 
 const KKT1_SIFRA = "KKT1";
 
@@ -31,10 +32,12 @@ export type NoviPrijemUlaz = {
   napomena?: string;
   /** Otpremnica (PDF/slika) poslata na čitanje — veže se za ovaj prijem. */
   dokumentId?: string;
+  /** Termometar kojim su izmjerene temperature prijema (R-23). */
+  mjerniUredjajId?: string;
   stavke: StavkaUlaz[];
 };
 
-export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
+export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kljuc?: string) {
   if (ulaz.stavke.length === 0) {
     throw new ApiGreska(400, "PRIJEM_BEZ_STAVKI", "Prijem mora imati najmanje jednu stavku.");
   }
@@ -57,11 +60,18 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
     }
   }
 
+  // Neispravan termometar se odbija PRIJE upisa prijema — inače bi prijem ostao bez mjerenja KKT 1.
+  await provjeriTermometar(ulaz.mjerniUredjajId);
   const skladisteId = await odrediSkladiste(pool, ulaz.skladisteId, korisnikId);
   const kktRed = await upit<{ id: string }>(`select id from kontrolna_tacka where sifra = $1`, [KKT1_SIFRA]);
   const kkt1Id = kktRed.rows[0]?.id;
 
   const { prijemId, lotoviZaProvjeru } = await transakcija(async (klijent) => {
+    // Isti ključ = isti prijem (dupli klik, ponovljeno slanje): vraća se prvi, drugi se ne upisuje (R-10).
+    if (kljuc) {
+      const ranije = await zauzmiKljuc(klijent, korisnikId, kljuc, "prijem");
+      if (ranije?.id) return { prijemId: String(ranije.id), lotoviZaProvjeru: [] as { lotId: string; artikalId: string; temperatura: number | null }[] };
+    }
     const prijem = await klijent.query<{ id: string }>(
       `insert into prijem (dobavljac_id, broj_dokumenta, datum_prijema, status, primio_korisnik_id, napomena, skladiste_id)
        values ($1, $2, $3, 'CEKA_ODLUKU', $4, $5, $6) returning id`,
@@ -126,6 +136,7 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
       });
     }
 
+    if (kljuc) await upisiRezultatKljuca(klijent, korisnikId, kljuc, { id: prijemId });
     return { prijemId, lotoviZaProvjeru };
   });
 
@@ -149,6 +160,7 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string) {
         vrijednost: stavka.temperatura,
         izmjerioKorisnikId: korisnikId,
         napomena: "Izmjereno pri prijemu",
+        mjerniUredjajId: ulaz.mjerniUredjajId ?? null,
       });
     }
   }
@@ -178,6 +190,16 @@ export async function izmijeniStavku(lotId: string, ulaz: StavkaIzmjenaUlaz, kor
     if (ulaz.brojLota !== undefined && ulaz.brojLota.trim() === "") {
       throw new ApiGreska(400, "LOT_OBAVEZAN", "Broj lota je obavezan — bez njega nema sledljivosti.");
     }
+    // Šta je pisalo prije izmjene — spor sa dobavljačem i inspektor traže baš to (R-06).
+    const stanjeStavke = async () =>
+      (
+        await klijent.query<Record<string, unknown>>(
+          `select l.broj_lota, l.proizvodni_datum, l.rok_trajanja, l.primljena_kolicina, ps.temperatura_prijema
+           from lot l join prijem_stavka ps on ps.lot_id = l.id where l.id = $1`,
+          [lotId],
+        )
+      ).rows[0] ?? null;
+    const prije = await stanjeStavke();
 
     await klijent.query(
       `update lot set
@@ -196,7 +218,7 @@ export async function izmijeniStavku(lotId: string, ulaz: StavkaIzmjenaUlaz, kor
        where lot_id = $3`,
       [ulaz.primljenaKolicina ?? null, ulaz.temperaturaPrijema ?? null, lotId],
     );
-    await logIzmjena(klijent, { korisnikId, entitetTip: "lot", entitetId: lotId, noveVrijednosti: ulaz });
+    await logIzmjenaReda(klijent, { korisnikId, entitetTip: "lot", entitetId: lotId, prije, poslije: await stanjeStavke() });
   });
 }
 

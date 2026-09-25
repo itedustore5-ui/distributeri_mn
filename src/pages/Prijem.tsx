@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState } from "react";
 import { Plus, ChevronDown, ChevronUp, Camera, FileText, AlertTriangle } from "lucide-react";
 import { api, ApiGreska, posaljiFajl, otvoriFajl } from "../lib/api";
+import { useSlanje, noviKljuc } from "../lib/slanje";
+import { IzborTermometra, useIzborTermometra } from "../components/Termometar";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
@@ -256,6 +258,7 @@ function IzmjenaStavkeModal({ prijemId, stavka, onClose, onSacuvano }: { prijemI
   const [temperaturaPrijema, setTemperaturaPrijema] = useState(stavka.temperatura_prijema ?? "");
   const [greska, setGreska] = useState("");
 
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
       await api(`/prijem/${prijemId}/lot/${stavka.lot_id}`, {
@@ -275,7 +278,7 @@ function IzmjenaStavkeModal({ prijemId, stavka, onClose, onSacuvano }: { prijemI
   };
 
   return (
-    <Modal naslov={`Izmjena — ${stavka.artikal_naziv}`} podnaslov="Dok se ne donese odluka" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!brojLota.trim() || Number(primljenaKolicina) <= 0}>Sačuvaj</button></>}>
+    <Modal naslov={`Izmjena — ${stavka.artikal_naziv}`} podnaslov="Dok se ne donese odluka" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !brojLota.trim() || Number(primljenaKolicina) <= 0}>Sačuvaj</button></>}>
       <div className="form-grid">
         <label>Broj lota <ZakonskaOznaka clan="27" /><input value={brojLota} onChange={(e) => setBrojLota(e.target.value)} /></label>
         <label>Rok trajanja<input type="date" value={rokTrajanja} onChange={(e) => setRokTrajanja(e.target.value)} /></label>
@@ -375,6 +378,8 @@ function NoviPrijemModal({
   const [procitano, setProcitano] = useState<Procitano | null>(null);
   const [prijedlog, setPrijedlog] = useState<Prijedlog | null>(null);
   const [uporedjeno, setUporedjeno] = useState(false);
+  // Kojim termometrom su izmjerene temperature prijema (R-23).
+  const { termometri, termometarId, setTermometarId } = useIzborTermometra();
 
   const dodajRed = () => setRedovi((r) => [...r, prazanRed(artikli[0]?.id)]);
   const azurirajRed = (i: number, izmjena: Partial<NoviRed>, polje?: string) =>
@@ -429,15 +434,20 @@ function NoviPrijemModal({
     }
   };
 
+  // Isti ključ dok je forma otvorena — server drugi upis sa njim ne pravi (R-10).
+  const [kljuc] = useState(noviKljuc);
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
       await api("/prijem", {
+        kljuc,
         telo: {
           dobavljacId,
           skladisteId: skladisteId || undefined,
           brojDokumenta: brojDokumenta || undefined,
           datumPrijema: datum,
           dokumentId: procitano?.dokumentId,
+          mjerniUredjajId: termometarId || undefined,
           stavke: redovi.map((r) => ({
             artikalId: r.artikalId,
             brojLota: r.brojLota,
@@ -468,7 +478,7 @@ function NoviPrijemModal({
   const ostaloZutih = redovi.reduce((n, r) => n + r.nesigurno.length, 0);
 
   return (
-    <Modal naslov="Novi prijem robe" podnaslov="P1" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!validno}>Sačuvaj prijem</button></>}>
+    <Modal naslov="Novi prijem robe" podnaslov="P1" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !validno}>Sačuvaj prijem</button></>}>
       {/* Otpremnica: PDF od dobavljača ili fotografija. Čita se na našem serveru, bez spoljnih
           servisa, i samo POPUNI formu — magacioner sve upoređuje sa robom prije snimanja. */}
       <div style={{ margin: "0 20px 12px", padding: 12, border: "1px dashed #c9d4dc", borderRadius: 8 }}>
@@ -540,6 +550,7 @@ function NoviPrijemModal({
           </label>
         )}
         <label style={{ gridColumn: "1 / -1" }}>Broj dokumenta (otpremnica)<input value={brojDokumenta} onChange={(e) => setBrojDokumenta(e.target.value)} /></label>
+        {redovi.some((r) => podRezimom(r.artikalId)) && <IzborTermometra termometri={termometri} value={termometarId} onChange={setTermometarId} />}
       </div>
       <div style={{ padding: "0 20px" }}>
         {redovi.map((red, i) => {

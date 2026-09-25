@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Plus, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiGreska } from "../lib/api";
+import { useSlanje, noviKljuc } from "../lib/slanje";
+import { IzborTermometra, useIzborTermometra } from "../components/Termometar";
 import { lokalniDatum } from "../lib/vrijeme";
 import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
@@ -9,9 +11,9 @@ import { useAuth } from "../lib/auth";
 import { useSkladista, type Skladiste } from "../lib/skladista";
 
 type Kupac = { id: string; naziv: string; telefon: string };
-type Vozilo = { id: string; registarski_broj: string; status: string };
+type Vozilo = { id: string; registarski_broj: string; status: string; temp_kontrolisano: boolean; d1_danas: string | null };
 type Vozac = { id: string; ime: string };
-type LotDostupan = { lot_id: string; artikal_naziv: string; broj_lota: string; kolicina: string; skladiste_id: string | null };
+type LotDostupan = { lot_id: string; artikal_naziv: string; broj_lota: string; kolicina: string; skladiste_id: string | null; rok_trajanja: string | null };
 type IsporukaRed = {
   id: string;
   broj: string;
@@ -275,7 +277,7 @@ function IsporukaFormaModal({
   const [redovi, setRedovi] = useState<NovaStavkaRed[]>(
     postojeceStavke && postojeceStavke.length > 0
       ? postojeceStavke.map((s) => ({ lotId: zaliha.find((z) => z.broj_lota === s.broj_lota)?.lot_id ?? "", kolicina: s.planirana_kolicina }))
-      : [{ lotId: lotoviSkladista[0]?.lot_id ?? "", kolicina: "" }],
+      : [{ lotId: lotoviSkladista.find((z) => !z.rok_trajanja || z.rok_trajanja.slice(0, 10) >= lokalniDatum())?.lot_id ?? "", kolicina: "" }],
   );
   const [greska, setGreska] = useState("");
 
@@ -289,6 +291,9 @@ function IsporukaFormaModal({
   const ukloniRed = (i: number) => setRedovi((r) => r.filter((_, idx) => idx !== i));
   const azurirajRed = (i: number, izm: Partial<NovaStavkaRed>) => setRedovi((r) => r.map((red, idx) => (idx === i ? { ...red, ...izm } : red)));
 
+  // Isti ključ dok je forma otvorena — server drugi upis sa njim ne pravi (R-10).
+  const [kljuc] = useState(noviKljuc);
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
       const telo = {
@@ -302,7 +307,7 @@ function IsporukaFormaModal({
       if (izmjena) {
         await api(`/isporuke/${postojeca!.id}`, { method: "PATCH", telo: { skladisteId: telo.skladisteId, vozilId: telo.vozilId, vozacKorisnikId: telo.vozacKorisnikId, datumIsporuke: telo.datumIsporuke, stavke: telo.stavke } });
       } else {
-        await api("/isporuke", { telo });
+        await api("/isporuke", { telo, kljuc });
       }
       onSacuvano();
       onClose();
@@ -319,7 +324,7 @@ function IsporukaFormaModal({
       podnaslov="Jedan kupac, više artikala u istoj isporuci"
       onClose={onClose}
       greska={greska}
-      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!validno}>Sačuvaj</button></>}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !validno}>Sačuvaj</button></>}
     >
       <div className="form-grid">
         {izmjena ? (
@@ -344,7 +349,12 @@ function IsporukaFormaModal({
           Vozilo
           <select value={vozilId} onChange={(e) => setVozilId(e.target.value)}>
             <option value="">— bez vozila —</option>
-            {vozila.map((v) => <option key={v.id} value={v.id} disabled={v.status !== "SPREMNO"}>{v.registarski_broj}{v.status !== "SPREMNO" ? " (nije spremno)" : ""}</option>)}
+            {vozila.map((v) => (
+              <option key={v.id} value={v.id} disabled={v.status !== "SPREMNO"}>
+                {v.registarski_broj}{v.temp_kontrolisano ? " · rashladno" : ""}
+                {v.status !== "SPREMNO" ? " (nije spremno — pala kontrola)" : v.d1_danas === "PROSAO" ? " · D1 danas u redu" : " · D1 za danas još nije urađena"}
+              </option>
+            ))}
           </select>
         </label>
         <label>
@@ -363,7 +373,14 @@ function IsporukaFormaModal({
               Artikal / lot <ZakonskaOznaka clan="27" />
               <select value={red.lotId} onChange={(e) => azurirajRed(i, { lotId: e.target.value })}>
                 {lotoviSkladista.length === 0 && <option value="">— u ovom magacinu nema robe na zalihi —</option>}
-                {lotoviSkladista.map((z) => <option key={z.lot_id} value={z.lot_id}>{z.artikal_naziv} · {z.broj_lota} (dostupno {z.kolicina})</option>)}
+                {lotoviSkladista.map((z) => {
+                  const istekao = !!z.rok_trajanja && z.rok_trajanja.slice(0, 10) < lokalniDatum();
+                  return (
+                    <option key={z.lot_id} value={z.lot_id} disabled={istekao}>
+                      {z.artikal_naziv} · {z.broj_lota} (dostupno {z.kolicina}){istekao ? " — ISTEKAO ROK, ne isporučuje se" : ""}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <label>
@@ -391,6 +408,10 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
   );
   const [greska, setGreska] = useState("");
   const [brojVanGranice, setBrojVanGranice] = useState<number | null>(null);
+  const [uKarantin, setUKarantin] = useState(0);
+  // Kojim termometrom je izmjereno kod kupca (R-23) — kad termometar padne na provjeri, zna se šta pregledati.
+  const { termometri, termometarId, setTermometarId } = useIzborTermometra();
+  const imaTemperatura = stavke.some((s) => s.temp_kontrolisano);
 
   const postavi = (id: string, polje: "isporuceno" | "odbijeno" | "razlog" | "temperatura", vrijednost: string) =>
     setVrijednosti((v) => ({ ...v, [id]: { ...v[id], [polje]: vrijednost } }));
@@ -398,9 +419,10 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
   // Isto pravilo kao na serveru: roba pod temperaturnim režimom koja se predaje mora imati temperaturu.
   const faliTemperatura = stavke.some((s) => s.temp_kontrolisano && Number(vrijednosti[s.id].isporuceno) > 0 && vrijednosti[s.id].temperatura.trim() === "");
 
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      const rezultat = await api<{ status: string; vanGranice: number }>(`/isporuke/${isporuka.id}/potvrda`, {
+      const rezultat = await api<{ status: string; vanGranice: number; uKarantin: number }>(`/isporuke/${isporuka.id}/potvrda`, {
         telo: {
           stavke: stavke.map((s) => ({
             stavkaId: s.id,
@@ -409,11 +431,14 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
             razlogOdbijanja: vrijednosti[s.id].razlog || undefined,
             temperaturaPredaje: vrijednosti[s.id].temperatura.trim() === "" ? null : Number(vrijednosti[s.id].temperatura),
           })),
+          mjerniUredjajId: termometarId || null,
         },
       });
       onCreated();
-      if (rezultat.vanGranice > 0) setBrojVanGranice(rezultat.vanGranice);
-      else onClose();
+      if (rezultat.vanGranice > 0 || rezultat.uKarantin > 0) {
+        setUKarantin(rezultat.uKarantin);
+        setBrojVanGranice(rezultat.vanGranice);
+      } else onClose();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Potvrda nije sačuvana.");
     }
@@ -423,11 +448,21 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
     return (
       <Modal naslov={`Isporuka ${isporuka.broj} potvrđena`} onClose={onClose} footer={<button className="primary-button" onClick={onClose}>Zatvori</button>}>
         <div style={{ padding: 20 }}>
-          <StatusBadge status="FAIL" />
-          <p style={{ marginTop: 10, fontSize: 12, color: "#c34e55" }}>
-            {brojVanGranice === 1 ? "Jedna stavka je predata" : `${brojVanGranice} stavke su predate`} van temperaturne granice. Otvorena je
-            neusaglašenost i obaviješteno je odgovorno lice. Lot u magacinu se ne zadržava — problem je nastao u prevozu.
-          </p>
+          {brojVanGranice > 0 && (
+            <>
+              <StatusBadge status="FAIL" />
+              <p style={{ marginTop: 10, fontSize: 12, color: "#c34e55" }}>
+                {brojVanGranice === 1 ? "Jedna stavka je predata" : `${brojVanGranice} stavke su predate`} van temperaturne granice. Otvorena je
+                neusaglašenost i obaviješteno je odgovorno lice. Lot u magacinu se ne zadržava — problem je nastao u prevozu.
+              </p>
+            </>
+          )}
+          {uKarantin > 0 && (
+            <p style={{ marginTop: 10, fontSize: 12 }}>
+              Nepredata roba ({uKarantin}) vraćena je u <b>karantin</b> — ne ide nazad u prodaju dok je odgovorno lice ne pregleda.
+              Vratite je u magacin odvojeno od ostale robe.
+            </p>
+          )}
         </div>
       </Modal>
     );
@@ -441,7 +476,7 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
       footer={
         <>
           <button className="secondary-button" onClick={onClose}>Otkaži</button>
-          <button className="primary-button" onClick={posalji} disabled={faliTemperatura} title={faliTemperatura ? "Upišite temperaturu pri predaji" : undefined}>Potvrdi</button>
+          <button className="primary-button" onClick={() => salji(posalji)} disabled={radim || faliTemperatura} title={faliTemperatura ? "Upišite temperaturu pri predaji" : undefined}>Potvrdi</button>
         </>
       }
     >
@@ -472,6 +507,11 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
             </div>
           );
         })}
+        {imaTemperatura && termometri.length > 0 && (
+          <div className="form-grid" style={{ padding: "0 0 10px" }}>
+            <IzborTermometra termometri={termometri} value={termometarId} onChange={setTermometarId} />
+          </div>
+        )}
         {faliTemperatura && <p style={{ fontSize: 10, color: "#8d9ba5", margin: 0 }}>Za robu pod temperaturnim režimom upišite temperaturu pri predaji — to je dokaz da je hladni lanac održan do kupca.</p>}
       </div>
     </Modal>
@@ -497,6 +537,7 @@ function OdstupanjeModal({ isporuka, onClose, onSacuvano }: { isporuka: Isporuka
   const [greska, setGreska] = useState("");
   const [poslato, setPoslato] = useState<string | null>(null);
 
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
       const r = await api<{ broj: string }>("/neusaglasenosti", {
@@ -526,7 +567,7 @@ function OdstupanjeModal({ isporuka, onClose, onSacuvano }: { isporuka: Isporuka
       podnaslov={isporuka.kupac_naziv}
       onClose={onClose}
       greska={greska}
-      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={opis.trim().length < 3}>Prijavi</button></>}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || opis.trim().length < 3}>Prijavi</button></>}
     >
       <div className="form-grid">
         <label style={{ gridColumn: "1 / -1" }}>

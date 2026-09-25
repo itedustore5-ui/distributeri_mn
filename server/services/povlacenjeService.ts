@@ -3,6 +3,7 @@ import { ApiGreska } from "../greske.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu, zatvoriZadatkeIzvora } from "./zadaciService.js";
 import { sljedeciBroj, sljedeciBrojNc, danasKratko } from "./brojeviService.js";
+import { javiIsporukeSaLotom } from "./lotBlokadaService.js";
 
 /** Povlačenje počinje telefonom (čl. 28) — kontakti se snimaju iz stvarnih isporuka tog lota,
  * ne unose se ručno, da se niko ne izostavi. Automatski otvara i neusaglašenost visoke
@@ -49,6 +50,8 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
        select $1, artikal_id, 0, 'HOLD', 'povlacenje', $2, $3, 'HOLD zbog povlačenja' from lot where id = $1`,
       [lotId, povlacenjeId, korisnikId],
     );
+    // Isporuke već pripremljene sa ovim lotom ne smiju krenuti — vozač i magacioner saznaju odmah (R-01).
+    await javiIsporukeSaLotom(klijent, lotId, `Pokrenuto povlačenje ${broj}: ${razlog}`, korisnikId);
 
     const brojNc = await sljedeciBrojNc(klijent);
     const nc = await klijent.query<{ id: string }>(

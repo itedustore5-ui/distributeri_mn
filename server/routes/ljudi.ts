@@ -101,7 +101,7 @@ ljudiRuter.patch(
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const { obavljenoDatum } = tijelo(z.object({ obavljenoDatum: z.string().optional() }), request.body ?? {});
-    await ljudi.obukaObavljena(str(request.params.id), obavljenoDatum);
+    await ljudi.obukaObavljena(str(request.params.id), obavljenoDatum, request.korisnik!.id);
     response.status(204).end();
   }),
 );

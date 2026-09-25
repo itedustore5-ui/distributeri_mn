@@ -1,6 +1,6 @@
 // Obavještenja za teren, zadaci (automatski, dodjela, samozatvaranje), temperatura pri predaji (KKT 3),
 // zatvaranje neusaglašenosti do kraja. Briše sve što napravi i vraća zalihu.
-import { pool, prijava, NALOZI, danasCG, glavnoSkladiste } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, glavnoSkladiste, nijeIstekao, rashladnoVozilo, d1Prolazi } from "./pomoc.mjs";
 
 export const naziv = "Obavještenja, zadaci, temperatura pri predaji";
 
@@ -9,14 +9,22 @@ export async function pokreni({ provjeri }) {
   const petar = await prijava(NALOZI.petar);
   const marko = await prijava(NALOZI.marko);
   const idPetar = petar.id, idMarko = marko.id;
-  const trag = { isporukaId: null, ncIds: [], zadatakIds: [], prijemId: null, lotIds: [], mjerenjeIds: [], zalihaPrije: null, lotIsporuke: null };
+  const trag = { isporukaId: null, ncIds: [], zadatakIds: [], prijemId: null, lotIds: [], mjerenjeIds: [], zalihaPrije: null, lotIsporuke: null, kontrole: [], vozilo: null };
   const brojObavj = async (k) => (await k("/obavjestenja")).tijelo;
 
   try {
     // ── 1. Isporuka dodijeljena vozaču → obavještenje ──
     const kupac = (await ana("/kupci")).tijelo[0];
-    const vozilo = (await ana("/vozila")).tijelo.find((v) => v.status === "SPREMNO");
-    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => /Jogurt|Mlijeko/.test(l.artikal_naziv));
+    // Jogurt/mlijeko idu samo rashladnim vozilom (R-05).
+    const vozilo = await rashladnoVozilo(ana);
+    if (vozilo) trag.vozilo = { id: vozilo.id, status: vozilo.status };
+    // D1 prije utovara — predaja bez današnje kontrole vozila se ne potvrđuje.
+    const d1 = async () => {
+      const id = await d1Prolazi(petar, vozilo);
+      trag.kontrole.push(id);
+      return { status: id ? 201 : 500 };
+    };
+    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => /Jogurt|Mlijeko/.test(l.artikal_naziv) && Number(l.dostupno) >= 1 && nijeIstekao(l));
     trag.lotIsporuke = lot.id;
     trag.zalihaPrije = (await pool.query(`select id, kolicina from zaliha where lot_id = $1 and status = 'DOSTUPNO'`, [lot.id])).rows[0];
     const obavjPetarPrije = (await brojObavj(petar)).length;
@@ -28,6 +36,7 @@ export async function pokreni({ provjeri }) {
     provjeri("Petar dobija obavještenje o isporuci", !!zaIsporuku, zaIsporuku?.naslov + " | " + zaIsporuku?.poruka);
 
     // ── 2. Potvrda bez temperature → odbijena; sa 8.6 °C → FAIL, NC, zadatak, lot NIJE na HOLD-u ──
+    provjeri("Vozač radi D1 prije utovara", (await d1()).status === 201);
     const detalj = (await petar(`/isporuke/${trag.isporukaId}`)).tijelo;
     const stavka = detalj.stavke[0];
     provjeri("Detalj isporuke nosi temp. granicu artikla", stavka.temp_kontrolisano === true && stavka.temp_max !== undefined, `${stavka.artikal_naziv} ${stavka.temp_min}–${stavka.temp_max}, potvrđena=${stavka.granica_potvrdio}`);
@@ -75,6 +84,10 @@ export async function pokreni({ provjeri }) {
     provjeri("Marko dobija obavještenje o korektivnoj mjeri", (await brojObavj(marko))[0]?.naslov.includes(nc.broj), (await brojObavj(marko))[0]?.naslov);
     provjeri("Marko završava mjeru", (await marko(`/korektivne-mjere/${mjera.tijelo.id}/zavrsi`, { telo: { rezultat: "Urađeno" } })).status === 200);
     const obavjPetarPrijeZ = (await brojObavj(petar)).length;
+    // Temperatura van granice u vozilu: zatvara se tek kad vozilo prođe NOVU kontrolu (R-22).
+    const bezD1 = await ana(`/neusaglasenosti/${nc.id}/verifikacija`, { telo: { rezultat: "POTVRDJENO", napomena: "Uređaj popravljen." } });
+    provjeri("Zatvaranje bez nove D1 vozila se odbija (409)", bezD1.status === 409 && bezD1.tijelo.error.code === "PONOVNA_KONTROLA_POTREBNA", bezD1.tijelo?.error?.message);
+    await d1();
     const ver = await ana(`/neusaglasenosti/${nc.id}/verifikacija`, { telo: { korektivnaMjeraId: mjera.tijelo.id, rezultat: "POTVRDJENO", napomena: "Uređaj popravljen." } });
     provjeri("Ana verifikuje → NC zatvorena", ver.status === 200 && ver.tijelo.status === "ZATVORENA", `${ver.status} ${JSON.stringify(ver.tijelo)}`);
     const zStatus = (await pool.query(`select status from zadatak where id = $1`, [zadatak.id])).rows[0].status;
@@ -130,6 +143,11 @@ export async function pokreni({ provjeri }) {
         await k.query(`delete from isporuka where id = $1`, [trag.isporukaId]);
       }
       if (trag.zalihaPrije) await k.query(`update zaliha set kolicina = $1 where id = $2`, [trag.zalihaPrije.kolicina, trag.zalihaPrije.id]);
+      if (trag.kontrole.length) {
+        await k.query(`delete from audit_log where entitet_id = any($1)`, [trag.kontrole]);
+        await k.query(`delete from kontrola_vozila where id = any($1)`, [trag.kontrole]);
+      }
+      if (trag.vozilo) await k.query(`update vozilo set status = $1 where id = $2`, [trag.vozilo.status, trag.vozilo.id]);
       if (trag.prijemId) {
         await k.query(`delete from kretanje_zalihe where lot_id = any($1)`, [trag.lotIds]);
         await k.query(`delete from zaliha where lot_id = any($1)`, [trag.lotIds]);

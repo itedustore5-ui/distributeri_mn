@@ -17,7 +17,7 @@ import {
 } from "../auth.js";
 import { hashLozinke, provjeriLozinku, lozinkaJeDovoljnoDugacka, MINIMALNA_DUZINA_LOZINKE } from "../lozinke.js";
 import { tijelo } from "../validacija.js";
-import { logSigurnosniDogadjaj } from "../services/auditService.js";
+import { logSigurnosniDogadjaj, logIzmjenaReda, stanjeReda } from "../services/auditService.js";
 import { pool } from "../db.js";
 import { javniRuter } from "../provjeraRuta.js";
 
@@ -34,7 +34,9 @@ authJavniRuter.post(
   "/auth/prijava",
   asyncRuta(async (request, response) => {
     const { korisnickoIme, lozinka } = tijelo(prijavaSchema, request.body);
-    const kljucKlijenta = request.ip || "nepoznato";
+    // Ključ je IP + korisničko ime (R-11): iza proksija i u magacinu sa jednim ruterom svi dijele IP,
+    // pa bi tuđi pogrešni pokušaji zaključali prijavu svima.
+    const kljucKlijenta = `${request.ip || "nepoznato"}|${korisnickoIme.trim().toLowerCase()}`;
     provjeriOgranicenjeLogina(kljucKlijenta);
 
     const rezultat = await upit<{ id: string; lozinka_hash: string; uloga: string; mora_promijeniti_lozinku: boolean; aktivan: boolean }>(
@@ -93,10 +95,17 @@ authRuter.post(
       throw new ApiGreska(401, "STARA_LOZINKA_NETACNA", "Trenutna lozinka nije ispravna.");
     }
     await transakcija(async (klijent) => {
+      const prije = await stanjeReda(klijent, "korisnik", request.korisnik!.id, true);
       await klijent.query(
         `update korisnik set lozinka_hash = $1, lozinka_stanje = 'svoja', mora_promijeniti_lozinku = false, updated_at = now() where id = $2`,
         [hashLozinke(novaLozinka), request.korisnik!.id],
       );
+      // Heš se ne upisuje nigdje — samo da je lozinka promijenjena i sa koje adrese.
+      await logIzmjenaReda(klijent, {
+        korisnikId: request.korisnik!.id, entitetTip: "korisnik", entitetId: request.korisnik!.id,
+        prije, poslije: await stanjeReda(klijent, "korisnik", request.korisnik!.id),
+        dodatno: { lozinka: "promijenjena (sam korisnik)", ip: request.ip ?? null },
+      });
       // Nova lozinka odjavljuje sve ostale uređaje — ako je stara procurila, stara prijava ne važi.
       await obrisiSveSesijeZaKorisnika(request.korisnik!.id, tokenIzZahtjeva(request), klijent);
     });

@@ -5,6 +5,7 @@ import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, ogranicenjeDatuma, samoMoje, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajIsporuku, izmijeniIsporuku, potvrdiIsporuku } from "../services/isporukaService.js";
+import { kljucIzZaglavlja } from "../services/kljucService.js";
 
 export const isporukaRuter = Router();
 isporukaRuter.get(
@@ -32,12 +33,15 @@ isporukaRuter.get(
 isporukaRuter.get(
   "/isporuke/:id",
   requireUloga("operater", "vozac", "bzr", "izvodjac"),
-  asyncRuta(async (request, response) => {
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    // Teren vidi samo svoje isporuke i samo u svom prozoru — isto pravilo kao lista (R-04).
+    const k = request.korisnik!;
+    const naTerenu = samoMoje(k.uloga);
     const isporuka = await upit(
       `select i.*, k.naziv as kupac_naziv, k.telefon as kupac_telefon, v.registarski_broj, s.naziv as skladiste_naziv from isporuka i
        join kupac k on k.id = i.kupac_id left join vozilo v on v.id = i.vozilo_id left join skladiste s on s.id = i.skladiste_id
-       where i.id = $1`,
-      [request.params.id],
+       where i.id = $1 ${naTerenu ? `and (i.uneo_korisnik_id = $2 or i.vozac_korisnik_id = $2) and ${ogranicenjeDatuma(k.uloga, "i.datum_isporuke")}` : ""}`,
+      naTerenu ? [str(request.params.id), k.id] : [str(request.params.id)],
     );
     if (!isporuka.rows[0]) throw new ApiGreska(404, "ISPORUKA_NE_POSTOJI", "Isporuka nije pronađena.");
     const stavke = await upit(
@@ -66,7 +70,7 @@ isporukaRuter.post(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(novaIsporukaSchema, request.body);
     provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumIsporuke);
-    const isporukaId = await kreirajIsporuku(ulaz, request.korisnik!.id);
+    const isporukaId = await kreirajIsporuku(ulaz, request.korisnik!.id, kljucIzZaglavlja(request.headers["x-kljuc-zahtjeva"]));
     response.status(201).json({ id: isporukaId });
   }),
 );
@@ -77,7 +81,7 @@ isporukaRuter.patch(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(novaIsporukaSchema.omit({ kupacId: true, napomena: true }), request.body);
     provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumIsporuke);
-    await izmijeniIsporuku(str(request.params.id), ulaz, request.korisnik!.id);
+    await izmijeniIsporuku(str(request.params.id), ulaz, request.korisnik!);
     response.status(204).end();
   }),
 );
@@ -95,7 +99,8 @@ isporukaRuter.post(
   requireUloga("vozac", "operater", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const stavke = tijelo(z.array(potvrdaStavkaSchema).min(1), request.body?.stavke);
-    const rezultat = await potvrdiIsporuku(str(request.params.id), stavke, request.korisnik!.id);
+    const { mjerniUredjajId } = tijelo(z.object({ mjerniUredjajId: z.string().uuid().nullable().optional() }), { mjerniUredjajId: request.body?.mjerniUredjajId });
+    const rezultat = await potvrdiIsporuku(str(request.params.id), stavke, request.korisnik!, mjerniUredjajId ?? null);
     response.json(rezultat);
   }),
 );

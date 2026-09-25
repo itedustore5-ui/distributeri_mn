@@ -5,7 +5,7 @@ import { ApiGreska } from "../greske.js";
 import { smijeDodijelitiUlogu, obrisiSveSesijeZaKorisnika, type Uloga } from "../auth.js";
 import { hashLozinke, lozinkaJeDovoljnoDugacka, MINIMALNA_DUZINA_LOZINKE } from "../lozinke.js";
 import { danasCG } from "../vrijeme.js";
-import { logKreiranje, logIzmjena } from "./auditService.js";
+import { logKreiranje, logIzmjenaReda, stanjeReda } from "./auditService.js";
 import { sljedeciBroj } from "./brojeviService.js";
 
 // Ljudi i nalozi: spisak zaposlenih (lice), plan obuke (Prilog 13) i nalozi za prijavu
@@ -84,6 +84,8 @@ export async function novoLice(ulaz: NovoLice, nalog: Omit<NoviNalog, "liceId"> 
 
 export async function izmijeniLice(liceId: string, ulaz: Partial<NovoLice> & { aktivan?: boolean }, korisnikId: string) {
   await transakcija(async (klijent) => {
+    const prije = await stanjeReda(klijent, "lice", liceId, true);
+    if (!prije) throw new ApiGreska(404, "LICE_NE_POSTOJI", "Zaposleni nije pronađen.");
     await klijent.query(
       `update lice set
          ime = coalesce($1, ime),
@@ -96,7 +98,7 @@ export async function izmijeniLice(liceId: string, ulaz: Partial<NovoLice> & { a
        where id = $7`,
       [ulaz.ime ?? null, ulaz.radnoMjesto ?? null, ulaz.rukujeHranom ?? null, ulaz.sanitarnaKnjizicaBroj ?? null, ulaz.sanitarnaKnjizicaRok ?? null, ulaz.aktivan ?? null, liceId],
     );
-    await logIzmjena(klijent, { korisnikId, entitetTip: "lice", entitetId: liceId, noveVrijednosti: ulaz });
+    await logIzmjenaReda(klijent, { korisnikId, entitetTip: "lice", entitetId: liceId, prije, poslije: await stanjeReda(klijent, "lice", liceId) });
   });
 }
 
@@ -126,8 +128,13 @@ export async function dodajUPlanObuke(ulaz: { liceId: string; tema: string; plan
   });
 }
 
-export async function obukaObavljena(planId: string, datum: string | undefined) {
-  await pool.query(`update plan_obuke set obavljeno_datum = $1 where id = $2`, [datum ?? danasCG(), planId]);
+export async function obukaObavljena(planId: string, datum: string | undefined, korisnikId: string) {
+  await transakcija(async (klijent) => {
+    const prije = await stanjeReda(klijent, "plan_obuke", planId, true);
+    if (!prije) throw new ApiGreska(404, "STAVKA_NE_POSTOJI", "Stavka plana obuke nije pronađena.");
+    await klijent.query(`update plan_obuke set obavljeno_datum = $1 where id = $2`, [datum ?? danasCG(), planId]);
+    await logIzmjenaReda(klijent, { korisnikId, entitetTip: "plan_obuke", entitetId: planId, prije, poslije: await stanjeReda(klijent, "plan_obuke", planId) });
+  });
 }
 
 export async function nalozi() {
@@ -156,9 +163,10 @@ export async function promijeniUlogu(ciljId: string, ciljUloga: Uloga, izvrsilac
   if (!smijeDodijelitiUlogu(izvrsilac.uloga, ciljUloga)) throw new ApiGreska(403, "NEDOZVOLJENA_ULOGA", "Ne možete dodijeliti tu ulogu.");
   await provjeriMozeDaDirneNalog(izvrsilac, ciljId);
   await transakcija(async (klijent) => {
+    const prije = await stanjeReda(klijent, "korisnik", ciljId, true);
     await klijent.query(`update korisnik set uloga = $1, updated_at = now() where id = $2`, [ciljUloga, ciljId]);
     await obrisiSveSesijeZaKorisnika(ciljId, undefined, klijent);
-    await logIzmjena(klijent, { korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { uloga: ciljUloga } });
+    await logIzmjenaReda(klijent, { korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: ciljId, prije, poslije: await stanjeReda(klijent, "korisnik", ciljId) });
   });
 }
 
@@ -169,12 +177,16 @@ export async function novaLozinka(ciljId: string, zadata: string | undefined, iz
   await provjeriMozeDaDirneNalog(izvrsilac, ciljId);
   const privremenaLozinka = lozinkaZadataIliPredlog(zadata);
   await transakcija(async (klijent) => {
+    const prije = await stanjeReda(klijent, "korisnik", ciljId, true);
     await klijent.query(
       `update korisnik set lozinka_hash = $1, lozinka_stanje = 'privremena', mora_promijeniti_lozinku = true, updated_at = now() where id = $2`,
       [hashLozinke(privremenaLozinka), ciljId],
     );
     await obrisiSveSesijeZaKorisnika(ciljId, undefined, klijent);
-    await logIzmjena(klijent, { korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { lozinka: "postavljena nova privremena" } });
+    await logIzmjenaReda(klijent, {
+      korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: ciljId, prije, poslije: await stanjeReda(klijent, "korisnik", ciljId),
+      dodatno: { lozinka: "postavljena nova privremena" },
+    });
   });
   return privremenaLozinka;
 }
@@ -182,9 +194,10 @@ export async function novaLozinka(ciljId: string, zadata: string | undefined, iz
 export async function deaktivirajNalog(ciljId: string, izvrsilac: Izvrsilac) {
   await provjeriMozeDaDirneNalog(izvrsilac, ciljId);
   await transakcija(async (klijent) => {
+    const prije = await stanjeReda(klijent, "korisnik", ciljId, true);
     await klijent.query(`update korisnik set aktivan = false, updated_at = now() where id = $1`, [ciljId]);
     await obrisiSveSesijeZaKorisnika(ciljId, undefined, klijent);
-    await logIzmjena(klijent, { korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { aktivan: false } });
+    await logIzmjenaReda(klijent, { korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: ciljId, prije, poslije: await stanjeReda(klijent, "korisnik", ciljId) });
   });
 }
 
@@ -197,7 +210,8 @@ export async function postaviMaticnoSkladiste(ciljId: string, skladisteId: strin
     if (!postoji.rows[0]) throw new ApiGreska(400, "SKLADISTE_NE_POSTOJI", "Izabrano skladište ne postoji ili više nije aktivno.");
   }
   await transakcija(async (klijent) => {
+    const prije = await stanjeReda(klijent, "korisnik", ciljId, true);
     await klijent.query(`update korisnik set skladiste_id = $1 where id = $2`, [skladisteId, ciljId]);
-    await logIzmjena(klijent, { korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: ciljId, noveVrijednosti: { skladisteId } });
+    await logIzmjenaReda(klijent, { korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: ciljId, prije, poslije: await stanjeReda(klijent, "korisnik", ciljId) });
   });
 }

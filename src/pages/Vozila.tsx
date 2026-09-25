@@ -1,12 +1,23 @@
 import { useEffect, useState } from "react";
 import { Plus, Truck, ClipboardList } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
+import { useSlanje } from "../lib/slanje";
 import { PageHeader, Modal } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
 import { lokalniDatum } from "../lib/vrijeme";
 
-type Vozilo = { id: string; registarski_broj: string; tip: string | null; status: string; temp_kontrolisano: boolean };
+type Vozilo = {
+  id: string;
+  registarski_broj: string;
+  tip: string | null;
+  status: string;
+  temp_kontrolisano: boolean;
+  temp_min: string | null;
+  temp_max: string | null;
+  /** Ishod današnje kontrole (D1) — null ako danas nije rađena. */
+  d1_danas: string | null;
+};
 type Kontrola = {
   id: string;
   vozilo_id: string;
@@ -19,9 +30,14 @@ type Kontrola = {
   oprema_ok: boolean;
   vrata_ok: boolean;
   temperatura: string | null;
+  granica_min: string | null;
+  granica_max: string | null;
+  temperatura_ok: boolean | null;
   ukupan_status: string;
   napomena: string | null;
 };
+
+const rezim = (min: string | null, max: string | null) => (min === null && max === null ? null : `${min === null ? "—" : Number(min)} – ${max === null ? "—" : Number(max)} °C`);
 
 const sat = (iso: string) => new Date(iso).toLocaleTimeString("sr-Latn-ME", { hour: "2-digit", minute: "2-digit" });
 const datumIVrijeme = (iso: string) => `${new Date(iso).toLocaleDateString("sr-Latn-ME")} ${sat(iso)}`;
@@ -31,7 +47,7 @@ export function Vozila() {
   const [vozila, setVozila] = useState<Vozilo[]>([]);
   const [kontrole, setKontrole] = useState<Kontrola[]>([]);
   const [modalKontrola, setModalKontrola] = useState<Vozilo | null>(null);
-  const [modalNovo, setModalNovo] = useState(false);
+  const [modalVozilo, setModalVozilo] = useState<Vozilo | "novo" | null>(null);
   const [filterVozilo, setFilterVozilo] = useState("");
   const [filterDatum, setFilterDatum] = useState("");
   const [filterRezultat, setFilterRezultat] = useState("");
@@ -56,15 +72,18 @@ export function Vozila() {
       (!samoMoje || k.izvrsio_korisnik_id === korisnik?.id),
   );
   const imaFiltera = filterVozilo || filterDatum || filterRezultat || samoMoje;
+  const vodiSistem = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
+  // D1 upisuju vozač, odgovorno lice i konsultant (invarijanta #24).
+  const mozeD1 = vodiSistem || korisnik?.uloga === "vozac";
 
   return (
     <>
       <PageHeader
         title="Vozila"
-        description="Kritičan nalaz na kontroli blokira isporuku tim vozilom dok se ne ponovi provjera."
+        description="Vozilo je spremno samo za dan u kom je kontrola (D1) prošla. Pala kontrola blokira isporuku tim vozilom dok nova ne prođe."
         action={
-          (korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac") && (
-            <button className="primary-button" onClick={() => setModalNovo(true)}>
+          vodiSistem && (
+            <button className="primary-button" onClick={() => setModalVozilo("novo")}>
               <Plus size={16} /> Novo vozilo
             </button>
           )
@@ -72,17 +91,22 @@ export function Vozila() {
       />
       <div className="vehicle-grid">
         {vozila.map((v) => (
-          <div key={v.id} className={`vehicle-card ${v.status === "NIJE_SPREMNO" ? "danger" : "success"}`}>
+          <div key={v.id} className={`vehicle-card ${v.status === "NIJE_SPREMNO" ? "danger" : v.d1_danas === "PROSAO" ? "success" : "warning"}`}>
             <div className="vehicle-top">
               <div className="vehicle-symbol"><Truck size={16} /></div>
             </div>
             <h3>{v.registarski_broj}</h3>
-            <div className="vehicle-type">{v.tip ?? "Vozilo"}{v.temp_kontrolisano && <><span>·</span>rashladno</>}</div>
+            <div className="vehicle-type">
+              {v.tip ?? "Vozilo"}
+              {v.temp_kontrolisano && <><span>·</span>rashladno {rezim(v.temp_min, v.temp_max) ?? <b style={{ color: "#d95d64" }}>granica nije upisana</b>}</>}
+            </div>
             <div className="vehicle-divider" />
             <div className="vehicle-meta">
               <div>
                 <span>Status</span>
-                <strong>{v.status === "SPREMNO" ? "Spremno" : "Nije spremno"}</strong>
+                <strong className={v.status === "NIJE_SPREMNO" ? "kontrola-nema" : v.d1_danas === "PROSAO" ? "kontrola-danas" : "kontrola-stara"}>
+                  {v.status === "NIJE_SPREMNO" ? "Nije spremno — nova D1 mora proći" : v.d1_danas === "PROSAO" ? "Spremno danas" : "Čeka D1 za danas"}
+                </strong>
               </div>
               <div>
                 <span>Posljednja kontrola</span>
@@ -97,7 +121,8 @@ export function Vozila() {
                 })()}
               </div>
             </div>
-            <button className="secondary-button full-width" onClick={() => setModalKontrola(v)}>Nova kontrola (D1)</button>
+            {mozeD1 && <button className="secondary-button full-width" onClick={() => setModalKontrola(v)}>Nova kontrola (D1)</button>}
+            {vodiSistem && <button className="link-button" style={{ marginTop: 8 }} onClick={() => setModalVozilo(v)}>Izmijeni vozilo</button>}
           </div>
         ))}
       </div>
@@ -143,7 +168,7 @@ export function Vozila() {
       <div className="panel kontrole-kartice">
         {prikazano.length === 0 && <p className="muted-text" style={{ fontSize: 11, padding: 16 }}>{imaFiltera ? "Nema kontrola za izabrane filtere." : "Nema zabilježenih kontrola."}</p>}
         {prikazano.map((k) => {
-          const pali = [!k.cistoca && "čistoća", !k.oprema_ok && "oprema", !k.vrata_ok && "vrata"].filter(Boolean);
+          const pali = [!k.cistoca && "čistoća", !k.oprema_ok && "oprema", !k.vrata_ok && "vrata", k.temperatura_ok === false && `temperatura (granica ${rezim(k.granica_min, k.granica_max)})`].filter(Boolean);
           return (
             <div key={k.id} className="danas-red">
               <div>
@@ -179,7 +204,10 @@ export function Vozila() {
                   <td>{k.cistoca ? "Da" : "Ne"}</td>
                   <td>{k.oprema_ok ? "Da" : "Ne"}</td>
                   <td>{k.vrata_ok ? "Da" : "Ne"}</td>
-                  <td className="muted-text">{k.temperatura ?? "—"}</td>
+                  <td className="muted-text" style={k.temperatura_ok === false ? { color: "#c34e55", fontWeight: 600 } : undefined}>
+                    {k.temperatura !== null ? `${Number(k.temperatura)} °C` : "—"}
+                    {k.granica_min !== null || k.granica_max !== null ? <span className="muted-text"> ({rezim(k.granica_min, k.granica_max)})</span> : null}
+                  </td>
                   <td className="muted-text">{k.izvrsio ?? "—"}</td>
                   <td><StatusBadge status={k.ukupan_status} /></td>
                 </tr>
@@ -197,59 +225,112 @@ export function Vozila() {
       </div>
 
       {modalKontrola && <NovaKontrolaModal vozilo={modalKontrola} onClose={() => setModalKontrola(null)} onCreated={ucitaj} />}
-      {modalNovo && <NovoVoziloModal onClose={() => setModalNovo(false)} onCreated={ucitaj} />}
+      {modalVozilo && <VoziloModal vozilo={modalVozilo === "novo" ? undefined : modalVozilo} onClose={() => setModalVozilo(null)} onCreated={ucitaj} />}
     </>
   );
 }
 
+/** Da / Ne bez podrazumijevanog odgovora — „Sačuvaj" bez ijednog klika više ne upisuje „prošao" (R-05). */
+function DaNe({ oznaka, vrijednost, onChange }: { oznaka: string; vrijednost: boolean | null; onChange: (v: boolean) => void }) {
+  return (
+    <label>
+      {oznaka}
+      <select value={vrijednost === null ? "" : vrijednost ? "da" : "ne"} onChange={(e) => e.target.value && onChange(e.target.value === "da")} style={vrijednost === false ? { borderColor: "#df686c" } : undefined}>
+        <option value="">— izaberite —</option>
+        <option value="da">Da, u redu</option>
+        <option value="ne">Ne</option>
+      </select>
+    </label>
+  );
+}
+
 function NovaKontrolaModal({ vozilo, onClose, onCreated }: { vozilo: Vozilo; onClose: () => void; onCreated: () => void }) {
-  const [cistoca, setCistoca] = useState(true);
-  const [opremaOk, setOpremaOk] = useState(true);
-  const [vrataOk, setVrataOk] = useState(true);
+  const [cistoca, setCistoca] = useState<boolean | null>(null);
+  const [opremaOk, setOpremaOk] = useState<boolean | null>(null);
+  const [vrataOk, setVrataOk] = useState<boolean | null>(null);
   const [temperatura, setTemperatura] = useState("");
   const [napomena, setNapomena] = useState("");
   const [greska, setGreska] = useState("");
+  const [ishod, setIshod] = useState<{ ukupanStatus: string; nijeURedu: string[] } | null>(null);
 
+  const min = vozilo.temp_min === null ? null : Number(vozilo.temp_min);
+  const max = vozilo.temp_max === null ? null : Number(vozilo.temp_max);
+  const t = temperatura === "" ? null : Number(temperatura);
+  const vanGranice = t !== null && ((min !== null && t < min) || (max !== null && t > max));
+  const sveOdgovoreno = cistoca !== null && opremaOk !== null && vrataOk !== null && (!vozilo.temp_kontrolisano || t !== null);
+
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      await api("/kontrole-vozila", { telo: { vozilId: vozilo.id, cistoca, opremaOk, vrataOk, temperatura: temperatura ? Number(temperatura) : undefined, napomena: napomena || undefined } });
+      const r = await api<{ ukupanStatus: string; nijeURedu: string[] }>("/kontrole-vozila", {
+        telo: { vozilId: vozilo.id, cistoca, opremaOk, vrataOk, temperatura: t, napomena: napomena || undefined },
+      });
       onCreated();
-      onClose();
+      if (r.ukupanStatus === "PROSAO") onClose();
+      else setIshod(r);
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Kontrola nije sačuvana.");
     }
   };
 
-  const Polje = ({ oznaka, vrijednost, onChange }: { oznaka: string; vrijednost: boolean; onChange: (v: boolean) => void }) => (
-    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <input type="checkbox" checked={vrijednost} onChange={(e) => onChange(e.target.checked)} style={{ width: "auto", height: "auto" }} /> {oznaka}
-    </label>
-  );
+  if (ishod) {
+    return (
+      <Modal naslov={`Kontrola vozila — ${vozilo.registarski_broj}`} onClose={onClose} footer={<button className="primary-button" onClick={onClose}>Zatvori</button>}>
+        <div style={{ padding: 20 }}>
+          <StatusBadge status="NIJE_PROSAO" />
+          <p style={{ marginTop: 10, fontSize: 12, color: "#c34e55" }}>
+            Vozilo nije spremno — nije u redu: {ishod.nijeURedu.join(", ")}. Otvorena je neusaglašenost i obaviješteno je odgovorno lice.
+            Ne utovarujte robu u ovo vozilo dok nova kontrola ne prođe.
+          </p>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
-    <Modal naslov={`Kontrola vozila — ${vozilo.registarski_broj}`} podnaslov="D1" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji}>Sačuvaj</button></>}>
-      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-        <Polje oznaka="Čistoća tovarnog prostora" vrijednost={cistoca} onChange={setCistoca} />
-        <Polje oznaka="Oprema ispravna" vrijednost={opremaOk} onChange={setOpremaOk} />
-        <Polje oznaka="Vrata/brtve ispravni" vrijednost={vrataOk} onChange={setVrataOk} />
-      </div>
+    <Modal naslov={`Kontrola vozila — ${vozilo.registarski_broj}`} podnaslov="D1 — prije utovara" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !sveOdgovoreno}>Sačuvaj</button></>}>
       <div className="form-grid">
-        {vozilo.temp_kontrolisano && <label>Temperatura (°C)<input type="number" step="0.1" value={temperatura} onChange={(e) => setTemperatura(e.target.value)} /></label>}
-        <label style={{ gridColumn: vozilo.temp_kontrolisano ? undefined : "1 / -1" }}>Napomena<input value={napomena} onChange={(e) => setNapomena(e.target.value)} /></label>
+        <DaNe oznaka="Tovarni prostor čist" vrijednost={cistoca} onChange={setCistoca} />
+        <DaNe oznaka="Oprema ispravna" vrijednost={opremaOk} onChange={setOpremaOk} />
+        <DaNe oznaka="Vrata i brtve ispravni" vrijednost={vrataOk} onChange={setVrataOk} />
+        {vozilo.temp_kontrolisano && (
+          <label>
+            Temperatura tovarnog prostora (°C){rezim(vozilo.temp_min, vozilo.temp_max) ? ` · granica ${rezim(vozilo.temp_min, vozilo.temp_max)}` : ""}
+            <input type="number" step="0.1" value={temperatura} onChange={(e) => setTemperatura(e.target.value)} style={vanGranice ? { borderColor: "#df686c" } : undefined} />
+          </label>
+        )}
+        <label style={{ gridColumn: "1 / -1" }}>Napomena<input value={napomena} onChange={(e) => setNapomena(e.target.value)} /></label>
       </div>
+      {vanGranice && <p style={{ fontSize: 12, color: "#c34e55", margin: "0 20px 12px" }}>Temperatura je van granice vozila — vozilo neće biti spremno i otvoriće se neusaglašenost.</p>}
+      {vozilo.temp_kontrolisano && min === null && max === null && (
+        <p className="muted-text" style={{ fontSize: 11, margin: "0 20px 12px" }}>Granica vozila nije upisana — temperatura se upisuje, ali se ne ocjenjuje. Javite odgovornom licu.</p>
+      )}
     </Modal>
   );
 }
 
-function NovoVoziloModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [registarskiBroj, setRegistarskiBroj] = useState("");
-  const [tip, setTip] = useState("");
-  const [tempKontrolisano] = useState(true);
+function VoziloModal({ vozilo, onClose, onCreated }: { vozilo?: Vozilo; onClose: () => void; onCreated: () => void }) {
+  const [registarskiBroj, setRegistarskiBroj] = useState(vozilo?.registarski_broj ?? "");
+  const [tip, setTip] = useState(vozilo?.tip ?? "");
+  const [tempKontrolisano, setTempKontrolisano] = useState(vozilo?.temp_kontrolisano ?? true);
+  const [tempMin, setTempMin] = useState(vozilo?.temp_min !== undefined && vozilo?.temp_min !== null ? String(Number(vozilo.temp_min)) : "0");
+  const [tempMax, setTempMax] = useState(vozilo?.temp_max !== undefined && vozilo?.temp_max !== null ? String(Number(vozilo.temp_max)) : "4");
+  const [uUpotrebi, setUUpotrebi] = useState(true);
   const [greska, setGreska] = useState("");
 
+  const granicaOk = !tempKontrolisano || (tempMin !== "" && tempMax !== "" && Number(tempMin) < Number(tempMax));
+  const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      await api("/vozila", { telo: { registarskiBroj, tip: tip || undefined, tempKontrolisano } });
+      const telo = {
+        registarskiBroj: registarskiBroj.trim(),
+        tip: tip || undefined,
+        tempKontrolisano,
+        tempMin: tempKontrolisano ? Number(tempMin) : undefined,
+        tempMax: tempKontrolisano ? Number(tempMax) : undefined,
+      };
+      if (vozilo) await api(`/vozila/${vozilo.id}`, { method: "PATCH", telo: { ...telo, tempMin: tempKontrolisano ? Number(tempMin) : null, tempMax: tempKontrolisano ? Number(tempMax) : null, aktivan: uUpotrebi } });
+      else await api("/vozila", { telo });
       onCreated();
       onClose();
     } catch (e) {
@@ -258,11 +339,30 @@ function NovoVoziloModal({ onClose, onCreated }: { onClose: () => void; onCreate
   };
 
   return (
-    <Modal naslov="Novo vozilo" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!registarskiBroj}>Sačuvaj</button></>}>
+    <Modal naslov={vozilo ? `Vozilo — ${vozilo.registarski_broj}` : "Novo vozilo"} onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || registarskiBroj.trim().length < 3 || !granicaOk}>Sačuvaj</button></>}>
       <div className="form-grid">
         <label>Registarski broj<input value={registarskiBroj} onChange={(e) => setRegistarskiBroj(e.target.value)} /></label>
-        <label>Tip<input value={tip} onChange={(e) => setTip(e.target.value)} /></label>
+        <label>Tip<input value={tip} onChange={(e) => setTip(e.target.value)} placeholder="npr. Furgon rashladni" /></label>
+        <label style={{ gridColumn: "1 / -1" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="checkbox" checked={tempKontrolisano} onChange={(e) => setTempKontrolisano(e.target.checked)} style={{ width: "auto", height: "auto" }} /> Rashladno vozilo (prevozi robu pod temperaturnim režimom)
+          </span>
+        </label>
+        {tempKontrolisano && (
+          <>
+            <label>Režim od (°C)<input type="number" step="0.5" value={tempMin} onChange={(e) => setTempMin(e.target.value)} /></label>
+            <label>Režim do (°C)<input type="number" step="0.5" value={tempMax} onChange={(e) => setTempMax(e.target.value)} /></label>
+          </>
+        )}
+        {vozilo && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={uUpotrebi} onChange={(e) => setUUpotrebi(e.target.checked)} style={{ width: "auto", height: "auto" }} /> Vozilo je u upotrebi
+            </span>
+          </label>
+        )}
       </div>
+      {tempKontrolisano && !granicaOk && <p style={{ fontSize: 12, color: "#c34e55", margin: "0 20px 12px" }}>Upišite režim — donja granica manja od gornje. Po njemu se ocjenjuje kontrola prije utovara.</p>}
     </Modal>
   );
 }
