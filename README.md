@@ -59,10 +59,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`27_talas2_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`30_bekap_bez_tajni_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`, `25_push_cg.sql`, `26_talas1_cg.sql`, `27_talas2_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`, `25_push_cg.sql`, `26_talas1_cg.sql`, `27_talas2_cg.sql`, `28_talas3_otkaz_cg.sql`, `29_talas3_cg.sql`, `30_bekap_bez_tajni_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -241,6 +241,11 @@ Dnevni obrazac: odstupanje slijedi iz odgovora („tragovi štetočina: da"), ne
   Ispravka: nov zapis, jednom, istog obrasca; terenska uloga samo svoj
 Neusaglašenost iz kontrole (mjerenje, D1, termometar) se zatvara tek kad ponovna kontrola prođe
 
+Priprema isporuke drži robu (rezervacija): slobodno = na zalihi − isporuke u pripremi
+  → otkaz isporuke (uz razlog) robu oslobađa; otpis ispod rezervisanog javlja ko je spremio
+Prijem: rok trajanja obavezan (osim artikla izuzetog u Šifarnicima); ista serija jednom po prijemu;
+  ista serija ranije primljena sa drugim rokom → upozorenje odgovornom licu
+Povlačenje → cijela SERIJA (isti dobavljač, artikal, broj lota kroz sve prijeme)
 Predaja kupcu → server PONOVO provjerava lot (prihvaćen, rok nije istekao) i zalihu
   → nepredato i odbijeno → KARANTIN → bzr: vrati u prodaju ili otpiši (Zalihe)
 Lot pređe na HOLD (mjerenje van granice, povlačenje) → isporuke u pripremi sa njim:
@@ -263,9 +268,15 @@ Ništa se ne briše iz baze kroz aplikaciju. Umjesto toga:
 - **Prijem** (`/prijem`): stavka se može ispraviti ("Izmijeni") **samo dok lot čeka odluku**
   (status `PRIMLJEN`) — čim je prihvaćen/na čekanju/odbijen, brojke su već uticale na zalihu i
   ispravka ide kroz novi zapis, ne kroz prepravku ove stavke.
-- **Isporuka** (`/isporuka`): cijela isporuka (vozilo, datum, stavke — dodavanje/uklanjanje/
+- **Isporuka** (`/isporuka`): cijela isporuka (kupac, vozilo, datum, stavke — dodavanje/uklanjanje/
   promjena količine) se može izmijeniti **samo dok je U_PRIPREMI** — čim je potvrđena, zaliha je
-  već umanjena.
+  već umanjena. Dok je u pripremi može se i **otkazati** („Otkaži“, uz razlog) — ostaje zapisana kao
+  otkazana, a roba koju je držala je opet slobodna. Kupac koji odbije robu na vratima nije otkaz:
+  to je potvrda sa 0 i razlogom (roba ide u karantin).
+- **Otpremnica** (`/isporuka` → „Otpremnica“): stranica za štampu koja ide uz robu — firma, kupac sa
+  PIB-om i adresom isporuke, vozilo i vozač, za svaku stavku lot, rok, planirano / predato / odbijeno i
+  temperatura pri predaji, mjesta za potpis. Prateći list sledljivosti, **nije fiskalni dokument**. Na
+  papiru piše kad je isporuka posljednji put izmijenjena, da se vidi koja je verzija odštampana.
 - **Vozila** (`/vozila`): svaka D1 kontrola ostaje trajno u „Evidencija kontrola" ispod spiska
   vozila — ne može se izmijeniti ni obrisati, samo se doda nova. Vozilo (registarski broj, režim
   od–do °C, u upotrebi) mijenja odgovorno lice — „Izmijeni vozilo"; audit pamti šta je bilo.
@@ -628,7 +639,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm test             # 409 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 464 provjere na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 ```
 
 **`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a
@@ -666,6 +677,8 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `faza2_integritet` | istovremeni unosi ne dobijaju isti broj, lice + nalog ili oba ili ništa, početna i nova lozinka, terenske uloge ne čitaju tuđe, kartice direktora, baza odbija nepoznat izvor |
 | `push` | pretplata po uređaju, adresa koja nije push servis se odbija, push stiže potpisan i šifrovan i čita ga samo „uređaj", ne šalje se dvaput, nestao uređaj (410) se briše sam, odjava samo svog uređaja |
 | `talas1` | predaja zadržanog lota, isteklog lota i više nego što je na zalihi se odbija, zaliha nikad u minusu; povrat u karantin i odluka o njemu; tuđa isporuka i stari prijem po adresi; isti ključ zahtjeva = jedan upis; potvrda sa svim stavkama; tuđi pogrešni pokušaji prijave ne zaključavaju druge |
+| `talas4` | bekap iz aplikacije bez heševa lozinki, sesija i ključeva, sa svim tabelama; stari bekapi očišćeni; zdravlje javlja i bazu; neispravan JSON, identifikator, veza i šema → 400/409 sa porukom; bezbjednosna zaglavlja |
+| `talas3` | isporuka ne uzima rezervisanu robu, izmjena u okviru svoje rezervacije, otkaz (samo iz pripreme, uz razlog, ne vozač) oslobađa robu, ispravka kupca sa auditom; rok obavezan, serija jednom po prijemu, drugi rok iste serije → upozorenje; povlačenje cijele serije; otpremnica sa PIB-om i adresom isporuke; jedinstven PIB |
 | `talas2` | D1 ocjenjuje temperaturu po granici vozila, roba pod režimom samo rashladnim vozilom, predaja traži današnju D1; izmjene pamte „prije"; ispravka zapisa jednom, istog obrasca, svog zapisa; odstupanje iz odgovora u obrascu; lot po granici svog artikla; termometar na mjerenju i „upitna" mjerenja; zatvaranje tek posle ponovne kontrole; novi izvori izvoza |
 | `faza3_sistem` | temperatura obavezna na KKT 1, granica iz Šifarnika postaje pravilo (i nova verzija pri izmjeni), plan monitoringa i „šta danas fali", termometar (ispravan / neispravan → neusaglašenost, kalibracija traži sertifikat), verifikacija sistema, podaci za štampu HACCP plana, izuzetak od četiri oka samo kad je odgovorno lice jedino |
 

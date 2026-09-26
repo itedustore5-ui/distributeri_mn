@@ -45,7 +45,7 @@ export async function pokreni({ provjeri }) {
     // ── KKT 1: temperatura obavezna ─────────────────────────────────────────────────────────
     const dobavljac = (await ana("/dobavljaci")).tijelo[0];
     const bezTemp = await marko("/prijem", {
-      telo: { dobavljacId: dobavljac.id, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [{ artikalId: trag.artikal, brojLota: "E2E-F3", primljenaKolicina: 5 }] },
+      telo: { dobavljacId: dobavljac.id, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [{ artikalId: trag.artikal, brojLota: "E2E-F3", primljenaKolicina: 5, rokTrajanja: pomjeri(30) }] },
     });
     provjeri("KKT 1: roba pod režimom bez temperature se ne prima (400)", bezTemp.status === 400 && bezTemp.tijelo.error.code === "TEMPERATURA_OBAVEZNA", bezTemp.tijelo?.error?.message);
     await ana(`/artikli/${trag.artikal}`, { method: "PATCH", telo: { tempKontrolisano: false } });

@@ -24,7 +24,7 @@ export async function pokreni({ provjeri }) {
     const s = (await ana("/provjera-znanja/sesije")).tijelo.find((x) => x.id === termin.tijelo.id);
     provjeri("Termin pamti izvor i prag", s?.izvor_pitanja === "firma" && s?.prag_prolaza === 100);
 
-    const ulaz = await marko("/provjera-znanja/uci", { telo: {} });
+    const ulaz = await marko("/provjera-znanja/uci", { telo: { lozinka: NALOZI.marko.lozinka } });
     provjeri("Zaposleni dobija pitanje firme", ulaz.status === 200 && ulaz.tijelo.pitanja.length === 1, `${ulaz.status}`);
     const p = ulaz.tijelo.pitanja[0];
     const izvor = (await pool.query(`select izvor, tacan_indeks from pitanje where id = $1`, [p.id])).rows[0];

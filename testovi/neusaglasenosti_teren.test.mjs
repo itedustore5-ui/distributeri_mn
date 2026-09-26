@@ -1,7 +1,7 @@
 // Neusaglašenost sa terena do kraja: vozač prijavi problem na isporuci → odgovorno lice dobija
 // zadatak i obavještenje → mjeru dodijeli vozaču → samo on je završava, uz opis → odgovorno lice
 // provjeri i zatvori. Uz to: uprava dobija samo važne stvari, a sve vidi u "Aktivnosti uživo".
-import { pool, prijava, NALOZI, danasCG, nijeIstekao, rashladnoVozilo } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, nijeIstekao, rashladnoVozilo, slobodno } from "./pomoc.mjs";
 
 export const naziv = "Neusaglašenost sa terena do kraja";
 
@@ -15,7 +15,7 @@ export async function pokreni({ provjeri }) {
 
   try {
     const kupac = (await ana("/kupci")).tijelo[0];
-    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => Number(l.dostupno) >= 1 && nijeIstekao(l));
+    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => slobodno(l) >= 1 && nijeIstekao(l));
     const vozilo = await rashladnoVozilo(ana);
     const isp = await ana("/isporuke", { telo: { kupacId: kupac.id, vozilId: vozilo?.id, vozacKorisnikId: petar.id, skladisteId: lot.skladiste_id ?? undefined, datumIsporuke: danasCG(), napomena: "E2E-NC", stavke: [{ lotId: lot.id, planiranaKolicina: 1 }] } });
     trag.isporukaId = isp.tijelo?.id;

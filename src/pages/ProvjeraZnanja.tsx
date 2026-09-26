@@ -18,6 +18,7 @@ export function ProvjeraZnanja() {
   const [rezultat, setRezultat] = useState<{ brojTacnih: number; brojPitanja: number } | null>(null);
   const [greska, setGreska] = useState("");
   const [ucitavanje, setUcitavanje] = useState(false);
+  const [lozinka, setLozinka] = useState("");
 
   useEffect(() => {
     api<MojTermin>("/provjera-znanja/moj-termin")
@@ -29,7 +30,8 @@ export function ProvjeraZnanja() {
     setGreska("");
     setUcitavanje(true);
     try {
-      const odgovor = await api<{ ucesnikId: string; pitanja: Pitanje[] }>("/provjera-znanja/uci", { telo: {} });
+      const odgovor = await api<{ ucesnikId: string; pitanja: Pitanje[] }>("/provjera-znanja/uci", { telo: { lozinka } });
+      setLozinka("");
       setUcesnikId(odgovor.ucesnikId);
       setPitanja(odgovor.pitanja);
     } catch (e) {
@@ -126,9 +128,15 @@ export function ProvjeraZnanja() {
             <p className="muted-text" style={{ marginTop: 16, fontSize: 12 }}>
               Odgovarate sami, svojim nalogom. Odgovor na pitanje se ne može promijeniti.
             </p>
-            <button className="primary-button auth-submit" onClick={pocni} disabled={ucitavanje} style={{ marginTop: 14 }}>
-              {ucitavanje ? "Učitavam…" : "Počni"}
-            </button>
+            <form onSubmit={(e) => { e.preventDefault(); if (lozinka) pocni(); }}>
+              <label style={{ display: "block", marginTop: 12, fontSize: 12 }}>
+                Potvrdite da ste to vi — upišite SVOJU lozinku
+                <input type="password" autoComplete="current-password" value={lozinka} onChange={(e) => setLozinka(e.target.value)} style={{ width: "100%", marginTop: 6 }} />
+              </label>
+              <button type="submit" className="primary-button auth-submit" disabled={ucitavanje || !lozinka} style={{ marginTop: 14 }}>
+                {ucitavanje ? "Učitavam…" : "Počni"}
+              </button>
+            </form>
           </>
         )}
         {nazad}

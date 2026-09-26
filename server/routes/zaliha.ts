@@ -24,7 +24,10 @@ zalihaRuter.get(
     const rezultat = await upit(
       `select l.*, a.naziv as artikal_naziv, d.naziv as dobavljac_naziv, p.skladiste_id, s.naziv as skladiste_naziv,
               coalesce((select sum(z.kolicina) from zaliha z where z.lot_id = l.id and z.status = 'DOSTUPNO'), 0) as dostupno,
-              coalesce((select sum(z.kolicina) from zaliha z where z.lot_id = l.id and z.status = 'KARANTIN'), 0) as karantin
+              coalesce((select sum(z.kolicina) from zaliha z where z.lot_id = l.id and z.status = 'KARANTIN'), 0) as karantin,
+              -- Rezervacija (R-14): koliko drže isporuke u pripremi; slobodno = dostupno − rezervisano.
+              coalesce((select sum(ist.planirana_kolicina) from isporuka_stavka ist join isporuka i on i.id = ist.isporuka_id
+                        where ist.lot_id = l.id and i.status = 'U_PRIPREMI'), 0) as rezervisano
        from lot l join artikal a on a.id = l.artikal_id join dobavljac d on d.id = l.dobavljac_id
        left join prijem p on p.id = l.prijem_id left join skladiste s on s.id = p.skladiste_id
        where ($1::text is null or l.status::text = $1)

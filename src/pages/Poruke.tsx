@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Send, MessageSquare } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
-import { NAZIV_ULOGE, type Uloga } from "../lib/auth";
+import { NAZIV_ULOGE, useAuth, type Uloga } from "../lib/auth";
 import { PageHeader } from "../components/Zajednicko";
 
 type Primalac = { id: string; ime: string; uloga: Uloga };
@@ -32,15 +33,20 @@ const vrijeme = (iso: string) =>
   new Date(iso).toLocaleString("sr-Latn-ME", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 export function Poruke() {
+  const { korisnik } = useAuth();
+  const naTerenu = korisnik?.uloga === "operater" || korisnik?.uloga === "vozac";
+  // „Odgovori" iz obavještenja: poruka ide pošiljaocu, naslov sa „Odg:".
+  const odgovor = (useLocation().state as { odgovor?: { korisnikId: string; naslov: string } } | null)?.odgovor;
   const [primaoci, setPrimaoci] = useState<Primalac[]>([]);
   const [poslate, setPoslate] = useState<Poslata[]>([]);
   const [otvorena, setOtvorena] = useState<string | null>(null);
   const [citaoci, setCitaoci] = useState<Record<string, Citalac[]>>({});
 
-  const [nacin, setNacin] = useState<Nacin>("uloge");
+  // Na terenu se najčešće piše jednoj osobi (kolegi, vozaču, odgovornom licu), a vodstvo grupama.
+  const [nacin, setNacin] = useState<Nacin>(odgovor || naTerenu ? "pojedinacno" : "uloge");
   const [uloge, setUloge] = useState<Set<Uloga>>(new Set(["operater", "vozac"]));
-  const [korisnici, setKorisnici] = useState<Set<string>>(new Set());
-  const [naslov, setNaslov] = useState("");
+  const [korisnici, setKorisnici] = useState<Set<string>>(new Set(odgovor ? [odgovor.korisnikId] : []));
+  const [naslov, setNaslov] = useState(odgovor ? (odgovor.naslov.startsWith("Odg:") ? odgovor.naslov : `Odg: ${odgovor.naslov}`).slice(0, 200) : "");
   const [tekst, setTekst] = useState("");
   const [vazno, setVazno] = useState(false);
   const [greska, setGreska] = useState("");
@@ -100,7 +106,7 @@ export function Poruke() {
     <>
       <PageHeader
         title="Poruke"
-        description="Uputstvo ili obavještenje zaposlenima — stiže im na zvonce i na Moju stranu. Ovdje se vidi ko je pročitao."
+        description="Poruka kolegi, vozaču, odgovornom licu ili grupi — stiže na zvonce, na Moju stranu i na telefon. Ovdje se vidi ko je pročitao vaše poruke."
       />
       <div className="dashboard-columns">
         <div className="panel" style={{ minHeight: "auto" }}>
@@ -138,7 +144,7 @@ export function Poruke() {
                 ))}
               </div>
             )}
-            <label>Naslov<input value={naslov} onChange={(e) => setNaslov(e.target.value)} maxLength={200} placeholder="npr. Od ponedjeljka utovar počinje u 6h" /></label>
+            <label>Naslov<input value={naslov} onChange={(e) => setNaslov(e.target.value)} maxLength={200} placeholder={naTerenu ? "npr. Kamion kasni 20 minuta" : "npr. Od ponedjeljka utovar počinje u 6h"} /></label>
             <label>
               Tekst (opciono)
               <textarea value={tekst} onChange={(e) => setTekst(e.target.value)} maxLength={2000} rows={4} />

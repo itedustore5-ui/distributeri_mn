@@ -10,7 +10,7 @@ import { useAuth } from "../lib/auth";
 import { useSkladista, type Skladiste } from "../lib/skladista";
 
 type Dobavljac = { id: string; naziv: string };
-type Artikal = { id: string; naziv: string; temp_kontrolisano: boolean };
+type Artikal = { id: string; naziv: string; temp_kontrolisano: boolean; rok_obavezan?: boolean };
 type PrijemRed = {
   id: string;
   dobavljac_naziv: string;
@@ -380,6 +380,8 @@ function NoviPrijemModal({
   const [uporedjeno, setUporedjeno] = useState(false);
   // Kojim termometrom su izmjerene temperature prijema (R-23).
   const { termometri, termometarId, setTermometarId } = useIzborTermometra();
+  // Upozorenja servera posle snimanja (npr. ista serija ranije primljena sa drugim rokom).
+  const [upozorenja, setUpozorenja] = useState<string[]>([]);
 
   const dodajRed = () => setRedovi((r) => [...r, prazanRed(artikli[0]?.id)]);
   const azurirajRed = (i: number, izmjena: Partial<NoviRed>, polje?: string) =>
@@ -439,7 +441,7 @@ function NoviPrijemModal({
   const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      await api("/prijem", {
+      const r = await api<{ id: string; upozorenja?: string[] }>("/prijem", {
         kljuc,
         telo: {
           dobavljacId,
@@ -461,7 +463,8 @@ function NoviPrijemModal({
         },
       });
       onCreated();
-      onClose();
+      if (r.upozorenja?.length) setUpozorenja(r.upozorenja);
+      else onClose();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Prijem nije sačuvan.");
     }
@@ -469,12 +472,35 @@ function NoviPrijemModal({
 
   // KKT 1: roba pod temperaturnim režimom se ne prima bez izmjerene temperature (server isto provjerava).
   const podRezimom = (artikalId: string) => artikli.find((a) => a.id === artikalId)?.temp_kontrolisano === true;
+  // Rok trajanja je obavezan osim za artikle koje je konsultant izuzeo (R-17).
+  const rokObavezan = (artikalId: string) => artikli.find((a) => a.id === artikalId)?.rok_obavezan !== false;
+  const serija = (r: NoviRed) => `${r.artikalId}|${r.brojLota.trim().toUpperCase()}`;
+  const dvaput = (r: NoviRed) => !!r.brojLota.trim() && redovi.filter((x) => serija(x) === serija(r)).length > 1;
   const validno =
     dobavljacId &&
     datum &&
     redovi.length > 0 &&
-    redovi.every((r) => r.artikalId && r.brojLota.trim() && Number(r.primljenaKolicina) > 0 && (!podRezimom(r.artikalId) || r.temperaturaPrijema.trim() !== "")) &&
+    redovi.every(
+      (r) =>
+        r.artikalId &&
+        r.brojLota.trim() &&
+        Number(r.primljenaKolicina) > 0 &&
+        (!podRezimom(r.artikalId) || r.temperaturaPrijema.trim() !== "") &&
+        (!rokObavezan(r.artikalId) || !!r.rokTrajanja) &&
+        !dvaput(r),
+    ) &&
     (!procitano || uporedjeno);
+
+  if (upozorenja.length > 0) {
+    return (
+      <Modal naslov="Prijem je sačuvan — provjerite" onClose={onClose} footer={<button className="primary-button" onClick={onClose}>Zatvori</button>}>
+        <div style={{ padding: 20, fontSize: 12 }}>
+          {upozorenja.map((u) => <p key={u} className="danas-fali" style={{ margin: "0 0 8px" }}><AlertTriangle size={12} style={{ verticalAlign: "-1px" }} /> {u}</p>)}
+          <p className="muted-text" style={{ fontSize: 11 }}>Odgovorno lice je obaviješteno. Ako je greška u kucanju, ispravite stavku dok lot čeka odluku.</p>
+        </div>
+      </Modal>
+    );
+  }
   const ostaloZutih = redovi.reduce((n, r) => n + r.nesigurno.length, 0);
 
   return (
@@ -574,12 +600,13 @@ function NoviPrijemModal({
                 <label>
                   Broj lota <ZakonskaOznaka clan="27" />
                   <input value={red.brojLota} onChange={(e) => azurirajRed(i, { brojLota: e.target.value }, "lot")} placeholder="npr. MLJ-2609-A" style={nesigurno(red, "lot")} />
+                  {dvaput(red) && <small className="danas-fali" style={{ fontWeight: 400 }}>ista serija je upisana dvaput — upišite je jednom, sa ukupnom količinom</small>}
                   {po?.lot && red.brojLota.trim() && red.brojLota.trim().toUpperCase() !== po.lot.toUpperCase() && (
                     <small className="danas-fali" style={{ fontWeight: 400 }}>razlikuje se od otpremnice ({po.lot})</small>
                   )}
                 </label>
                 <label>
-                  Rok trajanja
+                  Rok trajanja {rokObavezan(red.artikalId) && <span className="danas-fali" style={{ fontWeight: 400 }}>(obavezno)</span>}
                   <input type="date" value={red.rokTrajanja} onChange={(e) => azurirajRed(i, { rokTrajanja: e.target.value }, "rok")} style={nesigurno(red, "rok")} />
                   {red.rokTrajanja && red.rokTrajanja < datum && <small className="danas-fali" style={{ fontWeight: 400 }}>rok je istekao — ne može se prihvatiti</small>}
                 </label>

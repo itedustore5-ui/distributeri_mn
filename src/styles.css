@@ -454,3 +454,21 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
 .form-grid label.odgovor-red input[type="radio"] { width: auto; height: auto; }
 .form-grid label.odgovor-red input:not([type="radio"]) { flex: 1; }
 .vehicle-card.warning { border-top: 3px solid var(--orange); }
+
+/* Otpremnica za štampu (R-21) — A4, crno-bijelo, bez menija. */
+.otpremnica { max-width: 900px; background: #fff; padding: 24px; font-size: 11px; color: #1f2d36; }
+.otp-zaglavlje { display: flex; justify-content: space-between; gap: 16px; border-bottom: 2px solid #1f2d36; padding-bottom: 10px; margin-bottom: 12px; }
+.otp-naslov { font-family: "Space Grotesk"; font-size: 20px; font-weight: 700; letter-spacing: .04em; }
+.otp-strane { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 14px; }
+.otp-oznaka { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: #6b7a85; }
+.otp-tabela { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+.otp-tabela th, .otp-tabela td { border: 1px solid #9aa8b2; padding: 5px 6px; text-align: left; vertical-align: top; }
+.otp-tabela th { background: #eef2f5; font-size: 9.5px; }
+.otp-broj { text-align: right !important; white-space: nowrap; }
+.otp-sitno { font-size: 9px; color: #52636f; }
+.otp-otkazana { border: 2px solid #c34e55; color: #c34e55; font-weight: 700; padding: 8px 10px; margin-bottom: 12px; }
+.otp-potpisi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 30px; }
+.otp-potpisi div { display: flex; flex-direction: column; gap: 34px; font-size: 10px; }
+.otp-potpisi span { border-top: 1px solid #1f2d36; }
+@media (max-width: 700px) { .otp-strane, .otp-potpisi { grid-template-columns: 1fr; } .otpremnica { padding: 12px; } }
+@media print { .otpremnica { padding: 0; max-width: none; font-size: 10pt; } .otp-tabela th { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

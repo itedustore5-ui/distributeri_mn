@@ -2,7 +2,10 @@ import { pool, tabelaPostoji, transakcija } from "../db.js";
 import { obavijestiUlogu } from "./zadaciService.js";
 
 /** Sve poslovne tabele — u istom redoslijedu kao db/*.sql. Namjerno bez schema_migracije
- * (samo bookkeeping migracija, ne podatak) i bez pogleda (izvode se iz ovih tabela). */
+ * (samo bookkeeping migracija, ne podatak) i bez pogleda (izvode se iz ovih tabela).
+ * Bez TAJNI (nalaz R-19): ovaj bekap se preuzima na računar i šalje dalje, pa u njega ne ide ništa
+ * čime se može ući u aplikaciju — sesije (živi tokeni), heševi lozinki, privatni VAPID ključ,
+ * ključevi uređaja za push, ključevi zahtjeva. Pun bekap baze (sa svim) je `npm run bekap` (pg_dump). */
 const TABELE = [
   "firma", "korisnik", "lice",
   "dobavljac", "kupac", "artikal", "razlog_sifra", "opasnost_sifra",
@@ -14,7 +17,11 @@ const TABELE = [
   "pitanje", "sesija_znanja", "ucesnik_znanja", "odgovor_znanja",
   "plan_obuke", "povlacenje", "povlacenje_kontakt",
   "skladiste", "poruka",
+  "prijem_dokument", "artikal_dobavljaca",
+  "plan_monitoringa", "mjerni_uredjaj", "provjera_uredjaja", "verifikacija_sistema",
 ] as const;
+// Kolone koje ne idu u bekap: heš lozinke (tajna) i sam fajl otpremnice (velik — on je u pg_dump bekapu).
+const BEZ_KOLONA: Partial<Record<(typeof TABELE)[number], string[]>> = { korisnik: ["lozinka_hash"], prijem_dokument: ["sadrzaj"] };
 
 type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
 
@@ -28,8 +35,8 @@ export async function napraviBekap(tip: "RUCNI" | "AUTOMATSKI", korisnikId: stri
     for (const tabela of TABELE) {
       // Tabela iz dopune koja na ovoj bazi još nije pokrenuta ne smije da obori cio bekap.
       if (!(await tabelaPostoji(tabela))) continue;
-      const rezultat = await klijent.query(`select * from ${tabela}`);
-      podaci[tabela] = rezultat.rows;
+      const rezultat = await klijent.query<{ red: Record<string, unknown> }>(`select to_jsonb(t) - $1::text[] as red from ${tabela} t`, [BEZ_KOLONA[tabela] ?? []]);
+      podaci[tabela] = rezultat.rows.map((r) => r.red);
       ukupnoRedova += rezultat.rowCount ?? 0;
     }
   });

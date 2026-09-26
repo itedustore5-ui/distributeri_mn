@@ -32,6 +32,7 @@ import { pokreniSlanjePush } from "./services/pushService.js";
 import { pokreniProvjeruRokova } from "./services/rokoviService.js";
 import { pokreniSedmicniBekap } from "./services/bekapService.js";
 import { pripremiSesije } from "./auth.js";
+import { pool } from "./db.js";
 
 const port = Number(process.env.PORT || 5000);
 const isProduction = process.env.NODE_ENV === "production";
@@ -46,10 +47,36 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "200kb" })); // MORA ostati i MORA biti prvo
 
+// Politika sadržaja (nalaz R-27): skripte samo sa našeg servera — ubačena skripta (XSS) se ne izvršava.
+// Stilovi i fontovi i sa Google Fonts (styles.css), slike i data:/blob: (otpremnica, ikonice), blob:
+// za PDF otpremnice otvoren u novoj kartici. Samo u produkciji — razvoj (Vite) koristi inline skripte.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'self' blob:",
+  "frame-src 'self' blob:",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
+
 app.use((_request, response, next) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("X-Frame-Options", "DENY");
   response.setHeader("Referrer-Policy", "same-origin");
+  // Kamera samo za slikanje otpremnice; mikrofon i lokacija se ne koriste.
+  response.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  if (isProduction) {
+    response.setHeader("Content-Security-Policy", CSP);
+    // Render je samo na HTTPS — pregledač ne pokušava više http (180 dana).
+    response.setHeader("Strict-Transport-Security", "max-age=15552000");
+  }
   if (!_request.path.startsWith("/api")) {
     next();
     return;
@@ -62,8 +89,14 @@ app.use("/api", zahtjevAppZaglavlje);
 
 // ── JAVNO: jedino što radi bez prijave (nalaz A3, faza 4). Provjera znanja NIJE javna — radi je
 // prijavljeni zaposleni svojom šifrom (invarijanta #32). ──
-app.get("/api/zdravlje", (_request, response) => {
-  response.json({ ok: true, izdanje: IZDANJE });
+// Zdravlje provjerava i bazu (nalaz R-25): Render i dnevni pregled vide kad baza ne odgovara, ne samo
+// kad server ne radi. Najviše 3 s čekanja.
+app.get("/api/zdravlje", async (_request, response) => {
+  const baza = await Promise.race([
+    pool.query("select 1").then(() => true, () => false),
+    new Promise<boolean>((kraj) => setTimeout(() => kraj(false), 3000).unref()),
+  ]);
+  response.status(baza ? 200 : 503).json({ ok: baza, baza: baza ? "ok" : "ne odgovara", izdanje: IZDANJE });
 });
 app.use("/api", authJavniRuter); // prijava, odjava
 

@@ -4,10 +4,12 @@ import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu, zatvoriZadatkeIzvora } from "./zadaciService.js";
 import { sljedeciBroj, sljedeciBrojNc, danasKratko } from "./brojeviService.js";
 import { javiIsporukeSaLotom } from "./lotBlokadaService.js";
+import { SERIJA_LOTA } from "./sqlDijelovi.js";
 
-/** Povlačenje počinje telefonom (čl. 28) — kontakti se snimaju iz stvarnih isporuka tog lota,
- * ne unose se ručno, da se niko ne izostavi. Automatski otvara i neusaglašenost visoke
- * ozbiljnosti, jer je povlačenje uvijek ozbiljan nalaz. */
+/** Povlačenje počinje telefonom (čl. 28) — kontakti se snimaju iz stvarnih isporuka, ne unose se
+ * ručno, da se niko ne izostavi. Povlači se SERIJA (R-17): isti dobavljač, artikal i broj lota kroz
+ * sve prijeme — ista serija primljena dvaput je ista roba. Automatski otvara i neusaglašenost
+ * visoke ozbiljnosti, jer je povlačenje uvijek ozbiljan nalaz. */
 export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikId: string) {
   const lotRed = await upit<{ id: string }>(`select id from lot where id = $1`, [lotId]);
   if (!lotRed.rows[0]) throw new ApiGreska(404, "LOT_NE_POSTOJI", "Lot nije pronađen.");
@@ -19,14 +21,15 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
       [broj, lotId, razlog, korisnikId],
     );
     const povlacenjeId = povlacenje.rows[0].id;
+    const serija = (await klijent.query<{ id: string }>(SERIJA_LOTA, [lotId])).rows.map((r) => r.id);
 
     const isporuke = await klijent.query<{ isporuka_id: string; kupac_naziv: string; kupac_telefon: string; kolicina: string }>(
       `select ist.isporuka_id, k.naziv as kupac_naziv, k.telefon as kupac_telefon, ist.isporucena_kolicina as kolicina
        from isporuka_stavka ist
        join isporuka i on i.id = ist.isporuka_id
        join kupac k on k.id = i.kupac_id
-       where ist.lot_id = $1 and ist.isporucena_kolicina > 0`,
-      [lotId],
+       where ist.lot_id = any($1) and ist.isporucena_kolicina > 0`,
+      [serija],
     );
     for (const red of isporuke.rows) {
       await klijent.query(
@@ -37,21 +40,26 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
 
     // Serija pod povlačenjem ne smije dalje u isporuku (čl. 28): lot na HOLD, sve što je od njega
     // ostalo u magacinu prelazi u karantin. Bez ovoga je sporni lot i dalje bio ponuđen za isporuku.
-    await klijent.query(`update lot set status = 'HOLD', updated_at = now() where id = $1`, [lotId]);
-    await klijent.query(
-      `insert into zaliha (lot_id, artikal_id, kolicina, status)
-       select lot_id, artikal_id, kolicina, 'KARANTIN' from zaliha where lot_id = $1 and status = 'DOSTUPNO' and kolicina > 0
-       on conflict (lot_id, status) do update set kolicina = zaliha.kolicina + excluded.kolicina, updated_at = now()`,
-      [lotId],
-    );
-    await klijent.query(`update zaliha set kolicina = 0, updated_at = now() where lot_id = $1 and status = 'DOSTUPNO'`, [lotId]);
-    await klijent.query(
-      `insert into kretanje_zalihe (lot_id, artikal_id, kolicina_delta, tip, referenca_tip, referenca_id, izvrsio_korisnik_id, napomena)
-       select $1, artikal_id, 0, 'HOLD', 'povlacenje', $2, $3, 'HOLD zbog povlačenja' from lot where id = $1`,
-      [lotId, povlacenjeId, korisnikId],
-    );
-    // Isporuke već pripremljene sa ovim lotom ne smiju krenuti — vozač i magacioner saznaju odmah (R-01).
-    await javiIsporukeSaLotom(klijent, lotId, `Pokrenuto povlačenje ${broj}: ${razlog}`, korisnikId);
+    for (const id of serija) {
+      const status = (await klijent.query<{ status: string }>(`select status from lot where id = $1 for update`, [id])).rows[0]?.status;
+      if (status === "ODBIJEN") continue;
+      await klijent.query(`update lot set status = 'HOLD', updated_at = now() where id = $1`, [id]);
+      await klijent.query(
+        `insert into zaliha (lot_id, artikal_id, kolicina, status)
+         select lot_id, artikal_id, kolicina, 'KARANTIN' from zaliha where lot_id = $1 and status = 'DOSTUPNO' and kolicina > 0
+         on conflict (lot_id, status) do update set kolicina = zaliha.kolicina + excluded.kolicina, updated_at = now()`,
+        [id],
+      );
+      await klijent.query(`update zaliha set kolicina = 0, updated_at = now() where lot_id = $1 and status = 'DOSTUPNO'`, [id]);
+      await klijent.query(
+        `insert into kretanje_zalihe (lot_id, artikal_id, kolicina_delta, tip, referenca_tip, referenca_id, izvrsio_korisnik_id, napomena)
+         select $1, artikal_id, 0, 'HOLD', 'povlacenje', $2, $3, $4 from lot where id = $1`,
+        [id, povlacenjeId, korisnikId, id === lotId ? "HOLD zbog povlačenja" : "HOLD zbog povlačenja serije (isti lot iz drugog prijema)"],
+      );
+      if (status !== "HOLD") await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "lot", entitetId: id, stareVrijednosti: { status }, noveVrijednosti: { status: "HOLD", povlacenje: broj } });
+      // Isporuke već pripremljene sa ovim lotom ne smiju krenuti — vozač i magacioner saznaju odmah (R-01).
+      await javiIsporukeSaLotom(klijent, id, `Pokrenuto povlačenje ${broj}: ${razlog}`, korisnikId);
+    }
 
     const brojNc = await sljedeciBrojNc(klijent);
     const nc = await klijent.query<{ id: string }>(
@@ -75,9 +83,9 @@ export async function pokreniPovlacenje(lotId: string, razlog: string, korisnikI
       izvorId: povlacenjeId,
     });
 
-    await logKreiranje(klijent, { korisnikId, entitetTip: "povlacenje", entitetId: povlacenjeId, noveVrijednosti: { broj, lotId, razlog } });
+    await logKreiranje(klijent, { korisnikId, entitetTip: "povlacenje", entitetId: povlacenjeId, noveVrijednosti: { broj, lotId, razlog, lotovaUSeriji: serija.length } });
 
-    return { id: povlacenjeId, broj, brojKontakata: isporuke.rows.length, neusaglasenostId: nc.rows[0].id };
+    return { id: povlacenjeId, broj, brojKontakata: isporuke.rows.length, lotovaUSeriji: serija.length, neusaglasenostId: nc.rows[0].id };
   });
 }
 

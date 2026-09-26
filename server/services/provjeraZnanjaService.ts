@@ -1,5 +1,8 @@
 import { pool, upit } from "../db.js";
 import { ApiGreska } from "../greske.js";
+import { provjeriOgranicenjeLogina, zabiljeziNeuspjeliPokusaj, ocistiNeuspjelePokusaje } from "../auth.js";
+import { provjeriLozinku } from "../lozinke.js";
+import { logSigurnosniDogadjaj } from "./auditService.js";
 
 // Provjera znanja: termini, ulazak prijavljenog zaposlenog SVOJOM šifrom (invarijanta #32), odgovori koji se ne mogu naduvati,
 // banka pitanja konsultanta (samo njegova — #14) i pitanja firme. Ruta samo provjeri ulaz i ulogu.
@@ -33,8 +36,26 @@ async function mojUcesnik(ucesnikId: string, korisnikId: string) {
   if (u.rows[0].lice_id !== lice.id) throw new ApiGreska(403, "TUDJA_PROVJERA", "Ovo nije vaša provjera.");
 }
 
-/** Ulazak u otvoren termin — prijavljeni zaposleni, svojom šifrom. Isti učesnik se vraća dok ne završi. */
-export async function udji(korisnikId: string) {
+/** Provjeru radi samo onaj ČIJI je nalog: na zajedničkom telefonu u magacinu neko drugi može ostati
+ * prijavljen, pa se prije početka upisuje lozinka prijavljenog. Pogrešni pokušaji se broje isto kao
+ * na prijavi (IP + korisničko ime) — lozinka se ne može pogađati ni odavde. */
+async function potvrdiDaJeOn(korisnikId: string, lozinka: string, ip: string | undefined) {
+  const k = (await upit<{ korisnicko_ime: string; lozinka_hash: string }>(`select korisnicko_ime, lozinka_hash from korisnik where id = $1`, [korisnikId])).rows[0];
+  if (!k) throw new ApiGreska(404, "NALOG_NE_POSTOJI", "Nalog nije pronađen.");
+  const kljuc = `${ip || "nepoznato"}|${k.korisnicko_ime}`;
+  provjeriOgranicenjeLogina(kljuc);
+  if (!provjeriLozinku(lozinka, k.lozinka_hash)) {
+    zabiljeziNeuspjeliPokusaj(kljuc);
+    await logSigurnosniDogadjaj(pool, { korisnikId, entitetTip: "korisnik", entitetId: korisnikId, ipAdresa: ip ?? null, noveVrijednosti: { radnja: "provjera znanja — pogrešna lozinka" } });
+    throw new ApiGreska(403, "POGRESNA_LOZINKA", "Lozinka nije tačna. Provjeru radi samo onaj ko je prijavljen — svojom lozinkom.");
+  }
+  ocistiNeuspjelePokusaje(kljuc);
+}
+
+/** Ulazak u otvoren termin — prijavljeni zaposleni, svojom šifrom i svojom lozinkom. Isti učesnik se
+ * vraća dok ne završi. */
+export async function udji(korisnikId: string, lozinka: string, ip?: string) {
+  await potvrdiDaJeOn(korisnikId, lozinka, ip);
   const termin = await otvorenTermin();
   if (!termin) throw new ApiGreska(404, "NEMA_OTVORENE_SESIJE", "Trenutno nije otvorena nijedna provjera znanja.");
   const lice = await mojeLice(korisnikId);

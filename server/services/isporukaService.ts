@@ -4,7 +4,8 @@ import { ApiGreska } from "../greske.js";
 import { logKreiranje, logIzmjenaReda, logPromjenaStatusa } from "./auditService.js";
 import { kreirajObavjestenje, obavijestiUlogu } from "./zadaciService.js";
 import { zauzmiKljuc, upisiRezultatKljuca } from "./kljucService.js";
-import { NA_TERENU, type Uloga } from "../auth.js";
+import { NA_TERENU, ogranicenjeDatuma, type Uloga } from "../auth.js";
+import { IME } from "./sqlDijelovi.js";
 import { zabiljeziMjerenje, provjeriTermometar } from "./haccpService.js";
 import { odrediSkladiste } from "./skladisteService.js";
 import { D1_DANAS } from "./vozilaService.js";
@@ -84,9 +85,17 @@ async function provjeriVoziloZaIsporuku(klijent: PoolClient, vozilId: string | n
   }
 }
 
-/** Lot mora biti prihvaćen, imati dovoljno na zalihi i biti u skladištu iz kog isporuka ide —
- * roba se isporučuje iz magacina u kom stvarno stoji (premještanje nije u ovoj verziji). */
-async function provjeriLotZaIsporuku(klijent: PoolClient, stavka: StavkaIsporukeUlaz, skladisteId: string) {
+/** Lot mora biti prihvaćen, nije istekao, stoji u skladištu iz kog isporuka ide (premještanje nije u
+ * ovoj verziji) i ima dovoljno SLOBODNE robe: na zalihi minus ono što drže druge isporuke u pripremi
+ * (rezervacija, nalaz R-14). Više stavki istog lota se sabira. Red zalihe se zaključava do kraja
+ * transakcije — dvije istovremene pripreme istog lota ne mogu obje „vidjeti" istu robu. */
+async function provjeriLotoveZaIsporuku(klijent: PoolClient, stavke: StavkaIsporukeUlaz[], skladisteId: string, izuzmiIsporukuId: string | null = null) {
+  const poLotu = new Map<string, number>();
+  for (const s of stavke) poLotu.set(s.lotId, (poLotu.get(s.lotId) ?? 0) + s.planiranaKolicina);
+  for (const [lotId, planirano] of poLotu) await provjeriLotZaIsporuku(klijent, { lotId, planiranaKolicina: planirano }, skladisteId, izuzmiIsporukuId);
+}
+
+async function provjeriLotZaIsporuku(klijent: PoolClient, stavka: StavkaIsporukeUlaz, skladisteId: string, izuzmiIsporukuId: string | null) {
   const lot = await klijent.query<{ status: string; dostupno: string | null; broj_lota: string; skladiste_id: string | null; skladiste_naziv: string | null; rok: string | null; istekao: boolean | null }>(
     `select l.status, z.kolicina as dostupno, l.broj_lota, p.skladiste_id, s.naziv as skladiste_naziv,
             to_char(l.rok_trajanja, 'DD.MM.YYYY.') as rok, l.rok_trajanja < (now() at time zone 'Europe/Podgorica')::date as istekao
@@ -111,9 +120,27 @@ async function provjeriLotZaIsporuku(klijent: PoolClient, stavka: StavkaIsporuke
       `Lot ${red.broj_lota} je u skladištu "${red.skladiste_naziv}" — isporuka ide iz drugog. Izaberite skladište u kom je roba.`,
     );
   }
-  const dostupno = Number(red.dostupno ?? 0);
-  if (dostupno < stavka.planiranaKolicina) {
-    throw new ApiGreska(409, "NEDOVOLJNO_ZALIHE", `Na zalihi je dostupno samo ${dostupno} za lot ${red.broj_lota}.`);
+  const dostupno = Number(
+    (await klijent.query<{ kolicina: string }>(`select kolicina from zaliha where lot_id = $1 and status = 'DOSTUPNO' for update`, [stavka.lotId])).rows[0]?.kolicina ?? 0,
+  );
+  const rezervisano = Number(
+    (
+      await klijent.query<{ r: string }>(
+        `select coalesce(sum(ist.planirana_kolicina), 0) as r from isporuka_stavka ist join isporuka i on i.id = ist.isporuka_id
+         where ist.lot_id = $1 and i.status = 'U_PRIPREMI' and ($2::uuid is null or i.id <> $2)`,
+        [stavka.lotId, izuzmiIsporukuId],
+      )
+    ).rows[0].r,
+  );
+  const slobodno = dostupno - rezervisano;
+  if (slobodno < stavka.planiranaKolicina) {
+    throw new ApiGreska(
+      409,
+      "NEDOVOLJNO_ZALIHE",
+      rezervisano > 0
+        ? `Za lot ${red.broj_lota} slobodno je ${Math.max(slobodno, 0)} — na zalihi ${dostupno}, a ${rezervisano} drže druge isporuke u pripremi.`
+        : `Na zalihi je dostupno samo ${dostupno} za lot ${red.broj_lota}.`,
+    );
   }
 }
 
@@ -129,7 +156,7 @@ export async function kreirajIsporuku(ulaz: NovaIsporukaUlaz, korisnikId: string
       const ranije = await zauzmiKljuc(klijent, korisnikId, kljuc, "isporuka");
       if (ranije?.id) return String(ranije.id);
     }
-    for (const stavka of ulaz.stavke) await provjeriLotZaIsporuku(klijent, stavka, skladisteId);
+    await provjeriLotoveZaIsporuku(klijent, ulaz.stavke, skladisteId);
     await provjeriVoziloZaIsporuku(klijent, ulaz.vozilId, ulaz.stavke);
 
     const broj = await sljedeciBroj(klijent, "isporuka", `ISP-${danasKratko()}`);
@@ -156,6 +183,7 @@ export async function kreirajIsporuku(ulaz: NovaIsporukaUlaz, korisnikId: string
 }
 
 export type IzmjenaIsporukeUlaz = {
+  kupacId?: string;
   skladisteId?: string | null;
   vozilId?: string | null;
   vozacKorisnikId?: string | null;
@@ -185,7 +213,7 @@ export async function izmijeniIsporuku(isporukaId: string, ulaz: IzmjenaIsporuke
     const prethodniVozac = isporukaRed.rows[0].vozac_korisnik_id;
     // Audit pamti i šta je bilo prije: vozilo, vozač, datum, magacin i stavke (R-06).
     const stanjeIsporuke = async () => ({
-      ...(await klijent.query(`select vozilo_id, vozac_korisnik_id, datum_isporuke, skladiste_id from isporuka where id = $1`, [isporukaId])).rows[0],
+      ...(await klijent.query(`select kupac_id, vozilo_id, vozac_korisnik_id, datum_isporuke, skladiste_id from isporuka where id = $1`, [isporukaId])).rows[0],
       stavke: (
         await klijent.query(
           `select l.broj_lota as lot, s.planirana_kolicina::float as kolicina from isporuka_stavka s join lot l on l.id = s.lot_id
@@ -197,7 +225,7 @@ export async function izmijeniIsporuku(isporukaId: string, ulaz: IzmjenaIsporuke
     const prije = await stanjeIsporuke();
     const skladisteId = await odrediSkladiste(klijent, ulaz.skladisteId ?? isporukaRed.rows[0].skladiste_id, korisnikId);
 
-    for (const stavka of ulaz.stavke) await provjeriLotZaIsporuku(klijent, stavka, skladisteId);
+    await provjeriLotoveZaIsporuku(klijent, ulaz.stavke, skladisteId, isporukaId);
     await provjeriVoziloZaIsporuku(klijent, ulaz.vozilId, ulaz.stavke);
 
     await klijent.query(`delete from isporuka_stavka where isporuka_id = $1`, [isporukaId]);
@@ -208,14 +236,58 @@ export async function izmijeniIsporuku(isporukaId: string, ulaz: IzmjenaIsporuke
       );
     }
     await klijent.query(
-      `update isporuka set vozilo_id = $1, vozac_korisnik_id = $2, datum_isporuke = $3, skladiste_id = $4, updated_at = now() where id = $5`,
-      [ulaz.vozilId ?? null, ulaz.vozacKorisnikId ?? null, ulaz.datumIsporuke, skladisteId, isporukaId],
+      `update isporuka set vozilo_id = $1, vozac_korisnik_id = $2, datum_isporuke = $3, skladiste_id = $4, kupac_id = coalesce($6, kupac_id), updated_at = now() where id = $5`,
+      [ulaz.vozilId ?? null, ulaz.vozacKorisnikId ?? null, ulaz.datumIsporuke, skladisteId, isporukaId, ulaz.kupacId ?? null],
     );
 
     await logIzmjenaReda(klijent, { korisnikId, entitetTip: "isporuka", entitetId: isporukaId, prije, poslije: await stanjeIsporuke() });
     if (ulaz.vozacKorisnikId && ulaz.vozacKorisnikId !== prethodniVozac) {
       await obavijestiVozaca(klijent, isporukaId, ulaz.vozacKorisnikId, korisnikId);
     }
+  });
+}
+
+/** Otkaz isporuke prije predaje (nalaz R-15): samo iz pripreme, uz razlog. Rezervacija robe se time
+ * oslobađa (računa se iz isporuka u pripremi). Vozač i onaj ko je isporuku spremio saznaju odmah.
+ * Predaja koju kupac odbije NIJE otkaz — to je potvrda sa 0 i razlogom (roba ide u karantin). */
+export async function otkaziIsporuku(isporukaId: string, razlog: string, korisnik: Korisnik) {
+  const tekst = razlog.trim();
+  if (tekst.length < 5) throw new ApiGreska(400, "RAZLOG_OBAVEZAN", "Upišite zašto se isporuka otkazuje (npr. kupac otkazao narudžbu).");
+  return transakcija(async (klijent) => {
+    const red = (
+      await klijent.query<{ status: string; broj: string; vozac_korisnik_id: string | null; uneo_korisnik_id: string | null; kupac: string }>(
+        `select i.status, i.broj, i.vozac_korisnik_id, i.uneo_korisnik_id, k.naziv as kupac from isporuka i join kupac k on k.id = i.kupac_id
+         where i.id = $1 for update of i`,
+        [isporukaId],
+      )
+    ).rows[0];
+    if (!red) throw new ApiGreska(404, "ISPORUKA_NE_POSTOJI", "Isporuka nije pronađena.");
+    provjeriSvojuIsporuku(korisnik, red);
+    if (red.status !== "U_PRIPREMI") {
+      throw new ApiGreska(409, "ISPORUKA_NIJE_U_PRIPREMI", "Otkazuje se samo isporuka u pripremi — predata se ispravlja prijavom odstupanja.");
+    }
+    await klijent.query(
+      `update isporuka set status = 'OTKAZANA', otkazano_at = now(), otkazao_korisnik_id = $1, razlog_otkaza = $2, updated_at = now() where id = $3`,
+      [korisnik.id, tekst, isporukaId],
+    );
+    await logPromjenaStatusa(klijent, {
+      korisnikId: korisnik.id,
+      entitetTip: "isporuka",
+      entitetId: isporukaId,
+      stareVrijednosti: { status: red.status },
+      noveVrijednosti: { status: "OTKAZANA", razlog: tekst },
+    });
+    for (const primalac of new Set([red.vozac_korisnik_id, red.uneo_korisnik_id].filter((x): x is string => !!x && x !== korisnik.id))) {
+      await kreirajObavjestenje(klijent, {
+        korisnikId: primalac,
+        naslov: `Isporuka ${red.broj} je otkazana`,
+        poruka: `${red.kupac}: ${tekst}. Ne utovarujte robu; ako je već utovarena, vratite je na mjesto.`,
+        ozbiljnost: "SREDNJI",
+        izvorTip: "isporuka",
+        izvorId: isporukaId,
+      });
+    }
+    return { status: "OTKAZANA" };
   });
 }
 
@@ -448,4 +520,35 @@ async function zabiljeziTemperaturePredaje(mjerenja: MjerenjePredaje[], voziloId
     rezultati.push(r.rezultat);
   }
   return rezultati;
+}
+
+/** Otpremnica za štampu (nalaz R-21): prati robu do kupca — broj, lotovi, rokovi, temperatura pri
+ * predaji i mjesta za potpis. Isto pravo čitanja kao detalj isporuke (R-04). Nosi vrijeme posljednje
+ * izmjene, da se na papiru vidi koja je verzija odštampana. */
+export async function otpremnicaZaStampu(isporukaId: string, korisnik: Korisnik) {
+  const naTerenu = NA_TERENU.includes(korisnik.uloga);
+  const isporuka = (
+    await upit(
+      `select i.id, i.broj, i.datum_isporuke, i.status, i.napomena, i.updated_at, i.potvrdjeno_at, i.otkazano_at, i.razlog_otkaza,
+              k.naziv as kupac_naziv, k.pib as kupac_pib, k.adresa as kupac_adresa, k.adresa_isporuke as kupac_adresa_isporuke, k.telefon as kupac_telefon,
+              v.registarski_broj, s.naziv as skladiste_naziv, s.adresa as skladiste_adresa,
+              ${IME("i.vozac_korisnik_id")} as vozac, ${IME("i.uneo_korisnik_id")} as pripremio, ${IME("i.potvrdio_korisnik_id")} as predao
+       from isporuka i join kupac k on k.id = i.kupac_id
+       left join vozilo v on v.id = i.vozilo_id left join skladiste s on s.id = i.skladiste_id
+       where i.id = $1 ${naTerenu ? `and (i.uneo_korisnik_id = $2 or i.vozac_korisnik_id = $2) and ${ogranicenjeDatuma(korisnik.uloga, "i.datum_isporuke")}` : ""}`,
+      naTerenu ? [isporukaId, korisnik.id] : [isporukaId],
+    )
+  ).rows[0];
+  if (!isporuka) throw new ApiGreska(404, "ISPORUKA_NE_POSTOJI", "Isporuka nije pronađena.");
+  const firma = (await upit(`select naziv, pib, adresa, grad, telefon from firma limit 1`)).rows[0] ?? null;
+  const stavke = (
+    await upit(
+      `select a.sifra, a.naziv as artikal, a.jedinica_mjere, a.temp_kontrolisano, l.broj_lota, l.rok_trajanja,
+              ist.planirana_kolicina, ist.isporucena_kolicina, ist.odbijena_kolicina, ist.razlog_odbijanja, ist.temperatura_predaje
+       from isporuka_stavka ist join lot l on l.id = ist.lot_id join artikal a on a.id = l.artikal_id
+       where ist.isporuka_id = $1 order by a.naziv, l.rok_trajanja nulls last`,
+      [isporukaId],
+    )
+  ).rows;
+  return { firma, isporuka, stavke };
 }

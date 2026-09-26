@@ -20,3 +20,10 @@ export const IZVOR_OZNAKA = `
 /** Magacioner i vozač vide neusaglašenosti koje su SAMI prijavili i one gdje je mjera dodijeljena
  * NJIMA (invarijanta #26) — ne sve u firmi. $2 = id korisnika. */
 export const SAMO_MOJE_NC = `(nc.prijavio_korisnik_id = $2 or exists (select 1 from korektivna_mjera m where m.neusaglasenost_id = nc.id and m.dodijeljeno_korisnik_id = $2))`;
+
+/** Serija lota (R-17): isti dobavljač, artikal i broj lota — kroz SVE prijeme. Povlačenje ide po
+ * seriji, ne po jednom prijemu. Parametar $1 = id lota; vraća id-jeve svih lotova serije (i njega). */
+export const SERIJA_LOTA = `
+  select s.id from lot l
+  join lot s on s.artikal_id = l.artikal_id and s.dobavljac_id = l.dobavljac_id and upper(btrim(s.broj_lota)) = upper(btrim(l.broj_lota))
+  where l.id = $1`;

@@ -18,6 +18,8 @@ type Lot = {
   rok_trajanja: string | null;
   status: string;
   dostupno: string;
+  /** Drže isporuke u pripremi (R-14). */
+  rezervisano?: string;
   karantin: string;
   prijem_id: string;
   primljena_kolicina: string;
@@ -260,6 +262,7 @@ export function Zalihe() {
                     <td>
                       {Number(l.dostupno)}
                       {Number(l.karantin) > 0 && <span className="rok-oznaka istekao">karantin {Number(l.karantin)}</span>}
+                      {Number(l.rezervisano ?? 0) > 0 && <span className="rok-oznaka" title="Drže isporuke u pripremi — slobodno je ostatak">rezervisano {Number(l.rezervisano)}</span>}
                     </td>
                     <td><StatusBadge status={l.status} /></td>
                     <td className="no-print">

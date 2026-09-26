@@ -1,6 +1,7 @@
 import { transakcija } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import { logKreiranje, logOdluka } from "./auditService.js";
+import { javiManjakRezervacije } from "./lotBlokadaService.js";
 
 export type OtpisUlaz = { kolicina: number; razlog: string };
 
@@ -36,6 +37,7 @@ export async function otpisiZalihu(lotId: string, ulaz: OtpisUlaz, korisnikId: s
       entitetId: kretanjeId,
       noveVrijednosti: { lotId, kolicina: ulaz.kolicina, razlog: ulaz.razlog, tip: "OTPIS" },
     });
+    await javiManjakRezervacije(klijent, lotId, korisnikId);
   });
 }
 

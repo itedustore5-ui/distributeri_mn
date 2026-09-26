@@ -1,6 +1,6 @@
 // Poruke (po grupi, pojedinačno, svima, ko je pročitao), ručni zadaci, više skladišta (prijem,
 // isporuka iz skladišta, matično skladište, deaktivacija). Briše sve što napravi.
-import { pool, prijava, NALOZI, danasCG } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, rokZaDana } from "./pomoc.mjs";
 
 export const naziv = "Poruke, ručni zadaci, više skladišta";
 
@@ -30,7 +30,9 @@ export async function pokreni({ provjeri }) {
     if (skl0.maticno) await ana(`/nalozi/${idMarko}/skladiste`, { method: "PATCH", telo: { skladisteId: null } });
     const dob = (await ana("/dobavljaci")).tijelo[0];
     const hljeb = (await ana("/artikli")).tijelo.find((a) => !a.temp_kontrolisano);
-    const prijem = (tijelo) => marko("/prijem", { telo: { dobavljacId: dob.id, brojDokumenta: "E2E-SKL", datumPrijema: danas, ...tijelo } });
+    // Rok je obavezan pri prijemu (R-17) — dodaje se svakoj stavci.
+    const prijem = (tijelo) =>
+      marko("/prijem", { telo: { dobavljacId: dob.id, brojDokumenta: "E2E-SKL", datumPrijema: danas, ...tijelo, stavke: tijelo.stavke.map((s) => ({ rokTrajanja: rokZaDana(3), ...s })) } });
     const p1 = await prijem({ ...(jedino ? {} : { skladisteId: glavno.id }), stavke: [{ artikalId: hljeb.id, brojLota: "E2E-G1", primljenaKolicina: 4 }] });
     trag.prijemi.push(p1.tijelo?.id);
     const p1Skl = (await pool.query(`select skladiste_id from prijem where id = $1`, [p1.tijelo?.id])).rows[0]?.skladiste_id;
@@ -96,7 +98,18 @@ export async function pokreni({ provjeri }) {
     else provjeri("Matično neaktivno, više aktivnih → traži izbor (400)", p7.status === 400, `${p7.status}`);
 
     // ── Poruke ──
-    provjeri("Vozač ne može slati poruke (403)", (await petar("/poruke", { telo: { naslov: "x", primaoci: { nacin: "svi" } } })).status === 403);
+    // Poruke šalju svi zaposleni jedni drugima; poruke između zaposlenih vide samo pošiljalac i primaoci.
+    const odVozaca = await petar("/poruke", { telo: { naslov: "E2E: kamion kasni 20 min", primaoci: { nacin: "pojedinacno", korisnici: [idMarko] } } });
+    trag.poruke.push(odVozaca.tijelo?.id);
+    provjeri("Vozač šalje poruku magacioneru", odVozaca.status === 201 && odVozaca.tijelo.brojPrimalaca === 1);
+    const markovo = (await marko("/obavjestenja")).tijelo.find((o) => o.izvor_id === odVozaca.tijelo.id);
+    provjeri("Magacioner je dobija, sa imenom pošiljaoca za „Odgovori“", markovo?.posiljalac_korisnik_id === idPetar && !!markovo.posiljalac);
+    const odgovorMarka = await marko("/poruke", { telo: { naslov: "Odg: E2E: kamion kasni 20 min", primaoci: { nacin: "pojedinacno", korisnici: [idPetar] } } });
+    trag.poruke.push(odgovorMarka.tijelo?.id);
+    provjeri("Magacioner odgovara vozaču", odgovorMarka.status === 201);
+    provjeri("Vozač vidi svoju poslatu poruku i ko je pročitao", (await petar("/poruke")).tijelo.some((p) => p.id === odVozaca.tijelo.id) && (await petar(`/poruke/${odVozaca.tijelo.id}/primaoci`)).status === 200);
+    provjeri("Poruku između zaposlenih odgovorno lice ne vidi na listi", !(await ana("/poruke")).tijelo.some((p) => p.id === odVozaca.tijelo.id));
+    provjeri("…ni ko ju je pročitao (404)", (await ana(`/poruke/${odVozaca.tijelo.id}/primaoci`)).status === 404);
     const markoPrije = (await obavj(marko)).length;
     const pr1 = await ana("/poruke", { telo: { naslov: "E2E: utovar od 6h", tekst: "Od ponedjeljka.", primaoci: { nacin: "uloge", uloge: ["vozac"] } } });
     trag.poruke.push(pr1.tijelo?.id);

@@ -96,6 +96,7 @@ export const NAZIVI: Record<string, string> = {
   ZAVRSEN: "Završen",
   ZAKASNIO: "Zakasnio",
   OTKAZAN: "Otkazan",
+  OTKAZANA: "Otkazana",
   URADJENO: "Urađeno",
   USKORO: "Uskoro",
   KASNI: "Kasni",

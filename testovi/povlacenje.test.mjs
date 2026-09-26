@@ -1,7 +1,7 @@
 // Povlačenje (čl. 28) od početka do zatvaranja: spisak kupaca iz stvarnih isporuka, lot odmah
 // blokiran za dalju isporuku, ne zatvara se dok svi nisu obaviješteni, zadatak se zatvara sam.
 // Briše sve što napravi i vraća lot i zalihu u stanje od prije.
-import { pool, prijava, NALOZI, danasCG, nijeIstekao, rashladnoVozilo, d1Prolazi } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, nijeIstekao, rashladnoVozilo, d1Prolazi, slobodno } from "./pomoc.mjs";
 
 export const naziv = "Povlačenje od početka do zatvaranja";
 
@@ -11,7 +11,7 @@ export async function pokreni({ provjeri }) {
   const trag = { isporuke: [], povlacenjeId: null, ncId: null, kontakti: [], lotId: null, lotStatusPrije: null, zalihaPrije: [], mjerenja: [], kontrole: [], vozilo: null };
 
   try {
-    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => Number(l.dostupno) >= 2 && nijeIstekao(l));
+    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => slobodno(l) >= 2 && nijeIstekao(l));
     if (!lot) throw new Error("U demo bazi nema prihvaćenog lota sa bar 2 komada na zalihi.");
     trag.lotId = lot.id;
     trag.lotStatusPrije = lot.status;

@@ -28,6 +28,7 @@ type Obavjestenje = {
   ozbiljnost: string;
   izvor_tip: string | null;
   posiljalac: string | null;
+  posiljalac_korisnik_id?: string | null;
   procitano_at: string | null;
   created_at: string;
 };
@@ -265,6 +266,15 @@ export function ListaObavjestenja() {
               <div>
                 <strong>{o.naslov}</strong>
                 {o.posiljalac && <span className="posiljalac">Poruka od: {o.posiljalac}</span>}
+                {o.posiljalac_korisnik_id && o.posiljalac_korisnik_id !== korisnik.id && (
+                  <button
+                    className="link-button"
+                    style={{ fontSize: 11, padding: 0 }}
+                    onClick={(e) => { e.stopPropagation(); navigate("/poruke", { state: { odgovor: { korisnikId: o.posiljalac_korisnik_id, naslov: o.naslov } } }); }}
+                  >
+                    Odgovori
+                  </button>
+                )}
                 {o.poruka && <p>{o.poruka}</p>}
               </div>
             </div>

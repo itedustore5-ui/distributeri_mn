@@ -1,6 +1,6 @@
 // Obavještenja za teren, zadaci (automatski, dodjela, samozatvaranje), temperatura pri predaji (KKT 3),
 // zatvaranje neusaglašenosti do kraja. Briše sve što napravi i vraća zalihu.
-import { pool, prijava, NALOZI, danasCG, glavnoSkladiste, nijeIstekao, rashladnoVozilo, d1Prolazi } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, glavnoSkladiste, nijeIstekao, rashladnoVozilo, d1Prolazi, rokZaDana, slobodno } from "./pomoc.mjs";
 
 export const naziv = "Obavještenja, zadaci, temperatura pri predaji";
 
@@ -24,7 +24,7 @@ export async function pokreni({ provjeri }) {
       trag.kontrole.push(id);
       return { status: id ? 201 : 500 };
     };
-    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => /Jogurt|Mlijeko/.test(l.artikal_naziv) && Number(l.dostupno) >= 1 && nijeIstekao(l));
+    const lot = (await ana("/lotovi?status=PRIHVACEN")).tijelo.find((l) => /Jogurt|Mlijeko/.test(l.artikal_naziv) && slobodno(l) >= 1 && nijeIstekao(l));
     trag.lotIsporuke = lot.id;
     trag.zalihaPrije = (await pool.query(`select id, kolicina from zaliha where lot_id = $1 and status = 'DOSTUPNO'`, [lot.id])).rows[0];
     const obavjPetarPrije = (await brojObavj(petar)).length;
@@ -100,8 +100,8 @@ export async function pokreni({ provjeri }) {
     const dob = (await ana("/dobavljaci")).tijelo[0];
     const hljeb = artikli.find((a) => !a.temp_kontrolisano) ?? artikli[0];
     const pr = await marko("/prijem", { telo: { dobavljacId: dob.id, brojDokumenta: "E2E-TEST", datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [
-      { artikalId: hljeb.id, brojLota: "E2E-A", primljenaKolicina: 5 },
-      { artikalId: hljeb.id, brojLota: "E2E-B", primljenaKolicina: 3 },
+      { artikalId: hljeb.id, brojLota: "E2E-A", primljenaKolicina: 5, rokTrajanja: rokZaDana(3) },
+      { artikalId: hljeb.id, brojLota: "E2E-B", primljenaKolicina: 3, rokTrajanja: rokZaDana(3) },
     ] } });
     trag.prijemId = pr.tijelo?.id;
     provjeri("Marko upisuje prijem sa 2 stavke", pr.status === 201);

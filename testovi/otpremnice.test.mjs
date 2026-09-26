@@ -105,7 +105,7 @@ export async function pokreni({ provjeri }) {
     const fajl = await preuzmi(marko, `/prijem/${prijem.tijelo.id}/dokument/${detalj.dokumenti[0].id}`);
     provjeri("Otpremnica se otvara iz prijema (isti PDF)", fajl.status === 200 && fajl.tip === "application/pdf" && fajl.sadrzaj.equals(PDF));
     const opet = await marko("/prijem", {
-      telo: { dobavljacId: trag.dobavljacId, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), dokumentId: drugi.tijelo.dokumentId, stavke: [{ artikalId: jogurt.id, brojLota: "E2E-X", primljenaKolicina: 1, temperaturaPrijema: 3 }] },
+      telo: { dobavljacId: trag.dobavljacId, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), dokumentId: drugi.tijelo.dokumentId, stavke: [{ artikalId: jogurt.id, brojLota: "E2E-X", primljenaKolicina: 1, temperaturaPrijema: 3, rokTrajanja: pomjeri(20) }] },
     });
     if (opet.tijelo?.id) trag.prijemi.push(opet.tijelo.id);
     provjeri("Ista otpremnica se ne veže za drugi prijem (409)", opet.status === 409 && opet.tijelo.error.code === "OTPREMNICA_VEC_VEZANA");

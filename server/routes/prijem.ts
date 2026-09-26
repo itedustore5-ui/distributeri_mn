@@ -140,8 +140,8 @@ prijemRuter.post(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviPrijemSchema, request.body);
     provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumPrijema);
-    const prijemId = await kreirajPrijem(ulaz, request.korisnik!.id, kljucIzZaglavlja(request.headers["x-kljuc-zahtjeva"]));
-    response.status(201).json({ id: prijemId });
+    const { prijemId, upozorenja } = await kreirajPrijem(ulaz, request.korisnik!.id, kljucIzZaglavlja(request.headers["x-kljuc-zahtjeva"]));
+    response.status(201).json({ id: prijemId, upozorenja });
   }),
 );
 

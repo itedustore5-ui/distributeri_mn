@@ -11,6 +11,7 @@ export async function pokreni({ provjeri }) {
   const petar = await prijava(NALOZI.petar);
   const anon = anonimno();
   const trag = { sesijaId: null };
+  const pocetak = new Date();
 
   try {
     const sesija = await ana("/provjera-znanja/sesije", { telo: { naziv: "E2E provjera", brojPitanja: 3, cuvaImena: true } });
@@ -28,8 +29,15 @@ export async function pokreni({ provjeri }) {
 
     provjeri("Bez prijave se ne ulazi, ni sa tačnom šifrom (401)", (await anon("/provjera-znanja/uci", { telo: { sifra: lice.sifra } })).status === 401);
 
+    // Na Markovom nalogu provjeru ne može početi neko drugi: traži se Markova lozinka.
+    const bezLozinke = await marko("/provjera-znanja/uci", { telo: {} });
+    provjeri("Bez lozinke se ne počinje (400)", bezLozinke.status === 400);
+    const pogresna = await marko("/provjera-znanja/uci", { telo: { lozinka: "neka-pogresna-lozinka" } });
+    provjeri("Pogrešna lozinka se odbija (403)", pogresna.status === 403 && pogresna.tijelo.error.code === "POGRESNA_LOZINKA");
+    const tudjaLozinka = await marko("/provjera-znanja/uci", { telo: { lozinka: NALOZI.petar.lozinka } });
+    provjeri("Ni lozinka drugog zaposlenog ne pušta na Markovom nalogu (403)", tudjaLozinka.status === 403);
     // Tuđa šifra u zahtjevu se ne gleda — server uzima šifru prijavljenog.
-    const ulaz = await marko("/provjera-znanja/uci", { telo: { sifra: petrovo?.sifra ?? "M-99" } });
+    const ulaz = await marko("/provjera-znanja/uci", { telo: { lozinka: NALOZI.marko.lozinka, sifra: petrovo?.sifra ?? "M-99" } });
     provjeri("Ulazi prijavljeni, SVOJOM šifrom (tuđa iz zahtjeva se ne gleda)", ulaz.status === 200 && ulaz.tijelo.sifra === lice.sifra && ulaz.tijelo.pitanja.length === 3, `${ulaz.status} ${ulaz.tijelo?.sifra ?? ulaz.tijelo?.error?.message ?? ""}`);
     if (ulaz.status !== 200) return;
     provjeri("Pitanja ne otkrivaju tačan odgovor", ulaz.tijelo.pitanja.every((p) => !("tacan_indeks" in p)));
@@ -57,7 +65,7 @@ export async function pokreni({ provjeri }) {
     provjeri("…a na svojoj strani piše da je završio", mojPoslije?.zavrseno === true, JSON.stringify(mojPoslije));
     const opet = await marko("/provjera-znanja/zavrsi", { telo: { ucesnikId } });
     provjeri("Ponovljeno 'završi' vraća isti rezultat", opet.tijelo?.brojTacnih === 2 && opet.tijelo?.brojPitanja === 3);
-    provjeri("Ponovni ulazak se odbija (409)", (await marko("/provjera-znanja/uci", { telo: {} })).tijelo?.error?.code === "VEC_ZAVRSENO");
+    provjeri("Ponovni ulazak se odbija (409)", (await marko("/provjera-znanja/uci", { telo: { lozinka: NALOZI.marko.lozinka } })).tijelo?.error?.code === "VEC_ZAVRSENO");
 
     const ev = (await ana("/evidencija-osposobljavanja")).tijelo.find((e) => e.lice_id === lice.id);
     provjeri("Evidencija (Prilog 14) nosi rezultat i naziv provjere", ev && ev.posljednji_broj_tacnih === 2 && ev.posljednji_broj_pitanja === 3 && ev.posljednja_sesija === "E2E provjera", JSON.stringify(ev));
@@ -66,6 +74,8 @@ export async function pokreni({ provjeri }) {
     const otvoren = (await pool.query(`select otvoren from sesija_znanja where id = $1`, [trag.sesijaId])).rows[0].otvoren;
     provjeri("Provjera je zatvorena", otvoren === false);
   } finally {
+    // Sigurnosni događaji pogrešnih lozinki iz ovog testa.
+    await pool.query(`delete from audit_log where akcija = 'SIGURNOST' and entitet_id = $1 and created_at >= $2`, [NALOZI.marko.id, pocetak]);
     if (trag.sesijaId) {
       await pool.query(`delete from odgovor_znanja where ucesnik_id in (select id from ucesnik_znanja where sesija_id = $1)`, [trag.sesijaId]);
       await pool.query(`delete from ucesnik_znanja where sesija_id = $1`, [trag.sesijaId]);

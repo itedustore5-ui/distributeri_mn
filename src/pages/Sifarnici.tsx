@@ -5,7 +5,7 @@ import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import type { Skladiste } from "../lib/skladista";
 
-type Kupac = { id: string; naziv: string; adresa: string | null; telefon: string; email: string | null; aktivan: boolean };
+type Kupac = { id: string; naziv: string; pib: string | null; adresa: string | null; adresa_isporuke: string | null; telefon: string; email: string | null; aktivan: boolean };
 type Dobavljac = { id: string; naziv: string; pib: string | null; adresa: string | null; telefon: string | null; email: string | null; aktivan: boolean };
 type Artikal = {
   id: string;
@@ -18,6 +18,7 @@ type Artikal = {
   temp_max: string | null;
   rok_trajanja_dana: number | null;
   granica_potvrdio: boolean;
+  rok_obavezan: boolean;
 };
 
 const TABOVI = [
@@ -98,8 +99,8 @@ export function Sifarnici() {
               <tbody>
                 {kupci.map((k) => (
                   <tr key={k.id}>
-                    <td>{k.naziv}</td>
-                    <td className="muted-text">{k.adresa ?? "—"}</td>
+                    <td>{k.naziv}{k.pib && <div className="muted-text" style={{ fontSize: 10 }}>PIB {k.pib}</div>}</td>
+                    <td className="muted-text">{k.adresa ?? "—"}{k.adresa_isporuke && <div style={{ fontSize: 10 }}>isporuka: {k.adresa_isporuke}</div>}</td>
                     <td>{k.telefon}</td>
                     <td className="muted-text">{k.email ?? "—"}</td>
                     <td><button className="small-action" onClick={() => setModalIzmjenaKupac(k)}>Izmijeni</button></td>
@@ -228,11 +229,13 @@ function KupacModal({ kupac, onClose, onSacuvano }: { kupac?: Kupac; onClose: ()
   const [adresa, setAdresa] = useState(kupac?.adresa ?? "");
   const [telefon, setTelefon] = useState(kupac?.telefon ?? "");
   const [email, setEmail] = useState(kupac?.email ?? "");
+  const [pib, setPib] = useState(kupac?.pib ?? "");
+  const [adresaIsporuke, setAdresaIsporuke] = useState(kupac?.adresa_isporuke ?? "");
   const [greska, setGreska] = useState("");
 
   const posalji = async () => {
     try {
-      const telo = { naziv, adresa: adresa || undefined, telefon, email: email || undefined };
+      const telo = { naziv, adresa: adresa || undefined, telefon, email: email || undefined, pib: pib.trim(), adresaIsporuke: adresaIsporuke || undefined };
       if (izmjena) await api(`/kupci/${kupac!.id}`, { method: "PATCH", telo });
       else await api("/kupci", { telo });
       onSacuvano();
@@ -253,7 +256,9 @@ function KupacModal({ kupac, onClose, onSacuvano }: { kupac?: Kupac; onClose: ()
         <label style={{ gridColumn: "1 / -1" }}>Naziv<input value={naziv} onChange={(e) => setNaziv(e.target.value)} /></label>
         <label>Telefon <ZakonskaOznaka clan="28" /><input value={telefon} onChange={(e) => setTelefon(e.target.value)} placeholder="obavezno — povlačenje počinje telefonom" /></label>
         <label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-        <label style={{ gridColumn: "1 / -1" }}>Adresa<input value={adresa} onChange={(e) => setAdresa(e.target.value)} /></label>
+        <label>PIB<input value={pib} inputMode="numeric" onChange={(e) => setPib(e.target.value)} placeholder="pravno lice: 8 cifara" /></label>
+        <label style={{ gridColumn: "1 / -1" }}>Adresa (sjedište)<input value={adresa} onChange={(e) => setAdresa(e.target.value)} /></label>
+        <label style={{ gridColumn: "1 / -1" }}>Adresa isporuke (ako nije sjedište)<input value={adresaIsporuke} onChange={(e) => setAdresaIsporuke(e.target.value)} placeholder="ide na otpremnicu" /></label>
       </div>
     </Modal>
   );
@@ -307,6 +312,7 @@ function ArtikalModal({ artikal, onClose, onSacuvano }: { artikal?: Artikal; onC
   const [tempMax, setTempMax] = useState(artikal?.temp_max ?? "");
   const [rokTrajanjaDana, setRokTrajanjaDana] = useState(artikal?.rok_trajanja_dana?.toString() ?? "");
   const [granicaPotvrdio, setGranicaPotvrdio] = useState(artikal?.granica_potvrdio ?? false);
+  const [rokObavezan, setRokObavezan] = useState(artikal?.rok_obavezan ?? true);
   const [greska, setGreska] = useState("");
 
   const posalji = async () => {
@@ -319,6 +325,7 @@ function ArtikalModal({ artikal, onClose, onSacuvano }: { artikal?: Artikal; onC
         tempMax: tempKontrolisano && tempMax !== "" ? Number(tempMax) : undefined,
         rokTrajanjaDana: rokTrajanjaDana !== "" ? Number(rokTrajanjaDana) : undefined,
         granicaPotvrdio,
+        rokObavezan,
       };
       if (izmjena) await api(`/artikli/${artikal!.id}`, { method: "PATCH", telo });
       else await api("/artikli", { telo });
@@ -341,6 +348,13 @@ function ArtikalModal({ artikal, onClose, onSacuvano }: { artikal?: Artikal; onC
         <label style={{ gridColumn: "1 / -1" }}>Naziv<input value={naziv} onChange={(e) => setNaziv(e.target.value)} /></label>
         <label>Jedinica mjere<input value={jedinicaMjere} onChange={(e) => setJedinicaMjere(e.target.value)} /></label>
         <label>Rok trajanja (dana)<input type="number" value={rokTrajanjaDana} onChange={(e) => setRokTrajanjaDana(e.target.value)} /></label>
+        <label>
+          Rok trajanja pri prijemu
+          <select value={rokObavezan ? "da" : "ne"} onChange={(e) => setRokObavezan(e.target.value === "da")}>
+            <option value="da">Obavezan (sa etikete ili otpremnice)</option>
+            <option value="ne">Nije obavezan — izuzetak</option>
+          </select>
+        </label>
         <label>
           Temperaturno kontrolisan
           <select value={tempKontrolisano ? "da" : "ne"} onChange={(e) => setTempKontrolisano(e.target.value === "da")}>

@@ -199,7 +199,8 @@ export async function izmijeniZadatak(zadatakId: string, ulaz: IzmjenaZadatka, k
 
 export async function obavjestenjaKorisnika(korisnikId: string) {
   const r = await upit(
-    `select o.*, case when o.izvor_tip = 'poruka' then coalesce(l.ime, k.korisnicko_ime) end as posiljalac
+    `select o.*, case when o.izvor_tip = 'poruka' then coalesce(l.ime, k.korisnicko_ime) end as posiljalac,
+            case when o.izvor_tip = 'poruka' then p.posiljalac_korisnik_id end as posiljalac_korisnik_id
      from obavjestenje o
      left join poruka p on o.izvor_tip = 'poruka' and p.id = o.izvor_id
      left join korisnik k on k.id = p.posiljalac_korisnik_id

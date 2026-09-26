@@ -1,18 +1,17 @@
 import { Router } from "express";
 import { z } from "zod";
 import { asyncRuta } from "../greske.js";
-import { requireUloga, type AuthZahtjev, type Uloga } from "../auth.js";
+import { sviPrijavljeni, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import * as poruke from "../services/porukeService.js";
 
 export const porukeRuter = Router();
-// Poruke šalju odgovorno lice, konsultant i uprava — uprava inače samo gleda, ali uputstvo
-// zaposlenima ("od ponedjeljka utovar u 6h") je njena stvar.
-const SALJU: Uloga[] = ["bzr", "izvodjac", "uprava"];
+// Poruke šalju SVI zaposleni jedni drugima (odluka vlasnice 26.09.2026) — magacioner vozaču, vozač
+// odgovornom licu, uprava svima. Primalac poruku dobija kao obavještenje (zvonce, Moja strana, telefon).
 
 porukeRuter.get(
   "/poruke/primaoci",
-  requireUloga(...SALJU),
+  sviPrijavljeni(),
   asyncRuta(async (request: AuthZahtjev, response) => {
     response.json(await poruke.moguciPrimaoci(request.korisnik!.id));
   }),
@@ -31,7 +30,7 @@ const porukaSchema = z.object({
 
 porukeRuter.post(
   "/poruke",
-  requireUloga(...SALJU),
+  sviPrijavljeni(),
   asyncRuta(async (request: AuthZahtjev, response) => {
     response.status(201).json(await poruke.posaljiPoruku(tijelo(porukaSchema, request.body), request.korisnik!.id));
   }),
@@ -39,16 +38,16 @@ porukeRuter.post(
 
 porukeRuter.get(
   "/poruke",
-  requireUloga(...SALJU),
-  asyncRuta(async (_request, response) => {
-    response.json(await poruke.poslatePoruke());
+  sviPrijavljeni(),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    response.json(await poruke.poslatePoruke(request.korisnik!));
   }),
 );
 
 porukeRuter.get(
   "/poruke/:id/primaoci",
-  requireUloga(...SALJU),
-  asyncRuta(async (request, response) => {
-    response.json(await poruke.primaociPoruke(str(request.params.id)));
+  sviPrijavljeni(),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    response.json(await poruke.primaociPoruke(str(request.params.id), request.korisnik!));
   }),
 );

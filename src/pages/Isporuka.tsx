@@ -13,11 +13,23 @@ import { useSkladista, type Skladiste } from "../lib/skladista";
 type Kupac = { id: string; naziv: string; telefon: string };
 type Vozilo = { id: string; registarski_broj: string; status: string; temp_kontrolisano: boolean; d1_danas: string | null };
 type Vozac = { id: string; ime: string };
-type LotDostupan = { lot_id: string; artikal_naziv: string; broj_lota: string; kolicina: string; skladiste_id: string | null; rok_trajanja: string | null };
+type LotDostupan = {
+  lot_id: string;
+  artikal_naziv: string;
+  broj_lota: string;
+  kolicina: string;
+  skladiste_id: string | null;
+  rok_trajanja: string | null;
+  /** Drže isporuke u pripremi (R-14); slobodno = kolicina − rezervisano. */
+  rezervisano: string;
+  slobodno: string;
+};
 type IsporukaRed = {
   id: string;
   broj: string;
+  kupac_id: string;
   kupac_naziv: string;
+  razlog_otkaza: string | null;
   datum_isporuke: string;
   status: string;
   vozilo_id: string | null;
@@ -70,7 +82,11 @@ export function Isporuka() {
   const [modalPotvrda, setModalPotvrda] = useState<IsporukaRed | null>(null);
   const [stavke, setStavke] = useState<StavkaIsporuke[]>([]);
   const [modalOdstupanje, setModalOdstupanje] = useState<IsporukaRed | null>(null);
+  const [modalOtkaz, setModalOtkaz] = useState<IsporukaRed | null>(null);
   const navigate = useNavigate();
+  const { korisnik } = useAuth();
+  // Otkazuje magacioner (svoju) i vodstvo; vozač ne — kupac koji odbije robu je potvrda sa 0 (R-15).
+  const mozeOtkazati = korisnik?.uloga !== "vozac";
 
   const ucitaj = () => {
     api<IsporukaRed[]>("/isporuke").then(setLista);
@@ -176,6 +192,7 @@ export function Isporuka() {
                   <td className="muted-text">{i.datum_isporuke}<NaknadnoOznaka dana={i.naknadno_dana} /></td>
                   <td>
                     <StatusBadge status={i.status} />
+                    {i.status === "OTKAZANA" && i.razlog_otkaza && <div className="muted-text" style={{ fontSize: 10 }}>{i.razlog_otkaza}</div>}
                     {i.otvorena_odstupanja > 0 && (
                       <button className="odstupanje-oznaka" onClick={() => navigate("/neusaglasenosti")} title="Otvorena odstupanja na ovoj isporuci">
                         <AlertTriangle size={11} /> {i.otvorena_odstupanja}
@@ -188,7 +205,13 @@ export function Isporuka() {
                         <>
                           <button className="small-action" onClick={() => otvoriIzmjenu(i)}>Izmijeni</button>
                           <button className="small-action" onClick={() => otvoriPotvrdu(i)}>Potvrdi</button>
+                          {mozeOtkazati && <button className="small-action" onClick={() => setModalOtkaz(i)}>Otkaži</button>}
                         </>
+                      )}
+                      {i.status !== "OTKAZANA" && (
+                        <button className="small-action" onClick={() => window.open(`/isporuka/${i.id}/otpremnica`, "_blank")} title="Otpremnica za štampu — ide uz robu">
+                          Otpremnica
+                        </button>
                       )}
                       <button className="small-action odstupanje-dugme" onClick={() => setModalOdstupanje(i)} title="Prijavi odstupanje na ovoj isporuci">
                         <AlertTriangle size={12} /> Problem
@@ -229,6 +252,7 @@ export function Isporuka() {
         />
       )}
       {modalOdstupanje && <OdstupanjeModal isporuka={modalOdstupanje} onClose={() => setModalOdstupanje(null)} onSacuvano={ucitaj} />}
+      {modalOtkaz && <OtkazModal isporuka={modalOtkaz} onClose={() => setModalOtkaz(null)} onSacuvano={ucitaj} />}
       {modalPotvrda && (
         <PotvrdaModal isporuka={modalPotvrda} stavke={stavke} onClose={() => setModalPotvrda(null)} onCreated={ucitaj} />
       )}
@@ -264,7 +288,7 @@ function IsporukaFormaModal({
 }) {
   const { korisnik } = useAuth();
   const izmjena = !!postojeca;
-  const [kupacId, setKupacId] = useState(kupci[0]?.id ?? "");
+  const [kupacId, setKupacId] = useState(postojeca?.kupac_id ?? kupci[0]?.id ?? "");
   // Podrazumijevano prvo SPREMNO vozilo — nespremno bi server ionako odbio.
   const [vozilId, setVozilId] = useState(
     postojeca ? (vozila.find((v) => v.registarski_broj === postojeca.registarski_broj)?.id ?? "") : (vozila.find((v) => v.status === "SPREMNO")?.id ?? ""),
@@ -280,6 +304,10 @@ function IsporukaFormaModal({
       : [{ lotId: lotoviSkladista.find((z) => !z.rok_trajanja || z.rok_trajanja.slice(0, 10) >= lokalniDatum())?.lot_id ?? "", kolicina: "" }],
   );
   const [greska, setGreska] = useState("");
+  // Slobodno = na zalihi − rezervisano za isporuke u pripremi (R-14). U izmjeni se ovoj isporuci
+  // vraća ono što ona sama drži — inače bi sopstvena količina izgledala zauzeta.
+  const svoje = (z: LotDostupan) => (postojeceStavke ?? []).filter((s) => s.broj_lota === z.broj_lota).reduce((n, s) => n + Number(s.planirana_kolicina), 0);
+  const slobodno = (z: LotDostupan) => Number(z.slobodno) + svoje(z);
 
   const promijeniSkladiste = (id: string) => {
     setSkladisteId(id);
@@ -305,7 +333,7 @@ function IsporukaFormaModal({
         stavke: redovi.map((r) => ({ lotId: r.lotId, planiranaKolicina: Number(r.kolicina) })),
       };
       if (izmjena) {
-        await api(`/isporuke/${postojeca!.id}`, { method: "PATCH", telo: { skladisteId: telo.skladisteId, vozilId: telo.vozilId, vozacKorisnikId: telo.vozacKorisnikId, datumIsporuke: telo.datumIsporuke, stavke: telo.stavke } });
+        await api(`/isporuke/${postojeca!.id}`, { method: "PATCH", telo: { kupacId: telo.kupacId, skladisteId: telo.skladisteId, vozilId: telo.vozilId, vozacKorisnikId: telo.vozacKorisnikId, datumIsporuke: telo.datumIsporuke, stavke: telo.stavke } });
       } else {
         await api("/isporuke", { telo, kljuc });
       }
@@ -327,16 +355,12 @@ function IsporukaFormaModal({
       footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !validno}>Sačuvaj</button></>}
     >
       <div className="form-grid">
-        {izmjena ? (
-          <label>Kupac<input value={postojeca!.kupac_naziv} disabled /></label>
-        ) : (
-          <label>
-            Kupac
-            <select value={kupacId} onChange={(e) => setKupacId(e.target.value)}>
-              {kupci.map((k) => <option key={k.id} value={k.id}>{k.naziv}</option>)}
-            </select>
-          </label>
-        )}
+        <label>
+          Kupac
+          <select value={kupacId} onChange={(e) => setKupacId(e.target.value)}>
+            {kupci.map((k) => <option key={k.id} value={k.id}>{k.naziv}</option>)}
+          </select>
+        </label>
         {skladista.length > 0 && (
           <label>
             Iz magacina
@@ -375,9 +399,12 @@ function IsporukaFormaModal({
                 {lotoviSkladista.length === 0 && <option value="">— u ovom magacinu nema robe na zalihi —</option>}
                 {lotoviSkladista.map((z) => {
                   const istekao = !!z.rok_trajanja && z.rok_trajanja.slice(0, 10) < lokalniDatum();
+                  const s = slobodno(z);
+                  const rez = Number(z.kolicina) - s;
                   return (
-                    <option key={z.lot_id} value={z.lot_id} disabled={istekao}>
-                      {z.artikal_naziv} · {z.broj_lota} (dostupno {z.kolicina}){istekao ? " — ISTEKAO ROK, ne isporučuje se" : ""}
+                    <option key={z.lot_id} value={z.lot_id} disabled={istekao || (s <= 0 && z.lot_id !== red.lotId)}>
+                      {z.artikal_naziv} · {z.broj_lota} (slobodno {s}{rez > 0 ? `, rezervisano ${rez}` : ""})
+                      {istekao ? " — ISTEKAO ROK, ne isporučuje se" : s <= 0 ? " — sve je rezervisano" : ""}
                     </option>
                   );
                 })}
@@ -386,6 +413,10 @@ function IsporukaFormaModal({
             <label>
               Količina
               <input type="number" value={red.kolicina} onChange={(e) => azurirajRed(i, { kolicina: e.target.value })} style={{ width: 90 }} />
+              {(() => {
+                const lot = zaliha.find((z) => z.lot_id === red.lotId);
+                return lot && Number(red.kolicina) > slobodno(lot) ? <small style={{ color: "#c34e55" }}>Slobodno je samo {slobodno(lot)}.</small> : null;
+              })()}
             </label>
             {redovi.length > 1 && (
               <button type="button" className="row-action" style={{ alignSelf: "end", marginBottom: 1 }} onClick={() => ukloniRed(i)}>
@@ -416,8 +447,19 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
   const postavi = (id: string, polje: "isporuceno" | "odbijeno" | "razlog" | "temperatura", vrijednost: string) =>
     setVrijednosti((v) => ({ ...v, [id]: { ...v[id], [polje]: vrijednost } }));
 
+  // Jedna temperatura po grupi robe istog režima (R-37): vozač mjeri gajbu jogurta i mlijeka jednom,
+  // ne deset puta. Ko hoće — „Različito po stavci". Server i dalje dobija temperaturu po stavci.
+  const kljucGrupe = (s: StavkaIsporuke) => `${s.temp_min ?? ""}|${s.temp_max ?? ""}`;
+  const grupe = Array.from(new Set(stavke.filter((s) => s.temp_kontrolisano).map(kljucGrupe))).map((k) => ({
+    kljuc: k,
+    stavke: stavke.filter((s) => s.temp_kontrolisano && kljucGrupe(s) === k),
+  }));
+  const [poStavci, setPoStavci] = useState(false);
+  const [tempGrupe, setTempGrupe] = useState<Record<string, string>>({});
+  const temperatura = (s: StavkaIsporuke) => (poStavci ? vrijednosti[s.id].temperatura : tempGrupe[kljucGrupe(s)] ?? "");
+
   // Isto pravilo kao na serveru: roba pod temperaturnim režimom koja se predaje mora imati temperaturu.
-  const faliTemperatura = stavke.some((s) => s.temp_kontrolisano && Number(vrijednosti[s.id].isporuceno) > 0 && vrijednosti[s.id].temperatura.trim() === "");
+  const faliTemperatura = stavke.some((s) => s.temp_kontrolisano && Number(vrijednosti[s.id].isporuceno) > 0 && temperatura(s).trim() === "");
 
   const { radim, salji } = useSlanje();
   const posalji = async () => {
@@ -429,7 +471,7 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
             isporucenaKolicina: Number(vrijednosti[s.id].isporuceno),
             odbijenaKolicina: Number(vrijednosti[s.id].odbijeno || 0),
             razlogOdbijanja: vrijednosti[s.id].razlog || undefined,
-            temperaturaPredaje: vrijednosti[s.id].temperatura.trim() === "" ? null : Number(vrijednosti[s.id].temperatura),
+            temperaturaPredaje: s.temp_kontrolisano && temperatura(s).trim() !== "" ? Number(temperatura(s)) : null,
           })),
           mjerniUredjajId: termometarId || null,
         },
@@ -481,6 +523,26 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
       }
     >
       <div style={{ padding: 20 }}>
+        {grupe.length > 0 && !poStavci && (
+          <div style={{ borderBottom: "1px solid #edf1f3", paddingBottom: 12, marginBottom: 12 }}>
+            {grupe.map((g) => {
+              const granica = opisGranice(g.stavke[0]);
+              const unos = tempGrupe[g.kljuc] ?? "";
+              return (
+                <label key={g.kljuc} className="temp-predaje" style={{ display: "block", marginBottom: 8 }}>
+                  <span>
+                    Temperatura pri predaji (°C) <ZakonskaOznaka clan="36" />{" "}
+                    {granica && <span className="temp-granica">granica {granica}</span>}
+                    <span className="muted-text" style={{ display: "block", fontSize: 10 }}>{g.stavke.map((s) => s.artikal_naziv).join(", ")}</span>
+                  </span>
+                  <input type="number" step="0.1" inputMode="decimal" value={unos} onChange={(e) => setTempGrupe((tg) => ({ ...tg, [g.kljuc]: e.target.value }))} placeholder="izmjereno kod kupca" />
+                  {g.stavke.some((s) => vanGranice(s, unos)) && <span className="temp-upozorenje">Van granice — kupac smije odbiti robu. Upišite odbijenu količinu i razlog.</span>}
+                </label>
+              );
+            })}
+            <button className="link-button" onClick={() => setPoStavci(true)}>Različita temperatura po stavci</button>
+          </div>
+        )}
         {stavke.map((s) => {
           const v = vrijednosti[s.id];
           const granica = opisGranice(s);
@@ -490,7 +552,7 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
               <div className="form-grid" style={{ padding: "10px 0 0" }}>
                 <label>Isporučeno<input type="number" value={v.isporuceno} onChange={(e) => postavi(s.id, "isporuceno", e.target.value)} /></label>
                 <label>Odbijeno<input type="number" value={v.odbijeno} onChange={(e) => postavi(s.id, "odbijeno", e.target.value)} /></label>
-                {s.temp_kontrolisano && (
+                {s.temp_kontrolisano && poStavci && (
                   <label className="temp-predaje" style={{ gridColumn: "1 / -1" }}>
                     <span>
                       Temperatura pri predaji (°C) <ZakonskaOznaka clan="36" />{" "}
@@ -593,6 +655,42 @@ function OdstupanjeModal({ isporuka, onClose, onSacuvano }: { isporuka: Isporuka
             ? "Isporuka još nije potvrđena — pogrešnu količinu ili artikal ispravite dugmetom „Izmijeni“. Ovdje prijavite ono što treba da vidi odgovorno lice."
             : "Potvrđena isporuka se ne prepravlja — ispravka ide kao ovaj zapis, vezan za isporuku, da ostane trag šta je bilo i šta je urađeno."}
         </p>
+      </div>
+    </Modal>
+  );
+}
+
+/** Otkaz isporuke prije predaje (R-15): uz razlog; rezervisana roba se oslobađa. */
+function OtkazModal({ isporuka, onClose, onSacuvano }: { isporuka: IsporukaRed; onClose: () => void; onSacuvano: () => void }) {
+  const [razlog, setRazlog] = useState("");
+  const [greska, setGreska] = useState("");
+  const { radim, salji } = useSlanje();
+  const posalji = async () => {
+    try {
+      await api(`/isporuke/${isporuka.id}/otkaz`, { telo: { razlog: razlog.trim() } });
+      onSacuvano();
+      onClose();
+    } catch (e) {
+      setGreska(e instanceof ApiGreska ? e.message : "Isporuka nije otkazana.");
+    }
+  };
+  return (
+    <Modal
+      naslov={`Otkaz isporuke ${isporuka.broj}`}
+      podnaslov={`${isporuka.kupac_naziv} · ${isporuka.datum_isporuke}`}
+      onClose={onClose}
+      greska={greska}
+      footer={<><button className="secondary-button" onClick={onClose}>Nazad</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || razlog.trim().length < 5}>Otkaži isporuku</button></>}
+    >
+      <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+        <p className="muted-text" style={{ fontSize: 11, margin: 0 }}>
+          Isporuka ostaje zapisana kao otkazana, a roba koju je držala ponovo je slobodna. Ako je kupac odbio robu na licu mjesta, to nije
+          otkaz — potvrdite isporuku sa 0 i razlogom.
+        </p>
+        <label>
+          Razlog otkaza
+          <input value={razlog} onChange={(e) => setRazlog(e.target.value)} placeholder="npr. kupac otkazao narudžbu telefonom" />
+        </label>
       </div>
     </Modal>
   );

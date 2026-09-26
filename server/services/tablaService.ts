@@ -37,7 +37,7 @@ export async function pregledTable() {
     upit(`select count(*)::int as broj from zadatak where status not in ('ZAVRSEN', 'OTKAZAN') and rok_at is not null and rok_at < now()`),
     upit(`select count(*)::int as broj from zadatak where status not in ('ZAVRSEN', 'OTKAZAN')`),
     upit(`select count(*)::int as broj from prijem where datum_prijema = $1`, [danas]),
-    upit(`select count(*)::int as broj from isporuka where datum_isporuke = $1`, [danas]),
+    upit(`select count(*)::int as broj from isporuka where datum_isporuke = $1 and status <> 'OTKAZANA'`, [danas]),
     upit(`select count(*)::int as broj from v_lica where knjizica_status in ('ISTEKLA', 'USKORO')`),
     upit(`select count(*)::int as broj from povlacenje where status = 'U_TOKU'`),
     upit(`select count(*)::int as broj from zapis where datum = $1`, [danas]),
@@ -94,6 +94,10 @@ select * from (
            else lower(i.status::text) end || ' — ' || i.broj || ' · ' || k.naziv,
          case when i.status::text in ('DJELIMICNA', 'ODBIJENA') then 'upozorenje' else 'info' end, '/isporuka'
     from isporuka i join kupac k on k.id = i.kupac_id where i.potvrdjeno_at > now() - $1::interval
+  union all
+  select i.otkazano_at, 'isporuka', (select ime from ime where id = i.otkazao_korisnik_id),
+         'Isporuka otkazana — ' || i.broj || ' · ' || k.naziv || ': ' || coalesce(i.razlog_otkaza, ''), 'upozorenje', '/isporuka'
+    from isporuka i join kupac k on k.id = i.kupac_id where i.otkazano_at > now() - $1::interval
   union all
   select nc.created_at, 'neusaglasenost', (select ime from ime where id = nc.prijavio_korisnik_id), 'Neusaglašenost ' || nc.broj || ' — ' || nc.opis,
          case when nc.ozbiljnost::text = 'VISOK' then 'problem' else 'upozorenje' end, '/neusaglasenosti'

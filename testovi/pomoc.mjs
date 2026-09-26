@@ -31,6 +31,14 @@ export async function provjeriDemoBazu() {
 }
 
 export const danasCG = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Podgorica" });
+/** Slobodno na lotu = dostupno − rezervisano za isporuke u pripremi (R-14). */
+export const slobodno = (l) => Number(l.dostupno) - Number(l.rezervisano ?? 0);
+/** Rok trajanja za prijem u testu — obavezan je pri prijemu (R-17). */
+export const rokZaDana = (dana) => {
+  const d = new Date(`${danasCG()}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dana);
+  return d.toISOString().slice(0, 10);
+};
 /** Lot sa isteklim rokom se ne isporučuje (R-02) — demo lotovi vremenom isteknu, testovi biraju važeće. */
 export const nijeIstekao = (l) => !l.rok_trajanja || String(l.rok_trajanja).slice(0, 10) >= danasCG();
 

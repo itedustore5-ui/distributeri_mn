@@ -73,20 +73,35 @@ export async function posaljiPoruku(ulaz: { naslov: string; tekst?: string; vazn
   return { id, brojPrimalaca: primaoci.rows.length, primaoci: opis };
 }
 
-/** Poslate poruke svih pošiljalaca — odgovorno lice vidi i šta je uprava poslala, i obrnuto,
- * da dvoje ne šalje različita uputstva istim ljudima. */
-export async function poslatePoruke() {
+// Vodstvo (odgovorno lice, konsultant, uprava) vidi i poruke drugih iz vodstva — da dvoje ne šalje
+// različita uputstva istim ljudima. Poruke između zaposlenih vide samo pošiljalac i primaoci.
+const VODSTVO: Uloga[] = ["bzr", "izvodjac", "uprava"];
+
+/** Poslate poruke koje korisnik smije vidjeti: svoje, a vodstvo i poruke drugih iz vodstva. */
+export async function poslatePoruke(korisnik: { id: string; uloga: Uloga }) {
   const r = await upit(
     `select p.id, p.naslov, p.tekst, p.vazno, p.primaoci_opis, p.broj_primalaca, p.created_at,
             coalesce(l.ime, k.korisnicko_ime) as posiljalac,
             (select count(*)::int from obavjestenje o where o.izvor_tip = 'poruka' and o.izvor_id = p.id and o.procitano_at is not null) as procitalo
      from poruka p join korisnik k on k.id = p.posiljalac_korisnik_id left join lice l on l.id = k.lice_id
+     where p.posiljalac_korisnik_id = $1 or ($2::boolean and k.uloga::text = any($3::text[]))
      order by p.created_at desc limit 100`,
+    [korisnik.id, VODSTVO.includes(korisnik.uloga), VODSTVO],
   );
   return r.rows;
 }
 
-export async function primaociPoruke(porukaId: string) {
+/** Ko je pročitao — samo pošiljalac, a za poruke vodstva i ostalo vodstvo. */
+export async function primaociPoruke(porukaId: string, korisnik: { id: string; uloga: Uloga }) {
+  const p = (
+    await upit<{ posiljalac_korisnik_id: string; uloga: Uloga }>(
+      `select p.posiljalac_korisnik_id, k.uloga from poruka p join korisnik k on k.id = p.posiljalac_korisnik_id where p.id = $1`,
+      [porukaId],
+    )
+  ).rows[0];
+  if (!p || (p.posiljalac_korisnik_id !== korisnik.id && !(VODSTVO.includes(korisnik.uloga) && VODSTVO.includes(p.uloga)))) {
+    throw new ApiGreska(404, "PORUKA_NE_POSTOJI", "Poruka nije pronađena.");
+  }
   const r = await upit(
     `select coalesce(l.ime, k.korisnicko_ime) as ime, k.uloga, o.procitano_at
      from obavjestenje o join korisnik k on k.id = o.korisnik_id left join lice l on l.id = k.lice_id

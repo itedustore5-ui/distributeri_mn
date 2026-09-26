@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { asyncRuta } from "../greske.js";
+import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, sviPrijavljeni, type AuthZahtjev } from "../auth.js";
 import { tijelo } from "../validacija.js";
 import * as znanje from "../services/provjeraZnanjaService.js";
@@ -8,12 +8,15 @@ import * as znanje from "../services/provjeraZnanjaService.js";
 export const provjeraZnanjaRuter = Router();
 
 // --- Provjeru radi PRIJAVLJENI zaposleni, SVOJOM šifrom (invarijanta #32): šifru server uzima iz
-// naloga — ne kuca se, pa se tuđa ne može upisati. Odgovara i završava samo onaj ko je počeo. ---
+// naloga — ne kuca se, pa se tuđa ne može upisati. Na početku se upisuje lozinka prijavljenog — na
+// zajedničkom telefonu provjeru ne može uraditi neko drugi. Odgovara i završava samo onaj ko je počeo. ---
 provjeraZnanjaRuter.post(
   "/provjera-znanja/uci",
   sviPrijavljeni(),
   asyncRuta(async (request: AuthZahtjev, response) => {
-    response.json(await znanje.udji(request.korisnik!.id));
+    const { lozinka } = tijelo(z.object({ lozinka: z.string().optional() }), request.body);
+    if (!lozinka) throw new ApiGreska(400, "NEVALIDAN_UNOS", "Upišite svoju lozinku.");
+    response.json(await znanje.udji(request.korisnik!.id, lozinka, request.ip));
   }),
 );
 

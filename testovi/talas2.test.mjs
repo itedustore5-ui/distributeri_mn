@@ -8,7 +8,7 @@
 //   R-22 neusaglašenost iz kontrole se zatvara tek kad ponovna kontrola prođe;
 //   R-23 mjerenje pamti termometar; neispravan termometar se ne koristi, a njegova mjerenja su „upitna".
 // Test pravi svoja vozila, artikal, termometar i kontrolnu tačku, pa sve briše po njima.
-import { pool, prijava, NALOZI, danasCG, glavnoSkladiste, preuzmi } from "./pomoc.mjs";
+import { pool, prijava, NALOZI, danasCG, glavnoSkladiste, preuzmi, rokZaDana } from "./pomoc.mjs";
 
 export const naziv = "Talas 2: D1, audit prije, ispravka i odstupanje zapisa, mjerenje, termometar, ponovna kontrola, izvoz";
 
@@ -56,8 +56,8 @@ export async function pokreni({ provjeri }) {
       telo: {
         dobavljacId: dobavljac.id, brojDokumenta: oznaka, datumPrijema: danasCG(), skladisteId, mjerniUredjajId: trag.uredjaj,
         stavke: [
-          { artikalId: trag.artikal, brojLota: `${oznaka}-LA`, primljenaKolicina: 10, temperaturaPrijema: 2 },
-          { artikalId: trag.artikal, brojLota: `${oznaka}-LB`, primljenaKolicina: 5, temperaturaPrijema: 2 },
+          { artikalId: trag.artikal, brojLota: `${oznaka}-LA`, primljenaKolicina: 10, temperaturaPrijema: 2, rokTrajanja: rokZaDana(20) },
+          { artikalId: trag.artikal, brojLota: `${oznaka}-LB`, primljenaKolicina: 5, temperaturaPrijema: 2, rokTrajanja: rokZaDana(20) },
         ],
       },
     });

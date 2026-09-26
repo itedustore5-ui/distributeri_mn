@@ -4,7 +4,7 @@ import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, ogranicenjeDatuma, samoMoje, provjeriProzorUpisa, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
-import { kreirajIsporuku, izmijeniIsporuku, potvrdiIsporuku } from "../services/isporukaService.js";
+import { kreirajIsporuku, izmijeniIsporuku, potvrdiIsporuku, otkaziIsporuku, otpremnicaZaStampu } from "../services/isporukaService.js";
 import { kljucIzZaglavlja } from "../services/kljucService.js";
 
 export const isporukaRuter = Router();
@@ -79,10 +79,29 @@ isporukaRuter.patch(
   "/isporuke/:id",
   requireUloga("operater", "vozac", "bzr", "izvodjac"),
   asyncRuta(async (request: AuthZahtjev, response) => {
-    const ulaz = tijelo(novaIsporukaSchema.omit({ kupacId: true, napomena: true }), request.body);
+    const ulaz = tijelo(novaIsporukaSchema.omit({ napomena: true }).partial({ kupacId: true }), request.body);
     provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumIsporuke);
     await izmijeniIsporuku(str(request.params.id), ulaz, request.korisnik!);
     response.status(204).end();
+  }),
+);
+
+// Otkaz prije predaje (R-15). Vozač ne otkazuje — kupac koji odbije robu je potvrda sa 0 i razlogom.
+isporukaRuter.post(
+  "/isporuke/:id/otkaz",
+  requireUloga("operater", "bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const { razlog } = tijelo(z.object({ razlog: z.string().trim().min(5, "Upišite zašto se isporuka otkazuje.") }), request.body);
+    response.json(await otkaziIsporuku(str(request.params.id), razlog, request.korisnik!));
+  }),
+);
+
+// Otpremnica za štampu (R-21): isti ko smije vidjeti isporuku, sa podacima firme i kupca.
+isporukaRuter.get(
+  "/isporuke/:id/otpremnica",
+  requireUloga("operater", "vozac", "bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    response.json(await otpremnicaZaStampu(str(request.params.id), request.korisnik!));
   }),
 );
 
