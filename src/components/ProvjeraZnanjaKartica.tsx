@@ -76,8 +76,8 @@ export function ProvjeraZnanjaKartica({ verzija, onOsvjezi }: { verzija: number;
           <span className="meta-label">Kako zaposleni ulazi</span>
           <p style={{ fontSize: 12, margin: "4px 0 0" }}>
             Prijavljen <b>svojim nalogom</b>, sa svoje početne strane (Moja strana, Kontrolni centar): dok je termin otvoren, tamo
-            stoji <b>„Uđi u provjeru znanja“</b>. Šifra se ne kuca — aplikacija uzima šifru prijavljenog, pa niko ne može raditi
-            provjeru umjesto drugoga. Zaposleni bez naloga ne može raditi provjeru — prvo mu otvorite nalog (Svi zaposleni → „Otvori nalog“).
+            stoji <b>„Uđi u provjeru znanja“</b>. Prije početka upisuje <b>svoju lozinku</b> — na zajedničkom telefonu niko ne može
+            raditi provjeru umjesto drugoga. Šifra se za provjeru ne koristi. Zaposleni bez naloga ne može raditi provjeru — prvo mu otvorite nalog (Svi zaposleni → „Otvori nalog“).
           </p>
           <p style={{ fontSize: 12, margin: "6px 0 0" }}>
             {otvoreni.length > 0 ? (
@@ -89,7 +89,7 @@ export function ProvjeraZnanjaKartica({ verzija, onOsvjezi }: { verzija: number;
         </div>
       </div>
       <p className="muted-text no-print" style={{ fontSize: 11, marginBottom: 14, maxWidth: 720 }}>
-        Šifra je ista kao za potpis na obrascima. Pitanja dolaze iz dva izvora:
+        Pitanja dolaze iz dva izvora:
         <b> pitanja firme</b> unosite vi, o vašim procedurama; <b>pitanja konsultanta</b> ostaju skrivena i vama — ko zna pitanja unaprijed, provjera
         prestaje da mjeri znanje. Rezultati su dokaz da se provjera redovno sprovodi <ZakonskaOznaka clan="36" />, ne sertifikat.
       </p>

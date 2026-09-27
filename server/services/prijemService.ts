@@ -26,7 +26,9 @@ export type StavkaUlaz = {
 };
 
 export type NoviPrijemUlaz = {
-  dobavljacId: string;
+  /** Dobavljač sa spiska — ili `noviDobavljac`, kad ga nema u Šifarnicima (tačno jedno od dva). */
+  dobavljacId?: string;
+  noviDobavljac?: { naziv: string; pib?: string };
   skladisteId?: string | null;
   brojDokumenta?: string;
   datumPrijema: string;
@@ -37,6 +39,28 @@ export type NoviPrijemUlaz = {
   mjerniUredjajId?: string;
   stavke: StavkaUlaz[];
 };
+
+/** Dobavljač kog nema u Šifarnicima, upisan pri prijemu (u istoj transakciji). Isti PIB ili isti
+ * naziv već postoji → to je dupli unos: bira se sa spiska. */
+async function upisiNovogDobavljaca(klijent: PoolClient, novi: { naziv: string; pib?: string }, korisnikId: string) {
+  const naziv = novi.naziv.trim();
+  const pib = novi.pib?.trim() || null;
+  const postoji = await klijent.query<{ naziv: string; pib: string | null }>(
+    `select naziv, pib from dobavljac where ($1::text is not null and btrim(pib) = $1) or lower(btrim(naziv)) = lower($2) limit 1`,
+    [pib, naziv],
+  );
+  const d = postoji.rows[0];
+  if (d) {
+    throw new ApiGreska(
+      409,
+      pib && d.pib?.trim() === pib ? "PIB_POSTOJI" : "DOBAVLJAC_POSTOJI",
+      `Dobavljač „${d.naziv}“${d.pib ? ` (PIB ${d.pib})` : ""} već postoji — izaberite ga sa spiska.`,
+    );
+  }
+  const r = await klijent.query<{ id: string }>(`insert into dobavljac (naziv, pib) values ($1, $2) returning id`, [naziv, pib]);
+  await logKreiranje(klijent, { korisnikId, entitetTip: "dobavljac", entitetId: r.rows[0].id, noveVrijednosti: { naziv, pib, pri_prijemu: true } });
+  return { id: r.rows[0].id, naziv, pib };
+}
 
 export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kljuc?: string) {
   if (ulaz.stavke.length === 0) {
@@ -86,19 +110,43 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
   const kktRed = await upit<{ id: string }>(`select id from kontrolna_tacka where sifra = $1`, [KKT1_SIFRA]);
   const kkt1Id = kktRed.rows[0]?.id;
 
+  if (!ulaz.dobavljacId === !ulaz.noviDobavljac) {
+    throw new ApiGreska(400, "NEVALIDAN_UNOS", "Izaberite dobavljača sa spiska ili upišite novog.");
+  }
+
   const { prijemId, lotoviZaProvjeru, upozorenja } = await transakcija(async (klijent) => {
     // Isti ključ = isti prijem (dupli klik, ponovljeno slanje): vraća se prvi, drugi se ne upisuje (R-10).
     if (kljuc) {
       const ranije = await zauzmiKljuc(klijent, korisnikId, kljuc, "prijem");
       if (ranije?.id) return { prijemId: String(ranije.id), lotoviZaProvjeru: [] as { lotId: string; artikalId: string; temperatura: number | null }[], upozorenja: [] as string[] };
     }
+    const novi = ulaz.noviDobavljac ? await upisiNovogDobavljaca(klijent, ulaz.noviDobavljac, korisnikId) : null;
+    const dobavljacId = novi?.id ?? ulaz.dobavljacId!;
     const prijem = await klijent.query<{ id: string }>(
       `insert into prijem (dobavljac_id, broj_dokumenta, datum_prijema, status, primio_korisnik_id, napomena, skladiste_id)
        values ($1, $2, $3, 'CEKA_ODLUKU', $4, $5, $6) returning id`,
-      [ulaz.dobavljacId, ulaz.brojDokumenta ?? null, ulaz.datumPrijema, korisnikId, ulaz.napomena ?? null, skladisteId],
+      [dobavljacId, ulaz.brojDokumenta ?? null, ulaz.datumPrijema, korisnikId, ulaz.napomena ?? null, skladisteId],
     );
     const prijemId = prijem.rows[0].id;
-    await logKreiranje(klijent, { korisnikId, entitetTip: "prijem", entitetId: prijemId, noveVrijednosti: { dobavljacId: ulaz.dobavljacId } });
+    await logKreiranje(klijent, { korisnikId, entitetTip: "prijem", entitetId: prijemId, noveVrijednosti: { dobavljacId, noviDobavljac: !!novi } });
+    if (novi) {
+      const ko = await klijent.query<{ ime: string }>(
+        `select coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id where k.id = $1`,
+        [korisnikId],
+      );
+      // Ko je sam odgovorno lice, ne treba da obavještava sebe.
+      const bzrOstali = await klijent.query<{ id: string }>(`select id from korisnik where uloga = 'bzr' and aktivan and id <> $1`, [korisnikId]);
+      for (const b of bzrOstali.rows) {
+        await kreirajObavjestenje(klijent, {
+          korisnikId: b.id,
+          naslov: `Nov dobavljač upisan pri prijemu: ${novi.naziv}`,
+          poruka: `${ko.rows[0]?.ime ?? "Zaposleni"} je primio robu od dobavljača kog nije bilo u Šifarnicima${novi.pib ? ` (PIB ${novi.pib})` : ""}. Provjerite naziv i PIB i dopunite adresu i telefon u Šifarnicima.`,
+          ozbiljnost: "SREDNJI",
+          izvorTip: "prijem",
+          izvorId: prijemId,
+        });
+      }
+    }
 
     const lotoviZaProvjeru: { lotId: string; artikalId: string; temperatura: number | null }[] = [];
 
@@ -106,7 +154,7 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
       const lot = await klijent.query<{ id: string }>(
         `insert into lot (artikal_id, dobavljac_id, prijem_id, broj_lota, proizvodni_datum, rok_trajanja, status, primljena_kolicina)
          values ($1, $2, $3, $4, $5, $6, 'PRIMLJEN', $7) returning id`,
-        [stavka.artikalId, ulaz.dobavljacId, prijemId, stavka.brojLota.trim(), stavka.proizvodniDatum ?? null, stavka.rokTrajanja ?? null, stavka.primljenaKolicina],
+        [stavka.artikalId, dobavljacId, prijemId, stavka.brojLota.trim(), stavka.proizvodniDatum ?? null, stavka.rokTrajanja ?? null, stavka.primljenaKolicina],
       );
       const lotId = lot.rows[0].id;
 
@@ -126,7 +174,7 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
            on conflict (dobavljac_id, kljuc) do update
              set artikal_id = excluded.artikal_id, sifra = excluded.sifra, naziv = excluded.naziv,
                  potvrdio_korisnik_id = excluded.potvrdio_korisnik_id, updated_at = now()`,
-          [ulaz.dobavljacId, kljucArtikla(nj.sifra, nj.naziv), nj.sifra ?? null, nj.naziv ?? null, stavka.artikalId, korisnikId],
+          [dobavljacId, kljucArtikla(nj.sifra, nj.naziv), nj.sifra ?? null, nj.naziv ?? null, stavka.artikalId, korisnikId],
         );
       }
 
@@ -152,7 +200,7 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
         `select distinct to_char(rok_trajanja, 'DD.MM.YYYY.') as rok from lot
          where artikal_id = $1 and dobavljac_id = $2 and upper(btrim(broj_lota)) = upper(btrim($3)) and prijem_id <> $4
            and rok_trajanja is not null and rok_trajanja <> $5::date`,
-        [s.artikalId, ulaz.dobavljacId, s.brojLota, prijemId, s.rokTrajanja],
+        [s.artikalId, dobavljacId, s.brojLota, prijemId, s.rokTrajanja],
       );
       if (drugi.rows.length > 0) upozorenja.push(`Serija ${s.brojLota.trim()} je ranije primljena sa rokom ${drugi.rows.map((r) => r.rok).join(", ")} — provjerite etiketu.`);
     }

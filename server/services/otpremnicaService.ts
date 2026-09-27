@@ -482,11 +482,92 @@ export function slicnost(a: string, b: string): number {
   return (2 * zajedno) / (x.length - 1 + y.length - 1);
 }
 
+// Pakovanje i procenat iz naziva („Pileći file 1 kg“, „Mlijeko 2,8% 1 L“). Isti naziv sa drugim
+// pakovanjem ili procentom je DRUGI artikal — „1 kg“ se nikad ne upari sa „500 g“ samo zato što
+// je ostatak naziva isti.
+export type Mjere = { masa: number | null; zapremina: number | null; procenat: number | null; tekst: string | null };
+const JEDINICE: Record<string, [keyof Pick<Mjere, "masa" | "zapremina">, number]> = {
+  kg: ["masa", 1000], g: ["masa", 1], gr: ["masa", 1], gram: ["masa", 1], grama: ["masa", 1],
+  l: ["zapremina", 1000], lit: ["zapremina", 1000], litar: ["zapremina", 1000], litara: ["zapremina", 1000],
+  ml: ["zapremina", 1], cl: ["zapremina", 10], dl: ["zapremina", 100],
+};
+const RE_PAKOVANJE = /(\d+(?:[.,]\d+)?)\s*(kg|grama|gram|gr|g|litara|litar|lit|l|ml|cl|dl)(?![a-z])/g;
+const RE_PROCENAT = /(\d+(?:[.,]\d+)?)\s*%/g;
+
+export function mjereIzNaziva(naziv: string | null | undefined): Mjere {
+  const s = normalizuj(naziv ?? "");
+  const m: Mjere = { masa: null, zapremina: null, procenat: null, tekst: null };
+  for (const p of s.matchAll(RE_PAKOVANJE)) {
+    const [vrsta, faktor] = JEDINICE[p[2]];
+    // Posljednje pakovanje u nazivu je neto („6x1 l“ → 1 l).
+    m[vrsta] = Math.round(Number(p[1].replace(",", ".")) * faktor);
+    m.tekst = p[0].replace(/\s+/g, " ");
+  }
+  for (const p of s.matchAll(RE_PROCENAT)) m.procenat = Number(p[1].replace(",", "."));
+  return m;
+}
+
+/** Naziv bez pakovanja i procenta — za poređenje ostatka („pileci file“). */
+const bezMjera = (naziv: string) => normalizuj(naziv).replace(RE_PAKOVANJE, " ").replace(RE_PROCENAT, " ");
+
+/** Opis razlike u pakovanju/procentu, ili null kad se ne sukobljavaju. Masa naspram zapremine
+ * („1 kg“ i „1 L“ jogurta) nije sukob — to može biti isti artikal. */
+export function sukobMjera(a: Mjere, b: Mjere): string | null {
+  const razno = (x: number | null, y: number | null) => x !== null && y !== null && Math.abs(x - y) > Math.max(x, y) * 0.01;
+  if (razno(a.masa, b.masa) || razno(a.zapremina, b.zapremina)) return "pakovanje";
+  if (razno(a.procenat, b.procenat)) return "procenat";
+  return null;
+}
+
+const opisMjera = (m: Mjere) =>
+  [
+    m.procenat !== null ? `${String(m.procenat).replace(".", ",")}%` : null,
+    m.masa !== null ? (m.masa >= 1000 ? `${String(m.masa / 1000).replace(".", ",")} kg` : `${m.masa} g`) : null,
+    m.zapremina !== null ? (m.zapremina >= 1000 ? `${String(m.zapremina / 1000).replace(".", ",")} L` : `${m.zapremina} ml`) : null,
+  ].filter(Boolean).join(" ");
+
+/** Najbolji artikal iz šifarnika za naziv sa otpremnice. Ne bira kad: pakovanje ili procenat se ne
+ * slažu, ostatak naziva nije dovoljno sličan, ili su dva artikla podjednako slična. */
+export function upariPoNazivu(naziv: string, artikli: { id: string; naziv: string }[]) {
+  const otp = mjereIzNaziva(naziv);
+  const ocjene = artikli
+    .map((a) => ({ a, v: slicnost(bezMjera(a.naziv), bezMjera(naziv)), sukob: sukobMjera(otp, mjereIzNaziva(a.naziv)) }))
+    .sort((x, y) => y.v - x.v);
+  const PRAG = 0.45;
+  const dobri = ocjene.filter((o) => !o.sukob && o.v >= PRAG);
+  // O „drugom pakovanju“ se govori samo kad je ostatak naziva stvarno isti proizvod.
+  const sukobljen = ocjene.find((o) => o.sukob && o.v >= 0.6);
+  if (dobri.length > 1 && dobri[0].v - dobri[1].v < 0.05) {
+    return { artikalId: null, napomena: `Više sličnih artikala („${dobri[0].a.naziv}“, „${dobri[1].a.naziv}“) — izaberite pravi.` };
+  }
+  if (dobri[0] && (!sukobljen || dobri[0].v >= sukobljen.v - 0.15)) {
+    return { artikalId: dobri[0].a.id, napomena: "Predlog po nazivu — provjerite da je isti artikal i pakovanje." };
+  }
+  if (sukobljen) {
+    const naOtp = opisMjera(otp) || "drugo pakovanje";
+    const kodVas = opisMjera(mjereIzNaziva(sukobljen.a.naziv));
+    return {
+      artikalId: null,
+      napomena: `Na otpremnici je ${naOtp}, a vaš „${sukobljen.a.naziv}“ je ${kodVas || "drugo pakovanje"} — to nije isti artikal. Izaberite pravi ili ga odgovorno lice dodaje u Šifarnicima.`,
+    };
+  }
+  return { artikalId: null, napomena: "Nije prepoznat — izaberite vaš artikal." };
+}
+
 /** Ključ artikla dobavljača: njegova šifra, a kad je nema — naziv (malim slovima, bez kvačica). */
 export const kljucArtikla = (sifra: string | null | undefined, naziv: string | null | undefined) =>
   sifra?.trim() ? `s:${normalizuj(sifra)}` : `n:${normalizuj(naziv ?? "")}`;
 
-export type PrijedlogStavke = StavkaOtpremnice & { artikalId: string | null; artikalSigurno: boolean; rokIstekao: boolean };
+export type PrijedlogStavke = StavkaOtpremnice & {
+  artikalId: string | null;
+  /** Samo kad je čovjek ranije potvrdio vezu za ovog dobavljača. */
+  artikalSigurno: boolean;
+  /** Odakle je artikal: zapamćena veza, ista šifra, sličan naziv — ili nije izabran. */
+  artikalIzvor: "zapamceno" | "sifra" | "naziv" | null;
+  /** Šta magacioner treba da pogleda (drugo pakovanje, više sličnih, nije prepoznat). */
+  artikalNapomena: string | null;
+  rokIstekao: boolean;
+};
 export type Prijedlog = {
   strana: number;
   broj: string | null;
@@ -536,21 +617,21 @@ export async function uskladi(o: Otpremnica): Promise<Prijedlog> {
   const stavke: PrijedlogStavke[] = o.stavke.map((s) => {
     const kljucevi = [kljucArtikla(s.sifra, s.naziv), kljucArtikla(null, s.naziv)];
     const zapamceno = mapiranja.find((m) => kljucevi.includes(m.kljuc));
-    let artikalId: string | null = zapamceno?.artikal_id ?? null;
-    let artikalSigurno = !!zapamceno;
-    if (!artikalId && s.sifra) {
+    const rokIstekao = !!s.rok && s.rok < danas;
+    if (zapamceno) return { ...s, artikalId: zapamceno.artikal_id, artikalSigurno: true, artikalIzvor: "zapamceno" as const, artikalNapomena: null, rokIstekao };
+    // Ista šifra kod dobavljača i kod vas je slučajnost dok naziv to ne potvrdi — i pakovanje se mora slagati.
+    if (s.sifra) {
       const istaSifra = artikli.rows.find((a) => a.sifra && normalizuj(a.sifra) === normalizuj(s.sifra!));
-      if (istaSifra) artikalId = istaSifra.id;
+      if (istaSifra && (!s.naziv || (!sukobMjera(mjereIzNaziva(s.naziv), mjereIzNaziva(istaSifra.naziv)) && slicnost(bezMjera(istaSifra.naziv), bezMjera(s.naziv)) >= 0.3))) {
+        return { ...s, artikalId: istaSifra.id, artikalSigurno: false, artikalIzvor: "sifra" as const, artikalNapomena: "Ista šifra kao kod vas — provjerite da je isti artikal i pakovanje.", rokIstekao };
+      }
     }
-    if (!artikalId && s.naziv) {
-      const najbolji = artikli.rows.map((a) => ({ a, v: slicnost(a.naziv, s.naziv!) })).sort((x, y) => y.v - x.v)[0];
-      if (najbolji && najbolji.v >= 0.45) artikalId = najbolji.a.id;
-    }
-    if (!artikalId) artikalSigurno = false;
-    return { ...s, artikalId, artikalSigurno, rokIstekao: !!s.rok && s.rok < danas };
+    if (!s.naziv) return { ...s, artikalId: null, artikalSigurno: false, artikalIzvor: null, artikalNapomena: "Nije prepoznat — izaberite vaš artikal.", rokIstekao };
+    const u = upariPoNazivu(s.naziv, artikli.rows);
+    return { ...s, artikalId: u.artikalId, artikalSigurno: false, artikalIzvor: u.artikalId ? ("naziv" as const) : null, artikalNapomena: u.napomena, rokIstekao };
   });
   if (stavke.some((s) => s.rokIstekao)) upozorenja.push("Na otpremnici je roba sa isteklim rokom — takva stavka se ne može prihvatiti.");
-  if (stavke.some((s) => !s.artikalId)) upozorenja.push("Neke stavke nisu prepoznate kao vaš artikal — izaberite ih; zapamtiće se za ovog dobavljača.");
+  if (stavke.some((s) => !s.artikalId)) upozorenja.push("Neke stavke nisu prepoznate kao vaš artikal — izaberite ih (napomena je uz stavku); izbor se pamti za ovog dobavljača.");
 
   return { strana: o.strana, broj: o.broj, datum: o.datum, temperaturaNaOtpremnici: o.temperatura, dobavljac, stavke, upozorenja };
 }

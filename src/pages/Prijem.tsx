@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { Plus, ChevronDown, ChevronUp, Camera, FileText, AlertTriangle } from "lucide-react";
+import { Plus, ChevronDown, ChevronUp, Camera, FileText, AlertTriangle, PenLine, CheckCircle2 } from "lucide-react";
 import { api, ApiGreska, posaljiFajl, otvoriFajl } from "../lib/api";
 import { useSlanje, noviKljuc } from "../lib/slanje";
 import { IzborTermometra, useIzborTermometra } from "../components/Termometar";
@@ -230,7 +230,6 @@ export function Prijem() {
 
       {modalNovi && (
         <NoviPrijemModal
-          mozeDodatiDobavljaca={moguOdlucivati}
           dobavljaci={dobavljaci}
           artikli={artikli}
           skladista={skladista.vise ? skladista.aktivna : []}
@@ -299,6 +298,9 @@ type NoviRed = {
   poOtpremnici?: PoOtpremnici & { jm?: string | null };
   /** Polja koja magacioner mora posebno pogledati; nestaje čim polje dirne. */
   nesigurno: string[];
+  /** Zašto je artikal predložen ili nije (drugo pakovanje, više sličnih…) — sa otpremnice. */
+  napomenaArtikla?: string | null;
+  zapamcenArtikal?: boolean;
 };
 
 type PrijedlogStavke = {
@@ -311,6 +313,8 @@ type PrijedlogStavke = {
   nesigurno: string[];
   artikalId: string | null;
   artikalSigurno: boolean;
+  artikalIzvor: "zapamceno" | "sifra" | "naziv" | null;
+  artikalNapomena: string | null;
   rokIstekao: boolean;
 };
 type Prijedlog = {
@@ -329,6 +333,8 @@ const stavkiPadez = (n: number) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? "sta
 
 const prazanRed = (artikalId = ""): NoviRed => ({ artikalId, brojLota: "", rokTrajanja: "", primljenaKolicina: "", temperaturaPrijema: "", nesigurno: [] });
 const ZUTO = { background: "#fff6d6", borderColor: "#e0b400" };
+/** Vrijednost u polju „Dobavljač“ kad ga nema u Šifarnicima i upisuje se uz prijem. */
+const NOVI = "__novi";
 
 /** Fotografija sa telefona je 3–8 MB; za čitanje i čuvanje dovoljna je duža strana od 3200 px
  * (A4 ≈ 270 dpi — OCR-u treba oko 300; manje od 2400 px je na probi kvarilo čitanje tabele).
@@ -349,15 +355,13 @@ async function pripremiSliku(fajl: File): Promise<Blob> {
 }
 
 function NoviPrijemModal({
-  mozeDodatiDobavljaca,
-  dobavljaci: pocetniDobavljaci,
+  dobavljaci,
   artikli,
   skladista,
   podrazumijevanoSkladiste,
   onClose,
   onCreated,
 }: {
-  mozeDodatiDobavljaca: boolean;
   dobavljaci: Dobavljac[];
   artikli: Artikal[];
   /** Prazno kad firma ima jedno skladište — tada se polje ne prikazuje. */
@@ -366,12 +370,15 @@ function NoviPrijemModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [dobavljaci, setDobavljaci] = useState(pocetniDobavljaci);
-  const [dobavljacId, setDobavljacId] = useState(pocetniDobavljaci[0]?.id ?? "");
+  // Kako se unosi: dok se ne izabere (slika / PDF / ručno), forma se ne prikazuje.
+  const [nacin, setNacin] = useState<"" | "otpremnica" | "rucno">("");
+  // Nikad prvi sa spiska: prijem bi tiho otišao pogrešnom dobavljaču.
+  const [dobavljacId, setDobavljacId] = useState("");
+  const [noviDobavljac, setNoviDobavljac] = useState({ naziv: "", pib: "" });
   const [skladisteId, setSkladisteId] = useState(podrazumijevanoSkladiste);
   const [brojDokumenta, setBrojDokumenta] = useState("");
   const [datum, setDatum] = useState(lokalniDatum());
-  const [redovi, setRedovi] = useState<NoviRed[]>([prazanRed(artikli[0]?.id)]);
+  const [redovi, setRedovi] = useState<NoviRed[]>([prazanRed()]);
   const [greska, setGreska] = useState("");
   // Otpremnica
   const [citam, setCitam] = useState<"" | "pdf" | "slika">("");
@@ -383,7 +390,7 @@ function NoviPrijemModal({
   // Upozorenja servera posle snimanja (npr. ista serija ranije primljena sa drugim rokom).
   const [upozorenja, setUpozorenja] = useState<string[]>([]);
 
-  const dodajRed = () => setRedovi((r) => [...r, prazanRed(artikli[0]?.id)]);
+  const dodajRed = () => setRedovi((r) => [...r, prazanRed()]);
   const azurirajRed = (i: number, izmjena: Partial<NoviRed>, polje?: string) =>
     setRedovi((r) => r.map((red, idx) => (idx === i ? { ...red, ...izmjena, nesigurno: polje ? red.nesigurno.filter((p) => p !== polje) : red.nesigurno } : red)));
   const nesigurno = (red: NoviRed, polje: string) => (red.nesigurno.includes(polje) ? ZUTO : undefined);
@@ -391,9 +398,14 @@ function NoviPrijemModal({
   const primijeni = (p: Prijedlog) => {
     setPrijedlog(p);
     setUporedjeno(false);
-    // Nepoznat dobavljač: polje ostaje prazno — nikad ne ostaviti prvog sa spiska, jer bi prijem
-    // tiho otišao pogrešnom dobavljaču.
-    setDobavljacId(p.dobavljac.id ?? "");
+    setNacin("otpremnica");
+    // Prepoznat → izabran. Nije u Šifarnicima, a naziv je pročitan → „nov dobavljač“, popunjen sa
+    // otpremnice (server odbija dupli naziv ili PIB). Ništa nije pročitano → prazno, bira se.
+    if (p.dobavljac.id) setDobavljacId(p.dobavljac.id);
+    else if (p.dobavljac.naziv) {
+      setDobavljacId(NOVI);
+      setNoviDobavljac({ naziv: p.dobavljac.naziv, pib: p.dobavljac.pib ?? "" });
+    } else setDobavljacId("");
     setBrojDokumenta(p.broj ?? "");
     setRedovi(
       p.stavke.map((s) => ({
@@ -404,6 +416,8 @@ function NoviPrijemModal({
         temperaturaPrijema: "",
         poOtpremnici: { sifra: s.sifra, naziv: s.naziv, kolicina: s.kolicina, lot: s.lot, rok: s.rok, jm: s.jm },
         nesigurno: [...s.nesigurno.filter((n) => n !== "sifra" && n !== "naziv"), ...(s.artikalSigurno ? [] : ["artikal"])],
+        napomenaArtikla: s.artikalNapomena,
+        zapamcenArtikal: s.artikalSigurno,
       })),
     );
   };
@@ -418,21 +432,11 @@ function NoviPrijemModal({
       setProcitano(r);
       primijeni(r.otpremnice[0]);
     } catch (e) {
-      setGreska(e instanceof ApiGreska ? e.message : "Otpremnica nije pročitana — unesite prijem ručno.");
+      setGreska(
+        `${e instanceof ApiGreska ? e.message : "Otpremnica nije pročitana."} Slikajte ponovo ili izaberite „Unesi ručno“.`,
+      );
     } finally {
       setCitam("");
-    }
-  };
-
-  const dodajDobavljaca = async () => {
-    if (!prijedlog?.dobavljac.naziv) return;
-    try {
-      const r = await api<{ id: string }>("/dobavljaci", { telo: { naziv: prijedlog.dobavljac.naziv, pib: prijedlog.dobavljac.pib ?? undefined } });
-      setDobavljaci((d) => [...d, { id: r.id, naziv: prijedlog.dobavljac.naziv! }].sort((a, b) => a.naziv.localeCompare(b.naziv, "sr")));
-      setDobavljacId(r.id);
-      setPrijedlog({ ...prijedlog, dobavljac: { ...prijedlog.dobavljac, id: r.id }, upozorenja: prijedlog.upozorenja.filter((u) => !u.startsWith("Dobavljač")) });
-    } catch (e) {
-      setGreska(e instanceof ApiGreska ? e.message : "Dobavljač nije dodat.");
     }
   };
 
@@ -444,7 +448,9 @@ function NoviPrijemModal({
       const r = await api<{ id: string; upozorenja?: string[] }>("/prijem", {
         kljuc,
         telo: {
-          dobavljacId,
+          ...(dobavljacId === NOVI
+            ? { noviDobavljac: { naziv: noviDobavljac.naziv.trim(), pib: noviDobavljac.pib.trim() || undefined } }
+            : { dobavljacId }),
           skladisteId: skladisteId || undefined,
           brojDokumenta: brojDokumenta || undefined,
           datumPrijema: datum,
@@ -476,8 +482,10 @@ function NoviPrijemModal({
   const rokObavezan = (artikalId: string) => artikli.find((a) => a.id === artikalId)?.rok_obavezan !== false;
   const serija = (r: NoviRed) => `${r.artikalId}|${r.brojLota.trim().toUpperCase()}`;
   const dvaput = (r: NoviRed) => !!r.brojLota.trim() && redovi.filter((x) => serija(x) === serija(r)).length > 1;
+  const pibNovog = noviDobavljac.pib.trim();
+  const noviValidan = noviDobavljac.naziv.trim().length >= 2 && (!pibNovog || /^\d{8,13}$/.test(pibNovog));
   const validno =
-    dobavljacId &&
+    (dobavljacId === NOVI ? noviValidan : !!dobavljacId) &&
     datum &&
     redovi.length > 0 &&
     redovi.every(
@@ -505,26 +513,43 @@ function NoviPrijemModal({
 
   return (
     <Modal naslov="Novi prijem robe" podnaslov="P1" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !validno}>Sačuvaj prijem</button></>}>
-      {/* Otpremnica: PDF od dobavljača ili fotografija. Čita se na našem serveru, bez spoljnih
-          servisa, i samo POPUNI formu — magacioner sve upoređuje sa robom prije snimanja. */}
+      {/* Prvo se bira KAKO se unosi. Otpremnica (fotografija ili PDF) se čita na našem serveru, bez
+          spoljnih servisa, i samo POPUNI formu — magacioner sve upoređuje sa robom prije snimanja.
+          Ručno — kad otpremnice nema ili se ne da pročitati. */}
       <div style={{ margin: "0 20px 12px", padding: 12, border: "1px dashed #c9d4dc", borderRadius: 8 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <label className="secondary-button" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Camera size={15} /> Slikaj otpremnicu
-            <input type="file" accept="image/*" capture="environment" hidden disabled={!!citam} onChange={(e) => { ucitajOtpremnicu(e.target.files?.[0]); e.target.value = ""; }} />
-          </label>
-          <label className="secondary-button" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <FileText size={15} /> Učitaj PDF ili sliku
-            <input type="file" accept="application/pdf,image/*" hidden disabled={!!citam} onChange={(e) => { ucitajOtpremnicu(e.target.files?.[0]); e.target.value = ""; }} />
-          </label>
-          {citam && <span className="muted-text" style={{ fontSize: 11 }}>{citam === "pdf" ? "Čitam PDF…" : "Čitam sliku… (do pola minuta)"}</span>}
-        </div>
-        {!procitano && !citam && (
+        {nacin === "" && <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Kako unosite prijem?</div>}
+        {(nacin === "" || nacin === "otpremnica") && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <label className={nacin === "" ? "primary-button" : "secondary-button"} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Camera size={15} /> {nacin === "" ? "Slikaj otpremnicu" : "Slikaj ponovo"}
+              <input type="file" accept="image/*" capture="environment" hidden disabled={!!citam} onChange={(e) => { ucitajOtpremnicu(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+            <label className="secondary-button" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <FileText size={15} /> {nacin === "" ? "Učitaj PDF ili sliku" : "Drugi fajl"}
+              <input type="file" accept="application/pdf,image/*" hidden disabled={!!citam} onChange={(e) => { ucitajOtpremnicu(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+            {nacin === "" && (
+              <button type="button" className="secondary-button" style={{ display: "inline-flex", alignItems: "center", gap: 6 }} disabled={!!citam} onClick={() => { setGreska(""); setNacin("rucno"); }}>
+                <PenLine size={15} /> Unesi ručno
+              </button>
+            )}
+            {citam && <span className="muted-text" style={{ fontSize: 11 }}>{citam === "pdf" ? "Čitam PDF…" : "Čitam sliku… (do pola minuta)"}</span>}
+          </div>
+        )}
+        {nacin === "" && !citam && (
           <p className="muted-text" style={{ fontSize: 10, margin: "8px 0 0" }}>
-            Slikajte cijelu otpremnicu odozgo, ravno i bez sjenke. Aplikacija popuni formu, a vi sve upoređujete sa robom i etiketom.
+            <b>Slikaj</b> ili <b>PDF</b>: aplikacija sama popuni dobavljača, artikle, lotove, rokove i količine — vi ih upoređujete sa robom i etiketom.
+            Slikajte cijelu otpremnicu odozgo, ravno i bez sjenke. <b>Ručno</b>: kad otpremnice nema ili je rukom pisana.
           </p>
         )}
-        {procitano && prijedlog && (
+        {nacin === "rucno" && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 11 }}>
+            <PenLine size={14} /> <b>Ručni unos</b>
+            <span className="muted-text">— sve popunjavate sami.</span>
+            <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => setNacin("")}>Ipak slikaj otpremnicu</button>
+          </div>
+        )}
+        {nacin === "otpremnica" && procitano && prijedlog && (
           <div style={{ marginTop: 10, fontSize: 11 }}>
             {procitano.otpremnice.length > 1 && (
               <label style={{ display: "block", marginBottom: 8 }}>
@@ -537,7 +562,8 @@ function NoviPrijemModal({
               </label>
             )}
             <div>
-              Pročitano: <b>{prijedlog.broj ?? "bez broja"}</b>{prijedlog.datum ? `, ${prijedlog.datum.split("-").reverse().join(".")}.` : ""} · {stavkiPadez(prijedlog.stavke.length)}
+              <CheckCircle2 size={12} color="#20a477" style={{ verticalAlign: "-2px" }} /> Popunjeno sa otpremnice <b>{prijedlog.broj ?? "bez broja"}</b>
+              {prijedlog.datum ? `, ${prijedlog.datum.split("-").reverse().join(".")}.` : ""} · {stavkiPadez(prijedlog.stavke.length)}
               {procitano.vrsta === "slika" && procitano.pouzdanostOcr != null && <> · čitljivost slike {procitano.pouzdanostOcr} %</>}
             </div>
             {prijedlog.temperaturaNaOtpremnici != null && (
@@ -545,27 +571,56 @@ function NoviPrijemModal({
                 Na otpremnici piše {prijedlog.temperaturaNaOtpremnici.toLocaleString("sr-Latn-ME")} °C — to je podatak dobavljača. Izmjerite i upišite svoju temperaturu.
               </div>
             )}
-            {prijedlog.upozorenja.map((u) => (
+            {prijedlog.upozorenja.filter((u) => !u.startsWith("Dobavljač")).map((u) => (
               <div key={u} className="danas-fali" style={{ marginTop: 4 }}><AlertTriangle size={11} style={{ verticalAlign: "-1px" }} /> {u}</div>
             ))}
-            {!prijedlog.dobavljac.id && prijedlog.dobavljac.naziv && mozeDodatiDobavljaca && (
-              <button className="small-action" style={{ marginTop: 6 }} onClick={dodajDobavljaca}>
-                Dodaj dobavljača „{prijedlog.dobavljac.naziv}"{prijedlog.dobavljac.pib ? ` (PIB ${prijedlog.dobavljac.pib})` : ""}
-              </button>
-            )}
-            {ostaloZutih > 0 && <div style={{ marginTop: 4 }}><span style={{ ...ZUTO, padding: "0 4px", border: "1px solid" }}>Žuta polja</span> je aplikacija nesigurno pročitala — pogledajte ih posebno.</div>}
+            {ostaloZutih > 0 && <div style={{ marginTop: 4 }}><span style={{ ...ZUTO, padding: "0 4px", border: "1px solid" }}>Žuta polja</span> aplikacija nije sigurno pročitala — pogledajte ih posebno.</div>}
           </div>
         )}
       </div>
 
+      {nacin !== "" && (
+      <>
       <div className="form-grid">
-        <label>
+        <label style={dobavljacId === NOVI ? { gridColumn: "1 / -1" } : undefined}>
           Dobavljač
-          <select value={dobavljacId} onChange={(e) => setDobavljacId(e.target.value)} style={prijedlog && !prijedlog.dobavljac.sigurno ? ZUTO : undefined}>
+          <select
+            value={dobavljacId}
+            onChange={(e) => setDobavljacId(e.target.value)}
+            style={nacin === "otpremnica" && prijedlog && !(prijedlog.dobavljac.sigurno && dobavljacId === prijedlog.dobavljac.id) ? ZUTO : undefined}
+          >
             {!dobavljacId && <option value="">— izaberite dobavljača —</option>}
             {dobavljaci.map((d) => <option key={d.id} value={d.id}>{d.naziv}</option>)}
+            <option value={NOVI}>+ Nov dobavljač (nije na spisku)</option>
           </select>
+          {nacin === "otpremnica" && prijedlog && (
+            <small className={prijedlog.dobavljac.id ? "muted-text" : "danas-fali"} style={{ fontWeight: 400 }}>
+              {prijedlog.dobavljac.id
+                ? prijedlog.dobavljac.sigurno
+                  ? "prepoznat po PIB-u sa otpremnice"
+                  : "prepoznat po nazivu — provjerite"
+                : prijedlog.dobavljac.naziv
+                  ? `„${prijedlog.dobavljac.naziv}“${prijedlog.dobavljac.pib ? ` (PIB ${prijedlog.dobavljac.pib})` : ""} nije u Šifarnicima — upisaće se kao nov; ako je na spisku pod drugim imenom, izaberite ga`
+                  : "naziv dobavljača nije pročitan sa otpremnice — izaberite ga ili upišite novog"}
+            </small>
+          )}
         </label>
+        {dobavljacId === NOVI && (
+          <>
+            <label>
+              Naziv novog dobavljača
+              <input value={noviDobavljac.naziv} onChange={(e) => setNoviDobavljac((n) => ({ ...n, naziv: e.target.value }))} placeholder="kako piše na otpremnici" />
+            </label>
+            <label>
+              PIB (ako piše)
+              <input value={noviDobavljac.pib} inputMode="numeric" onChange={(e) => setNoviDobavljac((n) => ({ ...n, pib: e.target.value.replace(/\s/g, "") }))} placeholder="8 cifara" />
+              {pibNovog && !/^\d{8,13}$/.test(pibNovog) && <small className="danas-fali" style={{ fontWeight: 400 }}>samo cifre, 8–13</small>}
+            </label>
+            <small className="muted-text" style={{ gridColumn: "1 / -1", marginTop: -4 }}>
+              Dobavljač se upisuje u Šifarnike kad sačuvate prijem. Odgovorno lice dobija obavještenje da provjeri podatke i dopuni adresu i telefon.
+            </small>
+          </>
+        )}
         <label>Datum prijema<input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} /></label>
         {skladista.length > 0 && (
           <label style={{ gridColumn: "1 / -1" }}>
@@ -592,10 +647,16 @@ function NoviPrijemModal({
               <div className="form-grid" style={{ padding: 0 }}>
                 <label>
                   Artikal
-                  <select value={red.artikalId} onChange={(e) => azurirajRed(i, { artikalId: e.target.value }, "artikal")} style={nesigurno(red, "artikal")}>
+                  <select value={red.artikalId} onChange={(e) => azurirajRed(i, { artikalId: e.target.value, zapamcenArtikal: false }, "artikal")} style={nesigurno(red, "artikal")}>
                     {!red.artikalId && <option value="">— izaberite vaš artikal —</option>}
                     {artikli.map((a) => <option key={a.id} value={a.id}>{a.naziv}</option>)}
                   </select>
+                  {po && red.zapamcenArtikal && (
+                    <small className="muted-text" style={{ fontWeight: 400 }}>zapamćeno za ovog dobavljača</small>
+                  )}
+                  {po && red.napomenaArtikla && red.nesigurno.includes("artikal") && (
+                    <small className={red.artikalId ? "muted-text" : "danas-fali"} style={{ fontWeight: 400 }}>{red.napomenaArtikla}</small>
+                  )}
                 </label>
                 <label>
                   Broj lota <ZakonskaOznaka clan="27" />
@@ -637,6 +698,8 @@ function NoviPrijemModal({
           </label>
         )}
       </div>
+      </>
+      )}
     </Modal>
   );
 }

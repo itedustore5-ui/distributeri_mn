@@ -105,28 +105,16 @@ export function Moja() {
       </div>
       <div className="dashboard-columns">
         {/* Knjižica se tiče samo onih koji rukuju hranom (Zakon o zaštiti stanovništva od zaraznih
-            bolesti, čl. 31); šifra za potpis — onih koji potpisuju obrasce, ne uprave. */}
-        {lice && (lice.rukuje_hranom || korisnik?.uloga !== "uprava") && (
+            bolesti, čl. 31). Šifra se zaposlenom ne pokazuje: potpis je ime, a provjera znanja ide
+            preko naloga i lozinke (invarijante #17, #23, #32). */}
+        {lice && lice.rukuje_hranom && lice.knjizica_status && (
           <div className="panel" style={{ minHeight: "auto" }}>
-            <div className="panel-header"><h2>{lice.rukuje_hranom ? "Sanitarna knjižica i šifra" : "Šifra"}</h2></div>
-            <div style={{ padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
-              {lice.rukuje_hranom && lice.knjizica_status && (
-                <div>
-                  <span className="meta-label">Sanitarna knjižica</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                    <StatusBadge status={lice.knjizica_status} />
-                    <small className="muted-text">{lice.sanitarna_knjizica_rok ?? ""}</small>
-                  </div>
-                </div>
-              )}
-              <div>
-                <span className="meta-label">Šifra (potpis na obrascima i ulazak u provjeru znanja)</span>
-                <div style={{ marginTop: 4 }}>
-                  <code style={{ fontSize: 13 }}>{lice.sifra}</code>
-                </div>
-                <button className="secondary-button" style={{ marginTop: 10 }} onClick={() => navigate("/provjera-znanja")}>
-                  Uđi u provjeru znanja
-                </button>
+            <div className="panel-header"><h2>Sanitarna knjižica</h2></div>
+            <div style={{ padding: "0 20px 20px" }}>
+              <span className="meta-label">Važi do</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                <StatusBadge status={lice.knjizica_status} />
+                <small className="muted-text">{lice.sanitarna_knjizica_rok ?? ""}</small>
               </div>
             </div>
           </div>

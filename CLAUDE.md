@@ -202,7 +202,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Ljudi | `/ljudi` (zaposleni, plan obuke, provjera znanja, nalozi); ulaz u provjeru na `/moja` i `/tabla` | `ljudi.ts`, `provjeraZnanja.ts` | `ljudiService`, `provjeraZnanjaService` | `lice`, `korisnik`, `plan_obuke`, `pitanje`, `sesija_znanja`, `ucesnik_znanja`, `odgovor_znanja` |
 | Šifarnici | `/sifarnici` | `sifarnici.ts` | `skladisteService` | `kupac` (+ PIB, adresa isporuke), `dobavljac` (PIB jedinstven), `artikal` (+ `rok_obavezan`), `skladiste` |
 | Prijem — KKT 1 | `/prijem` | `prijem.ts` | `prijemService`, `haccpService` | `prijem`, `prijem_stavka`, `lot`, `zaliha`, `kretanje_zalihe` |
-| Otpremnica (PDF / fotografija) | `/prijem` → Novi prijem | `prijem.ts` (`/prijem/otpremnica`) | `otpremnicaService` | `prijem_dokument`, `artikal_dobavljaca`, `prijem_stavka.po_otpremnici` |
+| Otpremnica (PDF / fotografija) | `/prijem` → Novi prijem → „Slikaj / PDF / Ručno“ | `prijem.ts` (`/prijem/otpremnica`) | `otpremnicaService` | `prijem_dokument`, `artikal_dobavljaca`, `prijem_stavka.po_otpremnici` |
 | Zalihe, otpis, karantin povrata | `/zalihe` | `zaliha.ts` | `otpisService` (+ `rokoviService` — rok robe) | `zaliha`, `kretanje_zalihe` |
 | HACCP — KKT 2, obrasci | `/haccp` | `haccp.ts` | `haccpService` (`praviloZaMjerenje`, `provjeriTermometar`), `obrasciService` (čita `public/obrasci-cg.json`, ocjenjuje odgovore) | `kontrolna_tacka`, `pravilo_kontrole`, `mjerenje_temperature` (+ `mjerni_uredjaj_id`), `zapis` |
 | Neusaglašenosti | `/neusaglasenosti` | `neusaglasenosti.ts` | `ncService` | `neusaglasenost`, `korektivna_mjera`, `verifikacija` |
@@ -239,7 +239,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 
 | Tačka | Šta se upisuje | Van granice → |
 |---|---|---|
-| **otpremnica** | PDF ili fotografija → server pročita (PDF tekst / lokalni OCR) i POPUNI formu; magacioner upoređuje sa robom i potvrđuje kvačicom | nesigurna polja žuta; dobavljač po PIB-u; artikal po zapamćenoj vezi sa dobavljačem; manjak i drugi lot se vide uz stavku |
+| **otpremnica** | PDF ili fotografija → server pročita (PDF tekst / lokalni OCR) i POPUNI formu; magacioner upoređuje sa robom i potvrđuje kvačicom | nesigurna polja žuta; dobavljač po PIB-u, pa po nazivu, a nepoznat se upisuje uz prijem (#71); artikal po zapamćenoj vezi, pa po šifri/nazivu uz isto pakovanje i procenat (#72); manjak i drugi lot se vide uz stavku |
 | **plan monitoringa** | `plan_monitoringa`: šta (mjerenje na KKT / obrazac / D1 za vozilo), koliko često, koliko puta, ko (uloga, skladište) | ništa se ne blokira — „Danas po planu" na `/moja`, kartica „Danas fali po planu · juče propušteno" na tabli, propušteni dani na `/haccp-plan` |
 | **KKT 1 — prijem** | stavke sa lotom (bez lota odbijeno) i rokom (osim artikla izuzetog od roka, #64); ista serija jednom po prijemu; temperatura **obavezna za robu pod režimom** (`TEMPERATURA_OBAVEZNA`), ocjena po `pravilo_kontrole` KKT1 artikla | mjerenje FAIL → neusaglašenost + zadatak + obavještenje `bzr` i uprava + **lot na HOLD**. Artikal sa NEPOTVRĐENOM granicom → samo WARNING i obavještenje `bzr`, bez HOLD-a (invarijanta #5) |
 | odluka o lotu | `bzr`: prihvati / HOLD / odbij (odbijanje traži razlog). **Istekao rok se ne prihvata i ne pušta** (`ROK_ISTEKAO`); pri prijemu takve robe `bzr` odmah dobija obavještenje | prihvaćeno → zaliha DOSTUPNO + kretanje PRIJEM; HOLD → KARANTIN + kretanje PRIJEM; magacioner dobija obavještenje |
@@ -311,14 +311,14 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-18 testova, 464 provjere (na čistoj bazi; na demo bazi 462 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+18 testova, 472 provjere (na čistoj bazi; na demo bazi 470 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
 jednoj transakciji, početna i nova lozinka, čitanje po ulogama, kartice direktora, nepoznat izvor
 odbijen u bazi — `faza2_integritet`), i otpremnice (10 probnih u PDF-u tačno do slova, fotografija
-nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamćen artikal, manjak,
-istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
+nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamćen artikal, drugo pakovanje i
+procenat se ne uparuju, nov dobavljač upisan uz prijem, manjak, istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
 (temperatura obavezna na KKT 1, granica iz Šifarnika → pravilo sa verzijama, plan monitoringa i
 „šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
 četiri oka — `faza3_sistem`), i push (pretplata po uređaju, šifrovan sadržaj koji dešifruje samo
@@ -385,8 +385,11 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     mjeru, ne provjerava je.
 16. **Nalog i lice su dvije stvari, spojene preko `korisnik.lice_id`.** Ime i šifra se čitaju iz
     `lice`, ne prepisuju u `korisnik`.
-17. **Lozinka nije šifra.** Lozinkom se prijavljuje, šifrom (`lice.sifra`) potpisuje. U provjeri
-    znanja šifra se NE kuca — server je uzima iz naloga prijavljenog (#32).
+17. **Šifra (`lice.sifra`, M-01) je unutrašnji evidencioni broj zaposlenog — zaposlenom ne treba.**
+    Prijava i provjera znanja idu nalogom i lozinkom, potpis je ime (#23). Šifra se ne prikazuje na Mojoj
+    strani, na ceduljici sa pristupom ni u provjeri znanja, i nigdje se ne kuca (odluka vlasnice
+    27.09.2026 — „šifra za test je suvišna"). Ostaje u spisku zaposlenih kod vodstva i kao ključ
+    učesnika provjere (anonimni rezultat nosi šifru umjesto imena).
 18. **Prilog 13 je plan, ne zapis** (`plan_obuke`, `v_plan_obuke` sa stanjem KASNI/USKORO/…).
     Stavka koja je prošla bez obuke se ne briše.
 19. *Ukinuto:* `veza.js` / `dodajOdjavu()` — odjava i promjena lozinke su u `Layout.tsx` i `/moja`.
@@ -414,14 +417,15 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     odgovorno lice — može je sama zadati ili prihvatiti predlog — i ona je UVIJEK privremena
     (`mora_promijeniti_lozinku`). „Nova lozinka" prekida sve prijave tog naloga. Sesije: u bazi samo heš tokena (`sesija_prijave`);
     promjena lozinke odjavljuje ostale uređaje.
-29. **Šifre za potpis se dijele na kartici „Godišnji plan obuke"** (spisak za štampu).
+29. *Ukinuto 27.09.2026:* dijeljenje šifri zaposlenima — šifra više nema namjenu za zaposlenog (#17).
 30. **Izvoz ne pada zbog jednog nedostajućeg pogleda** — `tabelaPostoji()` prije upita; spisak
     izvora nosi `nedostaje`, `sve.json` listu `nedostaje`, pojedinačni CSV vraća 409.
 31. **Preuzimanje ide kroz `fetch`** (`preuzmiFajl()`), da se greška 401/409/500 ispiše.
-32. **Provjeru znanja radi SAMO PRIJAVLJENI zaposleni, SVOJOM šifrom** (odluka vlasnice 25.09.2026).
-    Ulaz, odgovori i završetak su iza granice prijave; šifru server uzima iz naloga (`korisnik.lice_id`
-    → `lice.sifra`) i ne čita je iz zahtjeva, pa se tuđa šifra ne može upisati. Odgovara i završava
-    samo onaj ko je počeo (`TUDJA_PROVJERA`, 403). Nalog bez lica/šifre → `NALOG_BEZ_SIFRE`.
+32. **Provjeru znanja radi SAMO PRIJAVLJENI zaposleni, sa svog naloga** (odluka vlasnice 25.09.2026).
+    Ulaz, odgovori i završetak su iza granice prijave; zaposlenog server nalazi preko naloga
+    (`korisnik.lice_id`) i ništa o identitetu ne čita iz zahtjeva. `moj-termin` vraća `vezan`, ne šifru.
+    Odgovara i završava samo onaj ko je počeo (`TUDJA_PROVJERA`, 403). Nalog nevezan za lice →
+    `NALOG_BEZ_SIFRE` (naziv koda ostaje zbog kompatibilnosti).
     Zaposleni bez naloga ne radi provjeru — prvo mu se otvori nalog. Ulaz se nudi na početnoj strani
     (`ProvjeraZnanjaUlaz` na `/moja` i `/tabla`, dok je termin otvoren), ne na strani za prijavu.
     Rezultat se ne može naduvati: jedan odgovor po pitanju, ništa poslije završetka.
@@ -440,8 +444,10 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     (tip, pada pri typecheck-u) i CHECK u bazi (`22_integritet_cg.sql`). Nov izvor: na oba mjesta,
     novom dopunom.
 37. **Otpremnica samo POPUNJAVA formu — ništa se ne snima bez čovjeka.** Prijem iz otpremnice traži
-    kvačicu „uporedio/la sa robom i etiketom"; nesigurna polja su žuta; nepoznat dobavljač ostaje
-    PRAZAN (nikad prvi sa spiska). Čita se **na našem serveru** — PDF tekst direktno, slika lokalnim
+    kvačicu „uporedio/la sa robom i etiketom"; nesigurna polja su žuta; dobavljač nikad nije „prvi sa
+    spiska" — prepoznat (PIB, pa naziv) je izabran, nepoznat sa pročitanim nazivom je „nov dobavljač"
+    popunjen sa otpremnice (#71), ništa pročitano — prazno. Forma prvo pita KAKO se unosi (Slikaj /
+    PDF / Ručno) i tek onda se prikazuje. Čita se **na našem serveru** — PDF tekst direktno, slika lokalnim
     OCR-om (Tesseract, `srp_latn`). **Nikakav spoljni servis** (vlasnica je to izričito odlučila
     24.09.2026: bez Anthropica i sličnih). Temperatura sa otpremnice je podatak dobavljača — prikazuje se,
     ne upisuje; KKT 1 mjeri magacioner.
@@ -589,6 +595,20 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     fontovi i sa Google Fonts; blob: za otpremnicu) i HSTS; svuda nosniff, zabrana okvira,
     `Permissions-Policy`. Nova spoljna stvar (skripta, font, API) → prvo u CSP, inače je pregledač blokira.
 
+71. **Nov dobavljač se upisuje uz prijem, ne čeka Šifarnike** (odluka vlasnice 27.09.2026 — roba je na
+    rampi). `POST /prijem` prima `dobavljacId` ILI `noviDobavljac {naziv, pib?}` — tačno jedno (400).
+    Dobavljač se pravi u ISTOJ transakciji sa prijemom (`upisiNovogDobavljaca`, audit), pa napušten
+    obrazac ne ostavlja smeće u Šifarnicima. Isti PIB ili isti naziv već postoji → 409 (`PIB_POSTOJI`,
+    `DOBAVLJAC_POSTOJI`) — bira se sa spiska. Odgovorna lica (osim onog ko je upisao) dobijaju
+    obavještenje (izvor `prijem`) da provjere podatke i dopune adresu i telefon. Radi i magacioner.
+72. **Artikal sa otpremnice se ne uparuje sa drugim pakovanjem ni procentom** (`upariPoNazivu`,
+    `mjereIzNaziva`). Iz naziva se čitaju masa (g/kg), zapremina (ml/l) i procenat; ako se razlikuju od
+    artikla iz Šifarnika, to NIJE isti artikal („Pileći file 1 kg“ ≠ „… 500g“, „Mlijeko 2,8%“ ≠ „3.2%“) —
+    polje ostaje prazno uz napomenu šta se ne slaže. Masa naspram zapremine nije sukob. Ostatak naziva se
+    poredi bez pakovanja; dva podjednako slična artikla → ne bira se. Ista šifra kod dobavljača i kod
+    vas važi samo ako se pakovanje slaže i naziv liči. Svaka stavka nosi `artikalIzvor`
+    (zapamćeno / šifra / naziv) i `artikalNapomena` — ekran je pokazuje ispod polja. Sigurno je SAMO
+    ono što je čovjek ranije potvrdio (`artikal_dobavljaca`).
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -745,6 +765,9 @@ repozitorijuma. Ovdje samo stanje.
 | nov obavezan podatak (rok pri prijemu) — pola testova pada na 400 | testovi primaju robu bez roka, jer ga server nije tražio | `rokZaDana()` u svakom prijemu testa; nov obavezan podatak = pretraga svih testova koji šalju taj zahtjev |
 | test na demo bazi bira lot „na zalihi“, a isporuka pada na `NEDOVOLJNO_ZALIHE` | posle rezervacije lot na zalihi može biti sav rezervisan za isporuke u pripremi (vlasnica ih ima na demo bazi) | test bira po SLOBODNOJ robi (`slobodno()`) |
 | push test pada samo u punom prolazu na demo bazi („2“ umjesto „1“) | povlačenje demo lota javilo je „Ne predajte lot“ i TUĐOJ isporuci u pripremi (vlasnica ju je unijela) — obavještenje vezano za njen id, čišćenje ga nije brisalo, pa ga je push poslao Marku | čišćenje po tekstu testa; nov tok koji obavještava TUĐE zapise → provjeriti čišćenje svih testova koji ga okidaju |
+| „Pileći file 1 kg“ sa otpremnice predložen kao naš „Pileći file smrznuti 500g“ | naziv se poredio slovo po slovo (Dice) — „1 kg“ i „500g“ su tri znaka razlike u dugom nazivu | pakovanje i procenat se čitaju posebno i moraju se slagati; ostatak naziva se poredi bez njih (#72) |
+| magacioner nije mogao primiti robu od dobavljača kog nema u Šifarnicima | dobavljača je dodavalo samo odgovorno lice, a forma je nudila samo spisak | „+ Nov dobavljač“ u formi prijema, upis u istoj transakciji, obavještenje odgovornom licu (#71) |
+| regex u fajlu bez obrnute kose crte (`/(d+…)/` umjesto `/(\d+…)/`), a skripta za izmjenu „prošla“ | skripta pisana kroz bash heredoc: dvostruka kosa crta se sabije u jednu, pa je JS šablon (backtick) proguta | regex i sve sa obrnutom kosom crtom mijenjati alatom Edit ili kroz Python, ne kroz `node` heredoc; poslije izmjene grep-om provjeriti da je `\d` ostalo |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |
 
 ### Gdje se zapravo testira
@@ -758,6 +781,11 @@ nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git lo
 
 - **Supabase: Session pooler, port 5432.** Direct connection radi samo preko IPv6, Render ga ne dohvata.
 - **Render besplatni plan spava poslije 15 min** — za demo i pravi rad plaćeni plan.
+- **`x-render-routing: suspend-by-user`** u odgovoru = servis je SUSPENDOVAN u Render panelu (ručno,
+  ili zbog naplate/iskorišćenih besplatnih sati) — to nije spavanje. UptimeRobot ga ne budi; kod ne
+  pomaže. Render → servis → „Resume Service“ (ako traži — dodati karticu ili preći na plaćeni plan).
+  UptimeRobot neka gađa `/api/zdravlje` (javlja i bazu, 503 kad ne odgovara). Na besplatnom planu
+  ping svakih 5 min drži servis budnim 24/7 i troši ~750 besplatnih sati mjesečno.
 - Server ne učitava izmjene sam (`tsx` bez watch): poslije izmjene u `server/` — restart.
 - **Node ≥ 22.13** (`engines` u `package.json`) — zbog `pdfjs-dist`.
 - **Push:** VAPID ključ server pravi sam i čuva u bazi (`web_push_kljuc`) — na Renderu ne treba ništa

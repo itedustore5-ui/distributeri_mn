@@ -75,8 +75,16 @@ const stavkaSchema = z.object({
     .optional(),
 });
 
+// Dobavljač sa spiska ILI nov (nije u Šifarnicima) — upisuje se u istoj transakciji sa prijemom,
+// da roba ne čeka na rampi. Odgovorno lice dobija obavještenje da provjeri podatke.
+const noviDobavljacSchema = z.object({
+  naziv: z.string().trim().min(2, "Upišite naziv dobavljača (kako piše na otpremnici)."),
+  pib: z.string().trim().regex(/^\d{8,13}$/, "PIB se upisuje samo ciframa (pravno lice: 8 cifara).").optional().or(z.literal("")),
+});
+
 const noviPrijemSchema = z.object({
-  dobavljacId: z.string().uuid(),
+  dobavljacId: z.string().uuid().optional(),
+  noviDobavljac: noviDobavljacSchema.optional(),
   skladisteId: z.string().uuid().optional(),
   brojDokumenta: z.string().optional(),
   datumPrijema: z.string(),
@@ -84,7 +92,7 @@ const noviPrijemSchema = z.object({
   dokumentId: z.string().uuid().optional(),
   mjerniUredjajId: z.string().uuid().optional(),
   stavke: z.array(stavkaSchema).min(1),
-});
+}).refine((u) => !!u.dobavljacId !== !!u.noviDobavljac, { message: "Izaberite dobavljača sa spiska ili upišite novog.", path: ["dobavljacId"] });
 
 // Otpremnica (PDF ili fotografija) → prijedlog prijema. Čita se NA OVOM SERVERU — PDF direktno,
 // slika lokalnim OCR-om; ništa ne ide spoljnim servisima. Fajl se čuva (dokaz uz prijem), a veže

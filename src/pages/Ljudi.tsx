@@ -215,8 +215,7 @@ export function Ljudi() {
           <p className="muted-text" style={{ fontSize: 11, marginBottom: 14, maxWidth: 640 }}>
             Nalog je za prijavu u aplikaciju — magacioner i vozač njime vide svoju tablu na terenu.
             {skladista.vise && " Matično skladište je samo podrazumijevani izbor pri unosu — magacioner po potrebi bira i drugo."}
-            Nije isto što i provjera znanja: za nju služi šifra sa spiska „Svi zaposleni", ne
-            korisničko ime i lozinka.
+            Istim nalogom zaposleni radi i provjeru znanja — prije početka upisuje svoju lozinku.
           </p>
           <div className="panel full-panel">
           <div className="data-table-wrap">
@@ -567,7 +566,7 @@ function PristupModal({ pristup, onClose }: { pristup: Pristup; onClose: () => v
       `<tr><td style="padding:6px 12px 6px 0;color:#555">${naziv}</td><td style="padding:6px 0;font:600 15px monospace">${vrijednost.replace(/</g, "&lt;")}</td></tr>`;
     prozor.document.write(`<html><head><title>Pristup aplikaciji</title></head><body style="font-family:sans-serif;padding:24px">
       <h3 style="margin:0 0 4px">Pristup aplikaciji</h3><div style="color:#555;margin-bottom:14px">${(pristup.ime ?? "").replace(/</g, "&lt;")}</div>
-      <table>${red("Adresa", adresa)}${red("Korisničko ime", pristup.korisnickoIme)}${red("Početna lozinka", pristup.privremenaLozinka)}${pristup.sifra ? red("Šifra (potpis, provjera znanja)", pristup.sifra) : ""}</table>
+      <table>${red("Adresa", adresa)}${red("Korisničko ime", pristup.korisnickoIme)}${red("Početna lozinka", pristup.privremenaLozinka)}</table>
       <p style="font-size:12px;color:#555;margin-top:18px">Pri prvoj prijavi aplikacija traži da postavite svoju lozinku (najmanje 10 znakova). Ovu ceduljicu zatim uništite.</p>
       </body></html>`);
     prozor.document.close();
@@ -578,7 +577,7 @@ function PristupModal({ pristup, onClose }: { pristup: Pristup; onClose: () => v
     <Modal naslov="Nalog je spreman" podnaslov="Zapišite ili odštampajte odmah — lozinka se više neće prikazati" onClose={onClose}
       footer={<><button className="secondary-button" onClick={stampaj}><Printer size={14} /> Štampaj ceduljicu</button><button className="primary-button" onClick={onClose}>Zatvori</button></>}>
       <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-        {pristup.ime && <div><span className="meta-label">Zaposleni</span><div>{pristup.ime}{pristup.sifra ? ` · šifra ${pristup.sifra}` : ""}</div></div>}
+        {pristup.ime && <div><span className="meta-label">Zaposleni</span><div>{pristup.ime}</div></div>}
         <div><span className="meta-label">Korisničko ime</span><div><code style={{ fontSize: 15 }}>{pristup.korisnickoIme}</code></div></div>
         <div className="next-control">
           <div className="next-control-icon"><KeyRound size={16} /></div>

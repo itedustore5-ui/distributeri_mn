@@ -639,7 +639,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm test             # 464 provjere na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 472 provjere na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 ```
 
 **`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a
@@ -667,13 +667,13 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `obavjestenja` | obavještenja za teren, zadaci, KKT 3 pri predaji, neusaglašenost od otvaranja do zatvaranja |
 | `poruke_skladista` | poruke (grupa, pojedinačno, svima, ko je pročitao), ručni zadaci, više skladišta |
 | `povlacenje` | spisak kupaca iz isporuka, lot na HOLD-u, ne zatvara se dok svi nisu zvani |
-| `provjera_znanja` | ulazi samo prijavljeni, svojom šifrom (tuđa iz zahtjeva se ne gleda); drugi zaposleni ne može odgovarati ni završiti tuđu provjeru; rezultat se ne može naduvati; Prilog 14 |
+| `provjera_znanja` | ulazi samo prijavljeni, sa svog naloga i uz svoju lozinku (tuđa šifra iz zahtjeva se ne gleda, šifra se ne vraća); drugi zaposleni ne može odgovarati ni završiti tuđu provjeru; rezultat se ne može naduvati; Prilog 14 |
 | `prilozi_izvoz` | podaci za štampu, svih 14 CSV izvora i kolone koje se prodaju kao dokaz |
 | `sesije` | prijava u bazi kao heš, odjava, promjena lozinke odjavljuje ostale uređaje |
 | `neusaglasenosti_teren` | vozač prijavi problem na isporuci → mjera njemu → samo on je završava, uz opis → provjera; uprava i aktivnost |
 | `znanje_firme` | pitanja firme, termin sa pragom, rezultat „položeno", statistika po pitanju |
 | `faza1_haccp` | HOLD → pusti/odbij sa razlogom, povlačenje blokira puštanje, provjera tek uz urađenu mjeru, odstupanje iz obrasca → neusaglašenost, nepotvrđena granica ne zadržava robu |
-| `otpremnice` | 10 probnih otpremnica iz PDF-a tačno do slova, fotografija (i smanjena kao iz pregledača) sa tačnim lotovima, dobavljač po PIB-u, zapamćen artikal, manjak, istekao rok se ne prihvata |
+| `otpremnice` | 10 probnih otpremnica iz PDF-a tačno do slova, fotografija (i smanjena kao iz pregledača) sa tačnim lotovima, dobavljač po PIB-u, zapamćen artikal, „1 kg“ se ne upari sa „500 g“ ni „2,8%“ sa „3,2%“, nov dobavljač upisan uz prijem (i od magacionera; isti PIB odbijen), manjak, istekao rok se ne prihvata |
 | `faza2_integritet` | istovremeni unosi ne dobijaju isti broj, lice + nalog ili oba ili ništa, početna i nova lozinka, terenske uloge ne čitaju tuđe, kartice direktora, baza odbija nepoznat izvor |
 | `push` | pretplata po uređaju, adresa koja nije push servis se odbija, push stiže potpisan i šifrovan i čita ga samo „uređaj", ne šalje se dvaput, nestao uređaj (410) se briše sam, odjava samo svog uređaja |
 | `talas1` | predaja zadržanog lota, isteklog lota i više nego što je na zalihi se odbija, zaliha nikad u minusu; povrat u karantin i odluka o njemu; tuđa isporuka i stari prijem po adresi; isti ključ zahtjeva = jedan upis; potvrda sa svim stavkama; tuđi pogrešni pokušaji prijave ne zaključavaju druge |

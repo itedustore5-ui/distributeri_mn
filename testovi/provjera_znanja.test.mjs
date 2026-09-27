@@ -25,7 +25,7 @@ export async function pokreni({ provjeri }) {
 
     // Ulaz se nudi na početnoj strani prijavljenog (ne na strani za prijavu).
     const mojPrije = (await marko("/provjera-znanja/moj-termin")).tijelo;
-    provjeri("Magacioner na svojoj strani vidi otvoren termin i svoju šifru", mojPrije?.otvoren === true && mojPrije.naziv === "E2E provjera" && mojPrije.sifra === lice.sifra && mojPrije.zavrseno === false, JSON.stringify(mojPrije));
+    provjeri("Magacioner na svojoj strani vidi otvoren termin (bez šifre — ne treba mu)", mojPrije?.otvoren === true && mojPrije.naziv === "E2E provjera" && mojPrije.vezan === true && !("sifra" in mojPrije) && mojPrije.zavrseno === false, JSON.stringify(mojPrije));
 
     provjeri("Bez prijave se ne ulazi, ni sa tačnom šifrom (401)", (await anon("/provjera-znanja/uci", { telo: { sifra: lice.sifra } })).status === 401);
 
@@ -36,9 +36,10 @@ export async function pokreni({ provjeri }) {
     provjeri("Pogrešna lozinka se odbija (403)", pogresna.status === 403 && pogresna.tijelo.error.code === "POGRESNA_LOZINKA");
     const tudjaLozinka = await marko("/provjera-znanja/uci", { telo: { lozinka: NALOZI.petar.lozinka } });
     provjeri("Ni lozinka drugog zaposlenog ne pušta na Markovom nalogu (403)", tudjaLozinka.status === 403);
-    // Tuđa šifra u zahtjevu se ne gleda — server uzima šifru prijavljenog.
+    // Tuđa šifra u zahtjevu se ne gleda — zaposleni je onaj čiji je nalog.
     const ulaz = await marko("/provjera-znanja/uci", { telo: { lozinka: NALOZI.marko.lozinka, sifra: petrovo?.sifra ?? "M-99" } });
-    provjeri("Ulazi prijavljeni, SVOJOM šifrom (tuđa iz zahtjeva se ne gleda)", ulaz.status === 200 && ulaz.tijelo.sifra === lice.sifra && ulaz.tijelo.pitanja.length === 3, `${ulaz.status} ${ulaz.tijelo?.sifra ?? ulaz.tijelo?.error?.message ?? ""}`);
+    const ciji = ulaz.status === 200 ? (await pool.query(`select lice_id from ucesnik_znanja where id = $1`, [ulaz.tijelo.ucesnikId])).rows[0]?.lice_id : null;
+    provjeri("Ulazi prijavljeni, kao on sam (tuđa šifra iz zahtjeva se ne gleda; šifra se ne vraća)", ulaz.status === 200 && ciji === lice.id && !("sifra" in ulaz.tijelo) && ulaz.tijelo.pitanja.length === 3, `${ulaz.status} ${ulaz.tijelo?.error?.message ?? ""}`);
     if (ulaz.status !== 200) return;
     provjeri("Pitanja ne otkrivaju tačan odgovor", ulaz.tijelo.pitanja.every((p) => !("tacan_indeks" in p)));
     const { ucesnikId, pitanja } = ulaz.tijelo;

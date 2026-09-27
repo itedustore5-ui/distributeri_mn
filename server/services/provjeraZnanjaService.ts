@@ -17,14 +17,14 @@ async function otvorenTermin(): Promise<OtvorenTermin | null> {
   return r.rows[0] ?? null;
 }
 
-/** Lice prijavljenog naloga — provjeru radi SAMO on, svojom šifrom (invarijanta #32). Šifra se ne
- * kuca: tuđa šifra se ne može ni upisati. */
+/** Lice prijavljenog naloga — provjeru radi SAMO on (invarijanta #32). Zaposleni se prepoznaje po
+ * nalogu i lozinci; šifra lica je samo unutrašnji ključ učesnika i zaposlenom se ne pokazuje. */
 async function mojeLice(korisnikId: string) {
   const r = await upit<{ id: string; ime: string; sifra: string }>(
     `select l.id, l.ime, l.sifra from korisnik k join lice l on l.id = k.lice_id where k.id = $1 and l.aktivan and l.sifra is not null`,
     [korisnikId],
   );
-  if (!r.rows[0]) throw new ApiGreska(409, "NALOG_BEZ_SIFRE", "Vaš nalog nije vezan za zaposlenog sa šifrom — javite se odgovornom licu.");
+  if (!r.rows[0]) throw new ApiGreska(409, "NALOG_BEZ_SIFRE", "Vaš nalog nije vezan za zaposlenog u spisku ljudi — javite se odgovornom licu.");
   return r.rows[0];
 }
 
@@ -52,7 +52,7 @@ async function potvrdiDaJeOn(korisnikId: string, lozinka: string, ip: string | u
   ocistiNeuspjelePokusaje(kljuc);
 }
 
-/** Ulazak u otvoren termin — prijavljeni zaposleni, svojom šifrom i svojom lozinkom. Isti učesnik se
+/** Ulazak u otvoren termin — prijavljeni zaposleni, svojom lozinkom. Isti učesnik se
  * vraća dok ne završi. */
 export async function udji(korisnikId: string, lozinka: string, ip?: string) {
   await potvrdiDaJeOn(korisnikId, lozinka, ip);
@@ -80,7 +80,7 @@ export async function udji(korisnikId: string, lozinka: string, ip?: string) {
      where aktivno and ($2 = 'sva' or izvor = $2) order by random() limit $1`,
     [termin.broj_pitanja, termin.izvor_pitanja],
   );
-  return { ucesnikId, ime: lice.ime, sifra: lice.sifra, termin: termin.naziv, pitanja: pitanja.rows };
+  return { ucesnikId, ime: lice.ime, termin: termin.naziv, pitanja: pitanja.rows };
 }
 
 /** Rezultat ide na Prilog 14 — ne smije se naduvati: jedan odgovor po pitanju, ne više odgovora
@@ -127,7 +127,8 @@ export async function zavrsi(ucesnikId: string, korisnikId: string) {
   return { brojTacnih: broj_tacnih, brojPitanja: broj_pitanja };
 }
 
-/** Za početnu stranu prijavljenog: da li je termin otvoren i da li je ON (po svojoj šifri) već završio.
+/** Za početnu stranu prijavljenog: da li je termin otvoren, da li mu je nalog vezan za zaposlenog i
+ * da li je već završio. Šifra se ne vraća — zaposlenom ne treba.
  * Ulaz u provjeru se nudi odatle, a ne sa strane za prijavu. */
 export async function mojTermin(korisnikId: string) {
   const termin = await otvorenTermin();
@@ -136,12 +137,12 @@ export async function mojTermin(korisnikId: string) {
     [korisnikId],
   );
   const sifra = lice.rows[0]?.sifra ?? null;
-  if (!termin || !sifra) return { otvoren: !!termin, naziv: termin?.naziv ?? null, sifra, zavrseno: false };
+  if (!termin || !sifra) return { otvoren: !!termin, naziv: termin?.naziv ?? null, vezan: !!sifra, zavrseno: false };
   const u = await upit<{ zavrseno: boolean }>(
     `select zavrseno_at is not null as zavrseno from ucesnik_znanja where sesija_id = $1 and sifra = $2`,
     [termin.id, sifra],
   );
-  return { otvoren: true, naziv: termin.naziv, sifra, zavrseno: u.rows[0]?.zavrseno ?? false };
+  return { otvoren: true, naziv: termin.naziv, vezan: true, zavrseno: u.rows[0]?.zavrseno ?? false };
 }
 
 export async function termini() {

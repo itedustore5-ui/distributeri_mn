@@ -5,7 +5,7 @@ import { api, ApiGreska } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 type Pitanje = { id: string; tema: string; tekst: string; ponudjeni_odgovori: string[] };
-type MojTermin = { otvoren: boolean; naziv: string | null; sifra: string | null; zavrseno: boolean };
+type MojTermin = { otvoren: boolean; naziv: string | null; vezan: boolean; zavrseno: boolean };
 
 /** Provjeru radi PRIJAVLJENI zaposleni, svojom šifrom (invarijanta #32) — šifra se ne kuca, server
  * je uzima iz naloga. Ulaz je sa početne strane (Moja strana / Kontrolni centar). */
@@ -98,7 +98,7 @@ export function ProvjeraZnanja() {
     );
   }
 
-  const moze = termin?.otvoren && termin.sifra && !termin.zavrseno;
+  const moze = termin?.otvoren && termin.vezan && !termin.zavrseno;
   return (
     <div className="auth-shell" style={{ gridTemplateColumns: "minmax(0,480px)" }}>
       <div className="auth-card">
@@ -111,7 +111,6 @@ export function ProvjeraZnanja() {
             <h1>{termin?.naziv ?? "Provjera znanja"}</h1>
             <p>
               {korisnik?.lice_ime ?? korisnik?.korisnicko_ime}
-              {termin?.sifra ? <> · šifra <code>{termin.sifra}</code></> : null}
             </p>
           </div>
         </div>
@@ -121,7 +120,7 @@ export function ProvjeraZnanja() {
           </div>
         )}
         {termin && !termin.otvoren && <p style={{ marginTop: 16 }}>Trenutno nije otvorena nijedna provjera znanja.</p>}
-        {termin?.otvoren && !termin.sifra && <p style={{ marginTop: 16 }}>Vaš nalog nije vezan za zaposlenog sa šifrom — javite se odgovornom licu.</p>}
+        {termin?.otvoren && !termin.vezan && <p style={{ marginTop: 16 }}>Vaš nalog nije vezan za zaposlenog u spisku ljudi — javite se odgovornom licu.</p>}
         {termin?.otvoren && termin.zavrseno && <p style={{ marginTop: 16 }}>Ovu provjeru ste već završili.</p>}
         {moze && (
           <>

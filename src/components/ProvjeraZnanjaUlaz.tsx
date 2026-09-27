@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { GraduationCap, CheckCircle2 } from "lucide-react";
 import { api } from "../lib/api";
 
-type MojTermin = { otvoren: boolean; naziv: string | null; sifra: string | null; zavrseno: boolean };
+type MojTermin = { otvoren: boolean; naziv: string | null; vezan: boolean; zavrseno: boolean };
 
 /** Ulaz u provjeru znanja na početnoj strani prijavljenog (Moja strana, Kontrolni centar) — samo
- * dok je termin otvoren i samo za onoga ko ima šifru. Strana za prijavu ga namjerno nema. */
+ * dok je termin otvoren i samo za nalog vezan za zaposlenog. Strana za prijavu ga namjerno nema. */
 export function ProvjeraZnanjaUlaz() {
   const navigate = useNavigate();
   const [termin, setTermin] = useState<MojTermin | null>(null);
@@ -15,7 +15,7 @@ export function ProvjeraZnanjaUlaz() {
     api<MojTermin>("/provjera-znanja/moj-termin").then(setTermin).catch(() => undefined);
   }, []);
 
-  if (!termin?.otvoren || !termin.sifra) return null;
+  if (!termin?.otvoren || !termin.vezan) return null;
 
   if (termin.zavrseno) {
     return (
@@ -35,7 +35,7 @@ export function ProvjeraZnanjaUlaz() {
         <div style={{ flex: 1, minWidth: 200 }}>
           <strong style={{ fontSize: 13 }}>Otvorena je provjera znanja „{termin.naziv}“</strong>
           <div className="muted-text" style={{ fontSize: 11, marginTop: 2 }}>
-            Radite je svojim nalogom (šifra <code>{termin.sifra}</code>).
+            Radite je sami, sa svog naloga — prije početka upisujete svoju lozinku.
           </div>
         </div>
         <button className="primary-button" onClick={() => navigate("/provjera-znanja")}>
