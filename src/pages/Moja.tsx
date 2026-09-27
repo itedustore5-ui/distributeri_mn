@@ -283,22 +283,43 @@ type StavkaDanas = {
   uradjeno: number;
   fali: number;
   rok: string;
+  skladiste_id?: string | null;
+  skladiste_naziv?: string | null;
+  /** Ko je u ovom periodu već uradio (posljednja tri) — obaveza je magacina, ne osobe (#77). */
+  uradili?: { ime: string; vrijeme: string; dan: string }[];
 };
+
+/** Koliko često se „Danas po planu“ osvježava sam — da drugi magacioner odmah vidi urađeno. */
+const OSVJEZI_PLAN_MS = 45_000;
 
 /** Plan monitoringa za ovog čovjeka (po ulozi i magacinu): šta danas treba, šta je urađeno, i šta
  * je juče ostalo neurađeno. Dugme vodi pravo na obrazac ili mjerenje. */
 function DanasPoPlanu() {
   const navigate = useNavigate();
   const [stanje, setStanje] = useState<{ stavke: StavkaDanas[]; juce: StavkaDanas[] } | null>(null);
+  // Osvježava se sam i kad se magacioner vrati u aplikaciju: ako je kolega upravo izmjerio komoru,
+  // stavka treba odmah da bude „urađeno“, a ne da ga šalje da mjeri ponovo.
   useEffect(() => {
-    api<{ stavke: StavkaDanas[]; juce: StavkaDanas[] }>("/monitoring/danas").then(setStanje).catch(() => setStanje(null));
+    const ucitaj = () => api<{ stavke: StavkaDanas[]; juce: StavkaDanas[] }>("/monitoring/danas").then(setStanje).catch(() => undefined);
+    const kadJeVidljivo = () => {
+      if (document.visibilityState === "visible") ucitaj();
+    };
+    ucitaj();
+    const interval = window.setInterval(kadJeVidljivo, OSVJEZI_PLAN_MS);
+    document.addEventListener("visibilitychange", kadJeVidljivo);
+    window.addEventListener("focus", kadJeVidljivo);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", kadJeVidljivo);
+      window.removeEventListener("focus", kadJeVidljivo);
+    };
   }, []);
   if (!stanje || (stanje.stavke.length === 0 && stanje.juce.length === 0)) return null;
   const upisi = (s: StavkaDanas) =>
     s.vrsta === "obrazac"
-      ? navigate("/haccp", { state: { obrazac: s.obrazac_kod } })
+      ? navigate("/haccp", { state: { obrazac: s.obrazac_kod, skladiste: s.skladiste_id } })
       : s.vrsta === "mjerenje"
-        ? navigate("/haccp", { state: { mjerenje: s.kontrolna_tacka_id } })
+        ? navigate("/haccp", { state: { mjerenje: s.kontrolna_tacka_id, skladiste: s.skladiste_id } })
         : navigate("/vozila");
   const fali = stanje.stavke.filter((s) => s.fali > 0).length;
   return (
@@ -320,7 +341,16 @@ function DanasPoPlanu() {
           <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: "1px solid #edf1f3" }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13 }}>{s.naziv}</div>
-              <small className="muted-text">{s.uradjeno} od {s.puta} · {s.rok}</small>
+              <small className="muted-text">
+                {s.uradjeno} od {s.puta} · {s.rok}
+                {s.skladiste_naziv ? ` · ${s.skladiste_naziv}` : ""}
+              </small>
+              {s.uradili && s.uradili.length > 0 && (
+                <div style={{ fontSize: 11, color: "#1e7f55", marginTop: 2 }}>
+                  <CheckCircle2 size={11} style={{ verticalAlign: "-1px" }} /> uradio/la:{" "}
+                  {s.uradili.map((u) => `${u.ime} ${s.rok === "danas" ? u.vrijeme : `${u.dan} ${u.vrijeme}`}`).join(", ")}
+                </div>
+              )}
             </div>
             {s.fali === 0 ? (
               <StatusBadge status="VAZI" tekst="urađeno" />

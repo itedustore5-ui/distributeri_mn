@@ -287,6 +287,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `26_talas1_cg` | CHECK zaliha ≥ 0 i količine stavke isporuke (`NOT VALID`, pa provjera starih redova — ako ne prođe, samo `notice`, a pravilo važi za nove upise); `kljuc_zahtjeva` (R-10) |
 | `27_talas2_cg` | `mjerenje_temperature.mjerni_uredjaj_id` (R-23); `kontrola_vozila` + `granica_min/max`, `temperatura_ok` (R-05); jedinstven `zapis.ispravlja_id` (R-07, u `do`-bloku — grananje na staroj bazi daje `notice`); pogledi za izvoz `v_izvoz_kontrole_vozila`, `v_izvoz_provjere_nc`, `v_izvoz_termometri`, `v_izvoz_verifikacija_sistema`, `v_izvoz_kretanja_zalihe` (R-20) |
 | `28_talas3_otkaz_cg` | samo `isporuka_status_t` + `OTKAZANA` — nova vrijednost enuma u svom fajlu (ne smije se koristiti u istoj transakciji) |
+| `31_magacin_mjerenja_cg` | `mjerenje_temperature.skladiste_id`, `zapis.skladiste_id` (#77); stari redovi popunjeni gdje se zna (lot → magacin prijema; firma sa jednim magacinom) |
 | `30_bekap_bez_tajni_cg` | iz bekapa već sačuvanih u `bekap_log` briše heševe lozinki (R-19) |
 | `29_talas3_cg` | otkaz isporuke (`otkazano_at`, `otkazao_korisnik_id`, `razlog_otkaza` + CHECK), `v_izvoz_isporuke` ponovo (B5); `artikal.rok_obavezan`; jedinstvena serija u prijemu i indeks serije; `kupac.pib`, `kupac.adresa_isporuke`, jedinstven PIB kupca i dobavljača (u `do`-blokovima); `v_zaliha_dostupna` + `rezervisano`, `slobodno` |
 
@@ -311,7 +312,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-18 testova, 497 provjera (na čistoj bazi; na demo bazi 495 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+19 testova, 507 provjera (na čistoj bazi; na demo bazi 505 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -320,7 +321,8 @@ odbijen u bazi — `faza2_integritet`), i otpremnice (10 probnih u PDF-u tačno 
 nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamćen artikal, drugo pakovanje i
 procenat se ne uparuju, nov dobavljač i nov artikal upisani uz prijem, okrenuta i tamna fotografija, otpremnica
 sa cijenama (PDF i fotografija), slika bez tabele se čuva, čitanje u pozadini (odgovor odmah, napredak, „ne čekaj“),
-manjak, istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
+manjak, istekao rok — `otpremnice`; plan monitoringa po magacinu — urađeno važi za sve u magacinu, ne za drugi
+magacin, ko je uradio, magacin na mjerenju i zapisu — `monitoring_magacini`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
 (temperatura obavezna na KKT 1, granica iz Šifarnika → pravilo sa verzijama, plan monitoringa i
 „šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
 četiri oka — `faza3_sistem`), i push (pretplata po uređaju, šifrovan sadržaj koji dešifruje samo
@@ -658,6 +660,16 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     počinje ako ne bi stao. OCR radnik se pali UNAPRIJED kad se otvori forma (`POST /prijem/otpremnica-priprema`),
     posle 20 slika se zamijeni novim (memorija), `sharp` bez keša i sa jednom niti. `posaljiFajl` ima rok (90 s)
     i jasnu poruku za 502/503/504 i prekid veze.
+77. **Plan monitoringa je obaveza MAGACINA, ne osobe** (pitanje vlasnice 27.09.2026: „2–3 magacionera —
+    kad jedan izmjeri, drugome ne treba da stoji“). „Urađeno“ se broji iz svih unosa, bez obzira ko ih je
+    unio. Mjerenje i dnevni zapis pamte magacin (`skladiste_id`, dopuna 31; `skladisteUnosa`: izabrano →
+    magacin lota → matični magacin naloga → jedini aktivni; kad se ne zna — prazno, NE odbija se). Stavka
+    plana vezana za magacin broji samo unose iz tog magacina (i stare, bez magacina); stavka bez magacina
+    broji sve — firma sa više magacina zato plan vodi po magacinu. Ispravka zapisa ostaje u magacinu
+    zapisa. `stanjeDanas` vraća i `uradili` (ime, vrijeme — posljednja tri): na Mojoj strani piše „uradio/la:
+    Marko Vuković 08:14“. „Danas po planu“ se osvježava sam (45 s i pri povratku u aplikaciju). Na `/haccp`
+    firma sa više magacina bira „Radim u magacinu“ (podrazumijevano matični; „Upiši“ sa plana otvara
+    magacin stavke).
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -815,6 +827,7 @@ repozitorijuma. Ovdje samo stanje.
 | test na demo bazi bira lot „na zalihi“, a isporuka pada na `NEDOVOLJNO_ZALIHE` | posle rezervacije lot na zalihi može biti sav rezervisan za isporuke u pripremi (vlasnica ih ima na demo bazi) | test bira po SLOBODNOJ robi (`slobodno()`) |
 | push test pada samo u punom prolazu na demo bazi („2“ umjesto „1“) | povlačenje demo lota javilo je „Ne predajte lot“ i TUĐOJ isporuci u pripremi (vlasnica ju je unijela) — obavještenje vezano za njen id, čišćenje ga nije brisalo, pa ga je push poslao Marku | čišćenje po tekstu testa; nov tok koji obavještava TUĐE zapise → provjeriti čišćenje svih testova koji ga okidaju |
 | „Pileći file 1 kg“ sa otpremnice predložen kao naš „Pileći file smrznuti 500g“ | naziv se poredio slovo po slovo (Dice) — „1 kg“ i „500g“ su tri znaka razlike u dugom nazivu | pakovanje i procenat se čitaju posebno i moraju se slagati; ostatak naziva se poredi bez njih (#72) |
+| sa dva magacina, mjerenje komore u jednom „pokrije“ plan drugog; drugi magacioner ne zna da je kolega već izmjerio | mjerenje i zapis nisu pamtili magacin; Moja strana se nije osvježavala; nije pisalo ko je uradio | magacin na mjerenju i zapisu, brojanje po magacinu, „uradio/la: …“, osvježavanje na 45 s (#77) |
 | magacioner nije mogao primiti robu od dobavljača kog nema u Šifarnicima | dobavljača je dodavalo samo odgovorno lice, a forma je nudila samo spisak | „+ Nov dobavljač“ u formi prijema, upis u istoj transakciji, obavještenje odgovornom licu (#71) |
 | regex u fajlu bez obrnute kose crte (`/(d+…)/` umjesto `/(\d+…)/`), a skripta za izmjenu „prošla“ | skripta pisana kroz bash heredoc: dvostruka kosa crta se sabije u jednu, pa je JS šablon (backtick) proguta | regex i sve sa obrnutom kosom crtom mijenjati alatom Edit ili kroz Python, ne kroz `node` heredoc; poslije izmjene grep-om provjeriti da je `\d` ostalo |
 | „Sačuvaj prijem ne radi“ — na računaru | `.modal` je imao `overflow: hidden` bez visine: sa 3+ stavke sa otpremnice dugme je bilo ispod ekrana, nedostižno | `.modal` sa `max-height` i skrolom, dugme u `.modal-dno` (sticky) za SVE prozore (#74) |

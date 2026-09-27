@@ -81,21 +81,66 @@ export async function stavkePlana(samoAktivne = true): Promise<StavkaPlana[]> {
   return r.rows;
 }
 
+// Ko je šta uradio se NE gleda: stavka plana je obaveza magacina, ne osobe — kad je jedan magacioner
+// izmjeri, drugome više ne stoji kao obaveza (#77). Stavka vezana za magacin broji samo unose iz tog
+// magacina (i stare, bez magacina); stavka bez magacina broji sve.
+function izvorStavke(s: StavkaPlana) {
+  const uMagacinu = s.skladiste_id ? "and (x.skladiste_id = $4 or x.skladiste_id is null)" : "";
+  if (s.vrsta === "mjerenje") {
+    return {
+      kljuc: s.kontrolna_tacka_id,
+      iz: `from mjerenje_temperature x join korisnik k on k.id = x.izmjerio_korisnik_id left join lice l on l.id = k.lice_id
+           where x.kontrolna_tacka_id = $1 and (x.izmjereno_at at time zone 'Europe/Podgorica')::date between $2 and $3 ${uMagacinu}`,
+      dan: `(x.izmjereno_at at time zone 'Europe/Podgorica')::date`,
+      vrijeme: "x.izmjereno_at",
+      ime: "coalesce(l.ime, k.korisnicko_ime)",
+    };
+  }
+  if (s.vrsta === "obrazac") {
+    // Ispravka ne broji dvaput — broji se prvi unos (ispravlja_id je prazan samo kod njega).
+    return {
+      kljuc: s.obrazac_kod,
+      iz: `from zapis x where x.obrazac_kod = $1 and x.ispravlja_id is null and x.datum between $2 and $3 ${uMagacinu}`,
+      dan: "x.datum",
+      vrijeme: "x.created_at",
+      ime: "x.izvrsilac",
+    };
+  }
+  return {
+    kljuc: s.vozilo_id,
+    iz: `from kontrola_vozila x join korisnik k on k.id = x.izvrsio_korisnik_id left join lice l on l.id = k.lice_id
+         where x.vozilo_id = $1 and (x.izvrseno_at at time zone 'Europe/Podgorica')::date between $2 and $3`,
+    dan: `(x.izvrseno_at at time zone 'Europe/Podgorica')::date`,
+    vrijeme: "x.izvrseno_at",
+    ime: "coalesce(l.ime, k.korisnicko_ime)",
+  };
+}
+const parametri = (s: StavkaPlana, kljuc: string | null, od: string, doDan: string) =>
+  s.skladiste_id && s.vrsta !== "kontrola_vozila" ? [kljuc, od, doDan, s.skladiste_id] : [kljuc, od, doDan];
+
 /** Broj urađenih po danu za jednu stavku plana, u rasponu [od, do]. */
 async function poDanima(s: StavkaPlana, od: string, doDan: string): Promise<Map<string, number>> {
-  const sql =
-    s.vrsta === "mjerenje"
-      ? `select to_char((izmjereno_at at time zone 'Europe/Podgorica')::date, 'YYYY-MM-DD') as dan, count(*)::int as n
-         from mjerenje_temperature where kontrolna_tacka_id = $1 and (izmjereno_at at time zone 'Europe/Podgorica')::date between $2 and $3 group by 1`
-      : s.vrsta === "obrazac"
-        ? // Ispravka ne broji dvaput — broji se prvi unos (ispravlja_id je prazan samo kod njega).
-          `select to_char(datum, 'YYYY-MM-DD') as dan, count(*)::int as n
-           from zapis where obrazac_kod = $1 and ispravlja_id is null and datum between $2 and $3 group by 1`
-        : `select to_char((izvrseno_at at time zone 'Europe/Podgorica')::date, 'YYYY-MM-DD') as dan, count(*)::int as n
-           from kontrola_vozila where vozilo_id = $1 and (izvrseno_at at time zone 'Europe/Podgorica')::date between $2 and $3 group by 1`;
-  const kljuc = s.vrsta === "mjerenje" ? s.kontrolna_tacka_id : s.vrsta === "obrazac" ? s.obrazac_kod : s.vozilo_id;
-  const r = await upit<{ dan: string; n: number }>(sql, [kljuc, od, doDan]);
+  const i = izvorStavke(s);
+  const r = await upit<{ dan: string; n: number }>(
+    `select to_char(${i.dan}, 'YYYY-MM-DD') as dan, count(*)::int as n ${i.iz} group by 1`,
+    parametri(s, i.kljuc, od, doDan),
+  );
   return new Map(r.rows.map((x) => [x.dan, x.n]));
+}
+
+export type Uradio = { ime: string; vrijeme: string; dan: string };
+
+/** Ko je u periodu već uradio stavku (posljednja tri) — da drugi magacioner vidi „Marko, 08:14“. */
+async function koJeUradio(s: StavkaPlana, od: string, doDan: string): Promise<Uradio[]> {
+  const i = izvorStavke(s);
+  const r = await upit<Uradio>(
+    `select ${i.ime} as ime,
+            to_char(${i.vrijeme} at time zone 'Europe/Podgorica', 'HH24:MI') as vrijeme,
+            to_char(${i.dan}, 'DD.MM.') as dan
+     ${i.iz} order by ${i.vrijeme} desc limit 3`,
+    parametri(s, i.kljuc, od, doDan),
+  );
+  return r.rows;
 }
 
 const zbir = (m: Map<string, number>, od: string, doDan: string) => {
@@ -104,7 +149,7 @@ const zbir = (m: Map<string, number>, od: string, doDan: string) => {
   return n;
 };
 
-export type StanjeStavke = StavkaPlana & { od: string; do: string; rok: string; uradjeno: number; fali: number };
+export type StanjeStavke = StavkaPlana & { od: string; do: string; rok: string; uradjeno: number; fali: number; uradili?: Uradio[] };
 
 /** Šta u tekućem periodu (danas / ova sedmica / ovaj mjesec) još nije urađeno, i šta je juče
  * propušteno. Terenska uloga dobija samo svoje stavke (i one bez zadate uloge). */
@@ -127,7 +172,8 @@ export async function stanjeDanas(filter: { uloga?: string; skladisteId?: string
     const brojevi = await poDanima(s, od, danas);
     if (p.obavezno) {
       const uradjeno = zbir(brojevi, p.od, danas);
-      danasStanje.push({ ...s, od: p.od, do: p.do, rok: p.rok, uradjeno, fali: Math.max(0, s.puta - uradjeno) });
+      const uradili = uradjeno > 0 ? await koJeUradio(s, p.od, danas) : [];
+      danasStanje.push({ ...s, od: p.od, do: p.do, rok: p.rok, uradjeno, fali: Math.max(0, s.puta - uradjeno), uradili });
     }
     // "Juče propušteno" samo za dnevne stavke — sedmica i mjesec se ocjenjuju kad se završe.
     if ((s.ucestalost === "DNEVNO" || s.ucestalost === "RADNIM_DANIMA") && pJuce.obavezno && s.vazi_od <= juce) {

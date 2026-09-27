@@ -8,6 +8,7 @@ import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components
 import { StatusBadge } from "../components/StatusBadge";
 import { IzborTermometra, useIzborTermometra } from "../components/Termometar";
 import { useAuth } from "../lib/auth";
+import { useSkladista } from "../lib/skladista";
 
 type KontrolnaTacka = { id: string; sifra: string; naziv: string };
 type Mjerenje = {
@@ -52,12 +53,17 @@ export function Haccp() {
   const [obrasci, setObrasci] = useState<Obrazac[]>([]);
   const [zapisi, setZapisi] = useState<Zapis[]>([]);
   // Sa Moje strane ("Danas po planu → Upiši") stiže koji obrazac ili koja tačka se upisuje.
-  const saPlana = useLocation().state as { obrazac?: string; mjerenje?: string } | null;
+  const saPlana = useLocation().state as { obrazac?: string; mjerenje?: string; skladiste?: string | null } | null;
   const [modalMjerenje, setModalMjerenje] = useState<boolean>(!!saPlana?.mjerenje);
   const [neispravni, setNeispravni] = useState<string[]>([]);
   const [modalZapis, setModalZapis] = useState<{ obrazac: Obrazac; ispravlja?: Zapis } | null>(null);
   const [filterObrazac, setFilterObrazac] = useState("");
   const vodiSistem = korisnik?.uloga === "bzr" || korisnik?.uloga === "izvodjac";
+  // Firma sa više magacina: mjerenje i obrazac pamte magacin (#77) — plan se vodi po magacinu, pa
+  // ono što je izmjerio jedan magacioner ne stoji drugome kao obaveza, a ne „pokriva“ drugi magacin.
+  const skladista = useSkladista();
+  const [magacin, setMagacin] = useState(saPlana?.skladiste ?? "");
+  const izabraniMagacin = magacin || skladista.podrazumijevano;
 
   const ucitaj = () => {
     api<Mjerenje[]>("/mjerenja").then(setMjerenja);
@@ -103,6 +109,17 @@ export function Haccp() {
         }
       />
 
+      {skladista.vise && (
+        <div className="panel" style={{ minHeight: "auto", marginBottom: 14 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", fontSize: 12, flexWrap: "wrap" }}>
+            <span className="meta-label" style={{ margin: 0 }}>Radim u magacinu</span>
+            <select value={izabraniMagacin} onChange={(e) => setMagacin(e.target.value)} style={{ height: 34, border: "1px solid #dfe7ed", borderRadius: 6, padding: "0 8px" }}>
+              {skladista.aktivna.map((s) => <option key={s.id} value={s.id}>{s.naziv}</option>)}
+            </select>
+            <small className="muted-text">Mjerenja i obrasci se upisuju za ovaj magacin — plan monitoringa se vodi po magacinu.</small>
+          </label>
+        </div>
+      )}
       {neispravni.length > 0 && (
         <div className="upozorenje-traka">
           <AlertTriangle size={16} />
@@ -215,14 +232,14 @@ export function Haccp() {
       </div>
 
       {modalMjerenje && (
-        <NovoMjerenjeModal key={tacke.length} tacke={tacke} pocetnaTacka={saPlana?.mjerenje} lotovi={lotovi} onClose={() => setModalMjerenje(false)} onCreated={ucitaj} />
+        <NovoMjerenjeModal key={tacke.length} tacke={tacke} pocetnaTacka={saPlana?.mjerenje} lotovi={lotovi} skladisteId={skladista.vise ? izabraniMagacin : undefined} onClose={() => setModalMjerenje(false)} onCreated={ucitaj} />
       )}
-      {modalZapis && <NoviZapisModal obrazac={modalZapis.obrazac} ispravlja={modalZapis.ispravlja} onClose={() => setModalZapis(null)} onCreated={ucitaj} />}
+      {modalZapis && <NoviZapisModal obrazac={modalZapis.obrazac} ispravlja={modalZapis.ispravlja} skladisteId={skladista.vise && !modalZapis.ispravlja ? izabraniMagacin : undefined} onClose={() => setModalZapis(null)} onCreated={ucitaj} />}
     </>
   );
 }
 
-function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, onClose, onCreated }: { tacke: KontrolnaTacka[]; pocetnaTacka?: string; lotovi: Lot[]; onClose: () => void; onCreated: () => void }) {
+function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, skladisteId, onClose, onCreated }: { tacke: KontrolnaTacka[]; pocetnaTacka?: string; lotovi: Lot[]; skladisteId?: string; onClose: () => void; onCreated: () => void }) {
   const [kontrolnaTackaId, setKontrolnaTackaId] = useState(pocetnaTacka && tacke.some((t) => t.id === pocetnaTacka) ? pocetnaTacka : tacke[0]?.id ?? "");
   const [lotId, setLotId] = useState("");
   const [vrijednost, setVrijednost] = useState("");
@@ -235,7 +252,8 @@ function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, onClose, onCreated }: 
   const posalji = async () => {
     try {
       const r = await api<{ rezultat: string }>("/mjerenja", {
-        telo: { kontrolnaTackaId, lotId: lotId || undefined, vrijednost: Number(vrijednost), napomena: napomena || undefined, mjerniUredjajId: termometarId || undefined },
+        // Mjerenje lota je u magacinu lota (server to zna sam); inače u izabranom magacinu.
+        telo: { kontrolnaTackaId, lotId: lotId || undefined, vrijednost: Number(vrijednost), napomena: napomena || undefined, mjerniUredjajId: termometarId || undefined, skladisteId: lotId ? undefined : skladisteId || undefined },
       });
       setRezultat(r.rezultat);
       onCreated();
@@ -281,7 +299,7 @@ function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, onClose, onCreated }: 
   );
 }
 
-function NoviZapisModal({ obrazac, ispravlja, onClose, onCreated }: { obrazac: Obrazac; ispravlja?: Zapis; onClose: () => void; onCreated: () => void }) {
+function NoviZapisModal({ obrazac, ispravlja, skladisteId, onClose, onCreated }: { obrazac: Obrazac; ispravlja?: Zapis; skladisteId?: string; onClose: () => void; onCreated: () => void }) {
   const [datum, setDatum] = useState(ispravlja?.datum ?? lokalniDatum());
   // Da/ne se ne podrazumijeva — ni „da", ni „ne" (R-08: nije odgovoreno ≠ u redu).
   const [podaci, setPodaci] = useState<Record<string, unknown>>(ispravlja?.podaci ?? {});
@@ -297,7 +315,7 @@ function NoviZapisModal({ obrazac, ispravlja, onClose, onCreated }: { obrazac: O
   const posalji = async () => {
     try {
       await api("/zapisi", {
-        telo: { obrazacKod: obrazac.kod, datum, podaci, odstupanje, korektivnaMjera: korektivnaMjera.trim() || undefined, ispravljaId: ispravlja?.id },
+        telo: { obrazacKod: obrazac.kod, datum, podaci, odstupanje, korektivnaMjera: korektivnaMjera.trim() || undefined, ispravljaId: ispravlja?.id, skladisteId: skladisteId || undefined },
       });
       onCreated();
       onClose();

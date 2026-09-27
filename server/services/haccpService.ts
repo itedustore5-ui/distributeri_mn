@@ -4,6 +4,7 @@ import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
 import { javiIsporukeSaLotom } from "./lotBlokadaService.js";
+import { skladisteUnosa } from "./skladisteService.js";
 
 export type RezultatMjerenja = "PASS" | "FAIL" | "WARNING";
 
@@ -77,6 +78,8 @@ type NoviMjerenjeInput = {
   mjerniUredjajId?: string | null;
   /** false kad je lot samo trag (npr. KKT 3 pri predaji) — roba u magacinu nije bila u vozilu. */
   holdLota?: boolean;
+  /** Magacin u kom je izmjereno (#77). Nije zadat → magacin lota, matični magacin naloga ili jedini. */
+  skladisteId?: string | null;
 };
 
 /** Mjerenje + posljedice ako je FAIL: NC, zadatak, obavještenje bzr-u, i HOLD na LOT-u gdje
@@ -99,10 +102,12 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
   const napomena = nepotvrdjena && ocjena === "FAIL" ? [ulaz.napomena, "van nepotvrđene granice — ne ocjenjuje se automatski"].filter(Boolean).join("; ") : ulaz.napomena;
 
   return transakcija(async (klijent) => {
+    const skladisteId =
+      ulaz.skladisteId !== undefined ? ulaz.skladisteId : await skladisteUnosa(klijent, { lotId: ulaz.lotId, korisnikId: ulaz.izmjerioKorisnikId });
     const mjerenje = await klijent.query<{ id: string }>(
-      `insert into mjerenje_temperature (kontrolna_tacka_id, pravilo_kontrole_id, lot_id, vozilo_id, vrijednost, izmjereno_at, izmjerio_korisnik_id, rezultat, napomena, mjerni_uredjaj_id)
-       values ($1, $2, $3, $4, $5, now(), $6, $7, $8, $9) returning id`,
-      [ulaz.kontrolnaTackaId, ulaz.praviloKontroleId, ulaz.lotId ?? null, ulaz.vozilId ?? null, ulaz.vrijednost, ulaz.izmjerioKorisnikId, rezultat, napomena ?? null, ulaz.mjerniUredjajId ?? null],
+      `insert into mjerenje_temperature (kontrolna_tacka_id, pravilo_kontrole_id, lot_id, vozilo_id, vrijednost, izmjereno_at, izmjerio_korisnik_id, rezultat, napomena, mjerni_uredjaj_id, skladiste_id)
+       values ($1, $2, $3, $4, $5, now(), $6, $7, $8, $9, $10) returning id`,
+      [ulaz.kontrolnaTackaId, ulaz.praviloKontroleId, ulaz.lotId ?? null, ulaz.vozilId ?? null, ulaz.vrijednost, ulaz.izmjerioKorisnikId, rezultat, napomena ?? null, ulaz.mjerniUredjajId ?? null, skladisteId],
     );
     const mjerenjeId = mjerenje.rows[0].id;
     if (nepotvrdjena && ocjena === "FAIL") {

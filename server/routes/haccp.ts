@@ -8,6 +8,7 @@ import { zabiljeziMjerenje, praviloZaMjerenje, provjeriTermometar } from "../ser
 import { logKreiranje } from "../services/auditService.js";
 import { neusaglasenostIzZapisa } from "../services/ncService.js";
 import { nadjiObrazac, ocijeniPodatke } from "../services/obrasciService.js";
+import { skladisteUnosa } from "../services/skladisteService.js";
 
 export const haccpRuter = Router();
 haccpRuter.get("/kontrolne-tacke", requireUloga("operater", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
@@ -102,6 +103,8 @@ const novoMjerenjeSchema = z.object({
   vrijednost: z.number(),
   napomena: z.string().optional(),
   mjerniUredjajId: z.string().uuid().optional(),
+  /** Magacin u kom je izmjereno (#77) — kad firma ima više magacina; inače se zna sam. */
+  skladisteId: z.string().uuid().optional(),
 });
 
 haccpRuter.post(
@@ -129,7 +132,8 @@ haccpRuter.post(
       if (u.ukupno > 0) throw new ApiGreska(400, "TERMOMETAR_OBAVEZAN", "Izaberite termometar kojim ste mjerili.");
     }
     await provjeriTermometar(ulaz.mjerniUredjajId);
-    const rezultat = await zabiljeziMjerenje(pravilo, { ...ulaz, praviloKontroleId: pravilo.id, izmjerioKorisnikId: request.korisnik!.id });
+    const skladisteId = await skladisteUnosa(pool, { trazeno: ulaz.skladisteId, lotId: ulaz.lotId, korisnikId: request.korisnik!.id });
+    const rezultat = await zabiljeziMjerenje(pravilo, { ...ulaz, praviloKontroleId: pravilo.id, izmjerioKorisnikId: request.korisnik!.id, skladisteId });
     response.status(201).json(rezultat);
   }),
 );
@@ -163,6 +167,8 @@ const noviZapisSchema = z.object({
   korektivnaMjera: z.string().optional(),
   izvrsilac: z.string().optional(),
   ispravljaId: z.string().uuid().optional(),
+  /** Magacin u kom je obrazac rađen (#77) — kad firma ima više magacina; inače se zna sam. */
+  skladisteId: z.string().uuid().optional(),
 });
 
 haccpRuter.post(
@@ -191,11 +197,12 @@ haccpRuter.post(
     const rezultat = await transakcija(async (klijent) => {
       let datum = ulaz.datum;
       let lanacImaNc = false;
+      let skladisteId = await skladisteUnosa(klijent, { trazeno: ulaz.skladisteId, korisnikId: korisnik.id });
       if (ulaz.ispravljaId) {
         // Ispravka (R-07): istog obrasca, posljednje verzije, svog zapisa (terenska uloga), u svom prozoru.
         const stari = (
-          await klijent.query<{ obrazac_kod: string; datum: string; uneo_korisnik_id: string | null; ispravljen: boolean }>(
-            `select z.obrazac_kod, z.datum, z.uneo_korisnik_id, exists (select 1 from zapis n where n.ispravlja_id = z.id) as ispravljen
+          await klijent.query<{ obrazac_kod: string; datum: string; uneo_korisnik_id: string | null; ispravljen: boolean; skladiste_id: string | null }>(
+            `select z.obrazac_kod, z.datum, z.uneo_korisnik_id, z.skladiste_id, exists (select 1 from zapis n where n.ispravlja_id = z.id) as ispravljen
              from zapis z where z.id = $1 for update`,
             [ulaz.ispravljaId],
           )
@@ -208,6 +215,8 @@ haccpRuter.post(
         }
         // Ispravka nosi datum zapisa koji ispravlja — to je isti dan rada, drugačije upisan.
         datum = stari.datum;
+        // …i isti magacin: ispravka je isti rad, ne nov zapis u drugom magacinu.
+        if (!ulaz.skladisteId && stari.skladiste_id) skladisteId = stari.skladiste_id;
         lanacImaNc = (
           await klijent.query<{ ima: boolean }>(
             `with recursive lanac as (
@@ -224,9 +233,9 @@ haccpRuter.post(
       try {
         id = (
           await klijent.query<{ id: string }>(
-            `insert into zapis (obrazac_kod, datum, podaci, odstupanje, korektivna_mjera, izvrsilac, uneo_korisnik_id, ispravlja_id)
-             values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-            [obrazac.kod, datum, JSON.stringify(podaci), odstupanje, odstupanje ? ulaz.korektivnaMjera!.trim() : ulaz.korektivnaMjera?.trim() || null, izvrsilac, korisnik.id, ulaz.ispravljaId ?? null],
+            `insert into zapis (obrazac_kod, datum, podaci, odstupanje, korektivna_mjera, izvrsilac, uneo_korisnik_id, ispravlja_id, skladiste_id)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+            [obrazac.kod, datum, JSON.stringify(podaci), odstupanje, odstupanje ? ulaz.korektivnaMjera!.trim() : ulaz.korektivnaMjera?.trim() || null, izvrsilac, korisnik.id, ulaz.ispravljaId ?? null, skladisteId],
           )
         ).rows[0].id;
       } catch (e) {
