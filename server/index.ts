@@ -159,8 +159,10 @@ const start = async () => {
   } else {
     const distPath = path.resolve(projectRoot, "dist");
     app.use(express.static(distPath, { index: false }));
+    // Stranica aplikacije i za HEAD, ne samo GET: nadzor dostupnosti (UptimeRobot, besplatni plan) pita
+    // metodom HEAD — bez ovoga je dobijao 404 i javljao „aplikacija pala“ dok je radila (27.09.2026).
     app.use((request, response, next) => {
-      if (request.method !== "GET" || request.path.startsWith("/api/")) {
+      if ((request.method !== "GET" && request.method !== "HEAD") || request.path.startsWith("/api/")) {
         next();
         return;
       }

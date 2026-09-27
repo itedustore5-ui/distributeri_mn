@@ -312,7 +312,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-19 testova, 507 provjera (na čistoj bazi; na demo bazi 505 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+19 testova, 508 provjera (na čistoj bazi; na demo bazi 506 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -827,6 +827,7 @@ repozitorijuma. Ovdje samo stanje.
 | test na demo bazi bira lot „na zalihi“, a isporuka pada na `NEDOVOLJNO_ZALIHE` | posle rezervacije lot na zalihi može biti sav rezervisan za isporuke u pripremi (vlasnica ih ima na demo bazi) | test bira po SLOBODNOJ robi (`slobodno()`) |
 | push test pada samo u punom prolazu na demo bazi („2“ umjesto „1“) | povlačenje demo lota javilo je „Ne predajte lot“ i TUĐOJ isporuci u pripremi (vlasnica ju je unijela) — obavještenje vezano za njen id, čišćenje ga nije brisalo, pa ga je push poslao Marku | čišćenje po tekstu testa; nov tok koji obavještava TUĐE zapise → provjeriti čišćenje svih testova koji ga okidaju |
 | „Pileći file 1 kg“ sa otpremnice predložen kao naš „Pileći file smrznuti 500g“ | naziv se poredio slovo po slovo (Dice) — „1 kg“ i „500g“ su tri znaka razlike u dugom nazivu | pakovanje i procenat se čitaju posebno i moraju se slagati; ostatak naziva se poredi bez njih (#72) |
+| UptimeRobot javlja „aplikacija pala“, a radi (odgovor prazan, `Content-Security-Policy: default-src 'none'`) | besplatni UptimeRobot pita metodom HEAD; stranica aplikacije se slala samo za GET, pa je `/` vraćao Expressov 404 | povratak na `index.html` i za HEAD (`server/index.ts`); monitor da gađa `/api/zdravlje` (javlja i bazu) |
 | sa dva magacina, mjerenje komore u jednom „pokrije“ plan drugog; drugi magacioner ne zna da je kolega već izmjerio | mjerenje i zapis nisu pamtili magacin; Moja strana se nije osvježavala; nije pisalo ko je uradio | magacin na mjerenju i zapisu, brojanje po magacinu, „uradio/la: …“, osvježavanje na 45 s (#77) |
 | magacioner nije mogao primiti robu od dobavljača kog nema u Šifarnicima | dobavljača je dodavalo samo odgovorno lice, a forma je nudila samo spisak | „+ Nov dobavljač“ u formi prijema, upis u istoj transakciji, obavještenje odgovornom licu (#71) |
 | regex u fajlu bez obrnute kose crte (`/(d+…)/` umjesto `/(\d+…)/`), a skripta za izmjenu „prošla“ | skripta pisana kroz bash heredoc: dvostruka kosa crta se sabije u jednu, pa je JS šablon (backtick) proguta | regex i sve sa obrnutom kosom crtom mijenjati alatom Edit ili kroz Python, ne kroz `node` heredoc; poslije izmjene grep-om provjeriti da je `\d` ostalo |
@@ -853,7 +854,8 @@ nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git lo
 - **`x-render-routing: suspend-by-user`** u odgovoru = servis je SUSPENDOVAN u Render panelu (ručno,
   ili zbog naplate/iskorišćenih besplatnih sati) — to nije spavanje. UptimeRobot ga ne budi; kod ne
   pomaže. Render → servis → „Resume Service“ (ako traži — dodati karticu ili preći na plaćeni plan).
-  UptimeRobot neka gađa `/api/zdravlje` (javlja i bazu, 503 kad ne odgovara). Na besplatnom planu
+  UptimeRobot neka gađa `/api/zdravlje` (javlja i bazu, 503 kad ne odgovara; radi i sa HEAD, kojim
+  besplatni UptimeRobot pita). Na besplatnom planu
   ping svakih 5 min drži servis budnim 24/7 i troši ~750 besplatnih sati mjesečno.
 - Server ne učitava izmjene sam (`tsx` bez watch): poslije izmjene u `server/` — restart.
 - **Node ≥ 22.13** (`engines` u `package.json`) — zbog `pdfjs-dist`.

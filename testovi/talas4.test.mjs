@@ -16,6 +16,9 @@ export async function pokreni({ provjeri }) {
     // ── R-25 ──
     const z = await anon("/zdravlje");
     provjeri("R-25: zdravlje javlja i stanje baze", z.status === 200 && z.tijelo.ok === true && z.tijelo.baza === "ok", JSON.stringify(z.tijelo));
+    // Nadzor dostupnosti (UptimeRobot, besplatni plan) pita metodom HEAD — mora dobiti 200, ne 404.
+    const glava = await fetch(`${APP_URL}/api/zdravlje`, { method: "HEAD" });
+    provjeri("Zdravlje odgovara i na HEAD (UptimeRobot) — 200", glava.status === 200, String(glava.status));
 
     // ── R-27 ──
     const odg = await fetch(`${APP_URL}/api/zdravlje`);
