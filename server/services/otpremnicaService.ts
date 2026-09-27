@@ -9,7 +9,8 @@ import { upit } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import { danasCG } from "../vrijeme.js";
 
-export type Celija = { tekst: string; pouzdanost: number };
+/** Ćelija reda; x0/x1 = položaj na strani (PDF tačke ili pikseli slike), kad je poznat. */
+export type Celija = { tekst: string; pouzdanost: number; x0?: number; x1?: number };
 export type Linija = Celija[];
 
 export type StavkaOtpremnice = {
@@ -34,6 +35,8 @@ export type Otpremnica = {
   kupac: string | null;
   temperatura: number | null;
   stavke: StavkaOtpremnice[];
+  /** Kolone prepoznate u zaglavlju tabele (prazno kad zaglavlje nije nađeno). */
+  kolone?: string[];
 };
 
 /** Ispod ovoga je OCR riječ nesigurna i polje se boji žuto. */
@@ -92,7 +95,7 @@ export async function procitajPdf(sadrzaj: Buffer): Promise<Linija[][]> {
   }
   await ucitavanje.destroy();
   if (ukupnoTeksta < 20) {
-    throw new ApiGreska(422, "PDF_BEZ_TEKSTA", "Ovaj PDF je skeniran kao slika i nema teksta — slikajte otpremnicu telefonom ili pošaljite sliku.");
+    throw new ApiGreska(422, "PDF_BEZ_TEKSTA", "Ovaj PDF je skeniran kao slika i nema teksta. Sačuvan je uz prijem — slikajte papirnu otpremnicu telefonom, ili upišite stavke ručno.");
   }
   return strane;
 }
@@ -125,14 +128,75 @@ async function dajRadnika(): Promise<OcrRadnik> {
   return radnik;
 }
 
-type OcrRijec = { text: string; confidence: number; bbox: { x0: number; x1: number } };
-type OcrLinija = { words: unknown[]; bbox: { y0: number; y1: number } };
+type Okvir = { x0: number; y0: number; x1: number; y1: number };
+type OcrRijec = { text: string; confidence: number; bbox: Okvir };
+type OcrLinija = { words: unknown[]; bbox: Okvir; baseline?: Okvir & { has_baseline?: boolean } };
 
-export async function procitajSliku(sadrzaj: Buffer): Promise<{ strane: Linija[][]; pouzdanost: number }> {
+const medijana = (niz: number[]) => {
+  if (niz.length === 0) return 0;
+  const s = [...niz].sort((a, b) => a - b);
+  return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
+
+/** Redovi papira iz RIJEČI i njihovog položaja — ne iz Tesseractovih blokova. Tesseract tabelu često
+ * podijeli u više blokova (kolone lijevo i desno), pa isti red papira dođe kao dvije „linije“ sa malo
+ * različitom visinom: zaglavlje „LOT Rok“ iznad „Proizvod JM Kol“, a lot odvojen od svog naziva. Zato:
+ * nagib papira iz osnovnih linija teksta, pa riječi u isti red kad im je (ispravljena) visina ista. */
+export function redoviIzRijeci(ocrLinije: OcrLinija[]): Linija[] {
+  const nagibi = ocrLinije
+    .map((l) => l.baseline)
+    .filter((b): b is NonNullable<OcrLinija["baseline"]> => !!b && b.x1 - b.x0 > 60)
+    .map((b) => (b.y1 - b.y0) / (b.x1 - b.x0))
+    .filter((k) => Math.abs(k) < 0.2);
+  const k = medijana(nagibi);
+  const rijeci = ocrLinije.flatMap((l) => l.words as OcrRijec[]).filter((r) => r.text.trim());
+  if (rijeci.length === 0) return [];
+  const visina = medijana(rijeci.map((r) => r.bbox.y1 - r.bbox.y0)) || 20;
+  const saVisinom = rijeci
+    .map((r) => ({ r, y: (r.bbox.y0 + r.bbox.y1) / 2 - k * ((r.bbox.x0 + r.bbox.x1) / 2) }))
+    .sort((a, b) => a.y - b.y);
+  const redovi: { y: number; n: number; rijeci: OcrRijec[] }[] = [];
+  for (const w of saVisinom) {
+    const zadnji = redovi[redovi.length - 1];
+    if (zadnji && w.y - zadnji.y < visina * 0.6) {
+      zadnji.rijeci.push(w.r);
+      zadnji.y = (zadnji.y * zadnji.n + w.y) / (zadnji.n + 1);
+      zadnji.n++;
+    } else redovi.push({ y: w.y, n: 1, rijeci: [w.r] });
+  }
+  const linije: Linija[] = [];
+  for (const red of redovi) {
+    const sortirane = red.rijeci.sort((a, b) => a.bbox.x0 - b.bbox.x0);
+    const znakova = sortirane.reduce((z, r) => z + r.text.length, 0);
+    const sirinaZnaka = sortirane.reduce((z, r) => z + (r.bbox.x1 - r.bbox.x0), 0) / Math.max(1, znakova);
+    const celije: { rijeci: OcrRijec[] }[] = [];
+    let prethodna: OcrRijec | null = null;
+    for (const r of sortirane) {
+      if (prethodna && r.bbox.x0 - prethodna.bbox.x1 < sirinaZnaka * 1.6) celije[celije.length - 1].rijeci.push(r);
+      else celije.push({ rijeci: [r] });
+      prethodna = r;
+    }
+    linije.push(
+      celije.map((c) => ({
+        tekst: c.rijeci.map((r) => r.text).join(" "),
+        pouzdanost: Math.min(...c.rijeci.map((r) => r.confidence)),
+        x0: c.rijeci[0].bbox.x0,
+        x1: c.rijeci[c.rijeci.length - 1].bbox.x1,
+      })),
+    );
+  }
+  return linije;
+}
+
+/** Jedno čitanje slike, u redu sa ostalima (jedan radnik za cijeli server). `psm` = kako Tesseract
+ * dijeli stranu: 6 — jedan blok (najbolje za otpremnicu, trpi nagib), 11 — rijedak tekst (mala slika),
+ * 3 — automatski. Sauvola prag uvijek: Otsu na fotografiji sa sjenkom ne pročita ništa (mjereno). */
+async function ocr(sadrzaj: Buffer, psm = "6") {
   const posao = red.then(async () => {
     if (gasenje) clearTimeout(gasenje);
     const w = await dajRadnika();
     try {
+      await w.setParameters({ tessedit_pageseg_mode: psm } as Record<string, string>);
       const { data } = await w.recognize(sadrzaj, { rotateAuto: true }, { text: true, blocks: true });
       return data;
     } finally {
@@ -146,30 +210,120 @@ export async function procitajSliku(sadrzaj: Buffer): Promise<{ strane: Linija[]
   });
   red = posao.catch(() => undefined);
   const data = await posao;
-  const sveLinije = (data.blocks ?? [])
-    .flatMap((b) => b.paragraphs.flatMap((p) => p.lines as unknown as OcrLinija[]))
-    .sort((a, b) => (a.bbox.y0 + a.bbox.y1) - (b.bbox.y0 + b.bbox.y1));
-  const linije: Linija[] = [];
-  for (const l of sveLinije) {
-    const rijeci = (l.words as OcrRijec[]).filter((r) => r.text.trim()).sort((a, b) => a.bbox.x0 - b.bbox.x0);
-    if (rijeci.length === 0) continue;
-    const znakova = rijeci.reduce((z, r) => z + r.text.length, 0);
-    const sirinaZnaka = rijeci.reduce((z, r) => z + (r.bbox.x1 - r.bbox.x0), 0) / Math.max(1, znakova);
-    const celije: { rijeci: OcrRijec[] }[] = [];
-    let prethodna: OcrRijec | null = null;
-    for (const r of rijeci) {
-      if (prethodna && r.bbox.x0 - prethodna.bbox.x1 < sirinaZnaka * 1.6) celije[celije.length - 1].rijeci.push(r);
-      else celije.push({ rijeci: [r] });
-      prethodna = r;
-    }
-    linije.push(
-      celije.map((c) => ({
-        tekst: c.rijeci.map((r) => r.text).join(" "),
-        pouzdanost: Math.min(...c.rijeci.map((r) => r.confidence)),
-      })),
-    );
+  const ocrLinije = (data.blocks ?? []).flatMap((b) => b.paragraphs.flatMap((p) => p.lines as unknown as OcrLinija[]));
+  // „Dobre riječi“ (sigurno pročitana slova) — po njima se vidi je li slika uspravna: u pravom
+  // položaju ih je 40–60, u pogrešnom 0–2 (mjereno i na tamnoj i na mutnoj slici).
+  const dobrihRijeci = ocrLinije
+    .flatMap((l) => l.words as OcrRijec[])
+    .filter((r) => r.confidence >= 85 && /[A-Za-zČĆŠŽĐčćšžđ]{3,}/.test(r.text)).length;
+  return { linije: redoviIzRijeci(ocrLinije), pouzdanost: Math.round(data.confidence ?? 0), dobrihRijeci };
+}
+
+type Priprema = "sirovo" | "kontrast" | "ostro" | "kontrast-ostro";
+
+/** Slika za jedan prolaz: okrenuta (fotografija „položena“ ili naopako) i pripremljena.
+ * kontrast = CLAHE (lokalni kontrast — spašava tamnu sliku), ostro = izoštravanje (mutna slika).
+ * Mala slika se za te prolaze uveća (mala + tamna se tek tada pročita). Globalno razvlačenje
+ * kontrasta (normalise) je na probi POGORŠAVALO — pojača sjenku. */
+async function pripremljena(sadrzaj: Buffer, ugao: number, priprema: Priprema, najvise = 3200): Promise<Buffer> {
+  if (ugao === 0 && priprema === "sirovo" && najvise >= 3200) return sadrzaj;
+  const sharp = (await import("sharp")).default;
+  const m = await sharp(sadrzaj, { failOn: "none" }).metadata();
+  const duza = Math.max(m.width ?? 2000, m.height ?? 2000);
+  let s = sharp(sadrzaj, { failOn: "none" }).autoOrient();
+  if (ugao) s = s.rotate(ugao);
+  const cilj = priprema !== "sirovo" && duza < 2400 && najvise >= 3200 ? 2600 : Math.min(najvise, duza);
+  s = s.resize({ width: cilj, height: cilj, fit: "inside" });
+  if (priprema !== "sirovo") s = s.grayscale();
+  if (priprema.includes("kontrast")) {
+    const plocica = Math.max(24, Math.min(128, Math.round(cilj / 37)));
+    s = s.clahe({ width: plocica, height: plocica, maxSlope: 3 });
   }
-  return { strane: [linije], pouzdanost: Math.round(data.confidence ?? 0) };
+  if (priprema.includes("ostro")) s = s.sharpen({ sigma: 1.5, m1: 1, m2: 3 });
+  return s.jpeg({ quality: 92 }).toBuffer();
+}
+
+/** Koliko je čitanje upotrebljivo: stavke sa količinom, lotom i rokom (onim kolonama koje otpremnica
+ * ima), minus nesigurna polja. „potpuno“ = svaka stavka ima sve — tada se dalje ne čita. */
+function ocjenaCitanja(otpremnice: Otpremnica[]) {
+  const o = otpremnice.find((x) => x.stavke.length > 0) ?? otpremnice[0];
+  if (!o) return { ocjena: -1, potpuno: false };
+  const kolone = o.kolone ?? [];
+  // Količina uvijek (bez nje nema prijema); lot i rok kad ih otpremnica ima kao kolonu.
+  const trazi = (["kolicina", "lot", "rok"] as const).filter((k) => k === "kolicina" || kolone.includes(k));
+  let ocjena = o.broj ? 1 : 0;
+  let potpuno = o.stavke.length > 0;
+  for (const s of o.stavke) {
+    ocjena += 1 + (s.naziv ? 0.5 : 0) - 0.5 * s.nesigurno.length;
+    for (const k of trazi) {
+      if (s[k] !== null) ocjena += 1;
+      else potpuno = false;
+    }
+  }
+  return { ocjena, potpuno };
+}
+
+// Redoslijed prolaza je izmjeren na probnim fotografijama (tamna, mutna, mala, nagnuta, okrenuta i
+// njihove kombinacije): svaki sljedeći spašava ono što prethodni ne pročita.
+const PROLAZI: { priprema: Priprema; psm: string }[] = [
+  { priprema: "sirovo", psm: "6" },
+  { priprema: "kontrast", psm: "6" },
+  { priprema: "ostro", psm: "6" },
+  { priprema: "kontrast-ostro", psm: "6" },
+  { priprema: "sirovo", psm: "11" },
+  { priprema: "kontrast", psm: "11" },
+];
+const NAJVISE_PROLAZA = 10;
+const NAJDUZE_MS = 100_000;
+/** Ispod ovoliko dobrih riječi slika nije uspravna (ili na njoj nema teksta). */
+const USPRAVNA = 12;
+
+/** Fotografija otpremnice → otpremnice. Jedno čitanje je krhko (mala promjena veličine, svjetla ili
+ * nagiba ga obori — mjereno), pa se čita u prolazima dok jedan ne da sve: obično → kontrast →
+ * izoštreno → oboje → rijedak tekst. Ako u prvom čitanju skoro nema sigurnih riječi, slika je
+ * „položena“ ili naopako: brza proba na manjoj kopiji za 90°, 270° i 180° bira položaj sa najviše
+ * sigurnih riječi. Uzima se najbolje čitanje. Dobra fotografija završi posle prvog prolaza. */
+export async function procitajSliku(sadrzaj: Buffer): Promise<{ otpremnice: Otpremnica[]; pouzdanost: number; prolaza: number }> {
+  const pocetak = Date.now();
+  let najbolje: { otpremnice: Otpremnica[]; pouzdanost: number; ocjena: number } | null = null;
+  let prolaza = 0;
+  const isteklo = () => prolaza >= NAJVISE_PROLAZA || Date.now() - pocetak > NAJDUZE_MS;
+
+  const citaj = async (ugao: number, p: { priprema: Priprema; psm: string }, najvise = 3200) => {
+    const slika = await pripremljena(sadrzaj, ugao, p.priprema, najvise).catch(() => null);
+    if (!slika) return { potpuno: false, dobrihRijeci: 0 };
+    prolaza++;
+    const { linije, pouzdanost, dobrihRijeci } = await ocr(slika, p.psm);
+    const otpremnice = parsiraj([linije]);
+    const o = ocjenaCitanja(otpremnice);
+    if (!najbolje || o.ocjena > najbolje.ocjena || (o.ocjena === najbolje.ocjena && pouzdanost > najbolje.pouzdanost)) {
+      najbolje = { otpremnice, pouzdanost, ocjena: o.ocjena };
+    }
+    return { potpuno: o.potpuno, dobrihRijeci };
+  };
+  const gotovo = () => ({ otpremnice: najbolje?.otpremnice ?? [], pouzdanost: najbolje?.pouzdanost ?? 0, prolaza });
+
+  const prvi = await citaj(0, PROLAZI[0]);
+  if (prvi.potpuno) return gotovo();
+
+  let ugao = 0;
+  if (prvi.dobrihRijeci < USPRAVNA) {
+    let naj = { ugao: 0, dobrih: prvi.dobrihRijeci };
+    for (const u of [90, 270, 180]) {
+      if (isteklo()) break;
+      const r = await citaj(u, PROLAZI[0], 1600);
+      if (r.potpuno) return gotovo();
+      if (r.dobrihRijeci > naj.dobrih) naj = { ugao: u, dobrih: r.dobrihRijeci };
+    }
+    ugao = naj.ugao;
+  }
+  for (const [i, p] of PROLAZI.entries()) {
+    if (isteklo()) break;
+    if (ugao === 0 && i === 0) continue;
+    const r = await citaj(ugao, p);
+    if (r.potpuno) return gotovo();
+  }
+  return gotovo();
 }
 
 // ─── Prepoznavanje ───────────────────────────────────────────────────────────────────────────────
@@ -212,14 +366,17 @@ export function uBroj(tekst: string | null | undefined): number | null {
 const JM = /^(kom|kom\.|kg|kg\.|g|gr|l|lit|lit\.|ml|pak|pak\.|kut|kut\.|kart|kd|fl|boca|bok|kanta|par|m)$/i;
 
 // Kolone tabele: po nazivu u zaglavlju.
-type Kolona = "sifra" | "naziv" | "jm" | "kolicina" | "lot" | "rok";
+// "ostalo" = kolona koju prijem ne koristi (cijena, rabat, iznos, redni broj…) — prepoznaje se da bi
+// se znao njen POLOŽAJ: inače bi iznos sa kraja reda bio pročitan kao količina.
+type Kolona = "sifra" | "naziv" | "jm" | "kolicina" | "lot" | "rok" | "ostalo";
 const ZAGLAVLJE: [Kolona, RegExp][] = [
-  ["sifra", /^(sifra|sif|kod|sifra artikla|sif\. art|br\. art\w*|artikal br\.?|r\.?b\.?)$/],
-  ["naziv", /^(proizvod|naziv|artikal|opis|naziv artikla|naziv proizvoda|naziv robe|roba)$/],
-  ["jm", /^(jm|j\.m|j\. m|jed\. ?mj\w*|jedinica\w*|mj)$/],
-  ["kolicina", /^(kol|kolicina|kolic\w*|kom)$/],
-  ["lot", /^(lot|serija|sarza|lot\/serija|serija\/lot|batch|lot br|br\. lota|broj lota)$/],
-  ["rok", /^(rok|rok trajanja|upotrebljivo do|najbolje upotrijebiti do|datum isteka|exp|best before|rok upotrebe)$/],
+  ["ostalo", /^(r\.? ?br\.?|rb|red\.? ?br\.?|redni broj|br\.?|ean|bar ?kod|barkod|cijena\w*|cena\w*|vp cijena|mp cijena|jed\.? cijena|rabat\w*|popust|pdv\w*|osnovica|iznos\w*|vrijednost\w*|vrednost\w*|ukupno\w*|total|neto|bruto|tezina|masa|pakovanje|pak)$/],
+  ["sifra", /^(sifra|ifra|fra|sif|kod|sifra artikla|sif\. art|br\. art\w*|artikal br\.?|kat\.? ?br\.?|kataloski broj)$/],
+  ["naziv", /^(proizvod|naziv|artikal|opis|naziv artikla|naziv proizvoda|naziv robe|roba|artikli|opis robe|naziv i opis)$/],
+  ["jm", /^(jm|j\.m|j\. m|jed\. ?mj\w*|jedinica\w*|mj|jed\.)$/],
+  ["kolicina", /^(kol|kolicina|kolic\w*|kom|isporuceno|isporucena kolicina|kol\. isp\.?)$/],
+  ["lot", /^(lot|serija|sarza|lot\/serija|serija\/lot|batch|lot br|lot broj|br\. lota|broj lota|broj serije|partija|lot\/sarza|sarza\/lot|lot no)$/],
+  ["rok", /^(rok|rok trajanja|upotrebljivo do|najbolje upotrijebiti do|najbolje do|datum isteka|datum isteka roka|istek|exp|exp\. date|best before|rok upotrebe|rok vazenja|bbd)$/],
 ];
 
 const bezInterpunkcije = (s: string) => normalizuj(s).replace(/[^a-z0-9 ./\\]/g, "").replace(/[.:]+$/, "").trim();
@@ -230,17 +387,24 @@ function kolonaZaglavlja(tekst: string): Kolona | null {
   return null;
 }
 
-/** Zaglavlje tabele: red u kom su bar tri prepoznate kolone, među njima lot ili količina. */
+/** Zaglavlje tabele: red u kom su bar tri prepoznate kolone, među njima lot ili količina. Kolone
+ * „ostalo“ (cijena, iznos…) ostaju na svom mjestu, svaka; prave kolone se broje jednom. */
 function redoslijedKolona(linija: Linija): Kolona[] | null {
   let kolone = linija.map((c) => kolonaZaglavlja(c.tekst));
   // OCR ponekad spoji dvije labele u jednu ćeliju ("Šifra Proizvod") — probaj po riječima.
-  if (kolone.filter(Boolean).length < 3) kolone = linija.flatMap((c) => c.tekst.split(/\s+/).map((r) => kolonaZaglavlja(r)));
+  if (kolone.filter((k) => k && k !== "ostalo").length < 3) {
+    const poRijecima = linija.flatMap((c) => c.tekst.split(/\s+/).map((r) => kolonaZaglavlja(r)));
+    if (poRijecima.filter((k) => k && k !== "ostalo").length > kolone.filter((k) => k && k !== "ostalo").length) kolone = poRijecima;
+  }
   // Zaglavlje je kratak red u kom su labele većina — rečenica "…istekao rok, LOT…" nije zaglavlje.
-  if (kolone.length > 12 || kolone.filter(Boolean).length * 2 < kolone.length) return null;
-  const nadjene = kolone.filter((k): k is Kolona => k !== null);
-  const jedinstvene = [...new Set(nadjene)];
-  if (jedinstvene.length < 3 || !(jedinstvene.includes("lot") || jedinstvene.includes("kolicina"))) return null;
-  return jedinstvene;
+  if (kolone.length > 14 || kolone.filter(Boolean).length * 2 < kolone.length) return null;
+  const rezultat: Kolona[] = [];
+  for (const k of kolone) if (k && (k === "ostalo" || !rezultat.includes(k))) rezultat.push(k);
+  const prave = rezultat.filter((k) => k !== "ostalo");
+  if (prave.length < 3 || !(prave.includes("lot") || prave.includes("kolicina"))) return null;
+  // „ostalo“ na samom početku bez šifre (redni broj) i na kraju (iznosi) se zadržava; bez prave kolone
+  // pored sebe ne znači ništa, ali ne smeta.
+  return rezultat;
 }
 
 const KRAJ_TABELE = /^(napomena|ukupno|svega|predao|preuzeo|potpis|napomene|total|iznos|vozac|status)/;
@@ -262,15 +426,29 @@ function ocistiKod(tekst: string): { vrijednost: string | null; ispravljeno: boo
 }
 
 /** Da li riječ može biti vrijednost te kolone — po obliku, ne po položaju. */
+/** Odsječen ili nepotpun datum („02.10.202“) — nije lot, nego rok koji treba provjeriti. */
+const LICI_NA_DATUM = /^\d{1,2}[.\/-]\d{1,2}[.\/-]\d{0,4}\.?$/;
+
 function lici(k: Kolona, tekst: string): boolean {
   if (k === "jm") return JM.test(tekst.replace(/[^A-Za-z.]/g, ""));
   if (k === "kolicina") return uBroj(tekst.replace(/[^0-9.,]/g, "")) !== null && /^[|]?[\d.,]+$/.test(tekst);
-  if (k === "rok") return uDatum(tekst) !== null;
+  if (k === "rok") return uDatum(tekst) !== null || LICI_NA_DATUM.test(tekst.trim());
   if (k === "lot") {
     const v = ocistiKod(tekst).vrijednost ?? "";
-    return v.length >= 3 && /\d/.test(v) && uDatum(v) === null;
+    return v.length >= 3 && /\d/.test(v) && uDatum(v) === null && !LICI_NA_DATUM.test(tekst.trim());
   }
+  if (k === "ostalo") return /^[|]?[-+]?[\d.,]+\s*[%€]?$|^[%€]$/.test(tekst.trim());
   return true;
+}
+
+/** Datum kome je OCR odsjekao posljednju cifru godine („02.10.202“): dopuni tekućom godinom, a polje
+ * ostaje označeno za provjeru. Sve ostalo — null. */
+function dopuniDatum(tekst: string | null | undefined): string | null {
+  const m = tekst?.trim().match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](20\d)\.?$/);
+  if (!m) return null;
+  const godina = danasCG().slice(0, 4);
+  if (!godina.startsWith(m[3])) return null;
+  return uDatum(`${m[1]}.${m[2]}.${godina}`);
 }
 
 function parsirajRed(linija: Linija, kolone: Kolona[]): StavkaOtpremnice | null {
@@ -316,8 +494,9 @@ function parsirajRed(linija: Linija, kolone: Kolona[]): StavkaOtpremnice | null 
   if (vrijednosti.kolicina && (kolicina === null || nisko("kolicina"))) nesigurno.push("kolicina");
 
   const rokTekst = vrijednosti.rok?.tekst ?? null;
-  const rok = uDatum(rokTekst);
-  if (rokTekst && (rok === null || nisko("rok"))) nesigurno.push("rok");
+  const rokTacan = uDatum(rokTekst);
+  const rok = rokTacan ?? dopuniDatum(rokTekst);
+  if (rokTekst && (rokTacan === null || nisko("rok"))) nesigurno.push("rok");
 
   let lot: string | null = null;
   if (vrijednosti.lot) {
@@ -444,6 +623,7 @@ function parsirajStranu(linije: Linija[], strana: number): Otpremnica | null {
     kupac: iza(glava, LABELA_KUPAC),
     temperatura: temperatura !== null && Number.isFinite(temperatura) ? temperatura : null,
     stavke,
+    kolone: iZaglavlja >= 0 ? (redoslijedKolona(linije[iZaglavlja]) ?? []) : [],
   };
 }
 
@@ -548,7 +728,7 @@ export function upariPoNazivu(naziv: string, artikli: { id: string; naziv: strin
     const kodVas = opisMjera(mjereIzNaziva(sukobljen.a.naziv));
     return {
       artikalId: null,
-      napomena: `Na otpremnici je ${naOtp}, a vaš „${sukobljen.a.naziv}“ je ${kodVas || "drugo pakovanje"} — to nije isti artikal. Izaberite pravi ili ga odgovorno lice dodaje u Šifarnicima.`,
+      napomena: `Na otpremnici je ${naOtp}, a vaš „${sukobljen.a.naziv}“ je ${kodVas || "drugo pakovanje"} — to nije isti artikal. Izaberite pravi sa spiska.`,
     };
   }
   return { artikalId: null, napomena: "Nije prepoznat — izaberite vaš artikal." };
@@ -566,8 +746,47 @@ export type PrijedlogStavke = StavkaOtpremnice & {
   artikalIzvor: "zapamceno" | "sifra" | "naziv" | null;
   /** Šta magacioner treba da pogleda (drugo pakovanje, više sličnih, nije prepoznat). */
   artikalNapomena: string | null;
+  /** Kad artikla nema u Šifarnicima: predlog novog, sa otpremnice (#73). `rezim` je pretpostavka. */
+  noviArtikal?: { naziv: string; jedinicaMjere: string; rezim: Rezim | null; rezimPo: "naziv" | "temperatura" | "dobavljac" | null } | null;
   rokIstekao: boolean;
 };
+
+export type Rezim = "rashladjeno" | "smrznuto" | "bez";
+
+// Pretpostavka režima novog artikla — samo predlog (granica ostaje NEPOTVRĐENA, #5, #73).
+// Redom: naziv robe → temperatura upisana na otpremnici → roba koju ovaj dobavljač inače donosi.
+const SMRZNUTO = /(smrznut|zamrznut|duboko ?smrz|frozen|sladoled|pomfrit|ledeno)/;
+const RASHLADJENO =
+  /(mlijek|mleko|jogurt|kefir|\bsir\b|\bsira\b|kajmak|pavlak|maslac|mlijecn|mlecn|namaz|\bmeso\b|mesn|pilet|pilec|pileci|\bfile\b|kobasic|salam|sunk|prsut|slanin|hrenovk|pastet|riba|\bribe\b|losos|tunj|\bjaja\b|svjez|svez|salat|puding|krem)/;
+
+const BEZ_REZIMA =
+  /(hljeb|hleb|pecivo|brasn|secer|\bso\b|\bulje\b|sirce|konzerv|tjestenin|testenin|pirinac|\bpasta\b|\bvoda\b|\bsok\b|sokovi|pivo|\bvino\b|kafa|\bcaj\b|keks|cokolad|bombon|grickal|cips|deterdzent|sapun|papir|salvet|zacin|supa u kesici)/;
+
+export function pretpostaviRezim(naziv: string, temperaturaOtpremnice: number | null, istorija: Rezim[]): { rezim: Rezim; po: "naziv" | "temperatura" | "dobavljac" } | null {
+  const n = normalizuj(naziv);
+  if (SMRZNUTO.test(n)) return { rezim: "smrznuto", po: "naziv" };
+  if (RASHLADJENO.test(n)) return { rezim: "rashladjeno", po: "naziv" };
+  if (BEZ_REZIMA.test(n)) return { rezim: "bez", po: "naziv" };
+  if (temperaturaOtpremnice !== null) {
+    if (temperaturaOtpremnice <= -10) return { rezim: "smrznuto", po: "temperatura" };
+    if (temperaturaOtpremnice <= 10) return { rezim: "rashladjeno", po: "temperatura" };
+  }
+  if (istorija.length > 0) {
+    const broj = (r: Rezim) => istorija.filter((x) => x === r).length;
+    const najcesci = (["rashladjeno", "smrznuto", "bez"] as const).reduce((a, b) => (broj(b) > broj(a) ? b : a));
+    if (broj(najcesci) * 2 > istorija.length) return { rezim: najcesci, po: "dobavljac" };
+  }
+  return null;
+}
+
+/** Jedinica mjere sa otpremnice za novi artikal: „kom.“ → kom, „lit“ → l; nepoznata → kom. */
+function jedinicaIzOtpremnice(jm: string | null): string {
+  const j = (jm ?? "").toLowerCase().replace(/\.$/, "");
+  if (["lit", "l"].includes(j)) return "l";
+  if (["kg", "g", "gr"].includes(j)) return j === "kg" ? "kg" : "g";
+  if (["pak", "kut", "kart", "fl", "boca", "kanta", "ml"].includes(j)) return j;
+  return "kom";
+}
 export type Prijedlog = {
   strana: number;
   broj: string | null;
@@ -606,12 +825,21 @@ export async function uskladi(o: Otpremnica): Promise<Prijedlog> {
   }
   if (!dobavljac.id) {
     upozorenja.push(
-      `Dobavljač ${o.isporucilac ?? "sa otpremnice"}${dobavljac.pib ? ` (PIB ${dobavljac.pib})` : ""} nije u šifarniku — izaberite ga ili ga odgovorno lice dodaje u Šifarnicima.`,
+      `Dobavljač ${o.isporucilac ?? "sa otpremnice"}${dobavljac.pib ? ` (PIB ${dobavljac.pib})` : ""} nije u šifarniku — upisuje ga odgovorno lice (Šifarnici → Dobavljači).`,
     );
   }
 
   const mapiranja = dobavljac.id
     ? (await upit<{ kljuc: string; artikal_id: string }>(`select kljuc, artikal_id from artikal_dobavljaca where dobavljac_id = $1`, [dobavljac.id])).rows
+    : [];
+  // Kakvu robu ovaj dobavljač inače donosi — za pretpostavku režima novog artikla.
+  const istorija = dobavljac.id
+    ? (
+        await upit<{ temp_kontrolisano: boolean; temp_max: string | null }>(
+          `select a.temp_kontrolisano, a.temp_max from artikal_dobavljaca ad join artikal a on a.id = ad.artikal_id where ad.dobavljac_id = $1`,
+          [dobavljac.id],
+        )
+      ).rows.map((a): Rezim => (!a.temp_kontrolisano ? "bez" : a.temp_max !== null && Number(a.temp_max) <= -10 ? "smrznuto" : "rashladjeno"))
     : [];
   const danas = danasCG();
   const stavke: PrijedlogStavke[] = o.stavke.map((s) => {
@@ -628,25 +856,38 @@ export async function uskladi(o: Otpremnica): Promise<Prijedlog> {
     }
     if (!s.naziv) return { ...s, artikalId: null, artikalSigurno: false, artikalIzvor: null, artikalNapomena: "Nije prepoznat — izaberite vaš artikal.", rokIstekao };
     const u = upariPoNazivu(s.naziv, artikli.rows);
-    return { ...s, artikalId: u.artikalId, artikalSigurno: false, artikalIzvor: u.artikalId ? ("naziv" as const) : null, artikalNapomena: u.napomena, rokIstekao };
+    if (u.artikalId) return { ...s, artikalId: u.artikalId, artikalSigurno: false, artikalIzvor: "naziv" as const, artikalNapomena: u.napomena, rokIstekao };
+    // Nema ga u Šifarnicima → predlog NOVOG artikla sa otpremnice (#73): upisuje se uz prijem, magacioner
+    // samo pregleda. Kad su dva postojeća podjednako slična, ne predlaže se nov — bira se jedan od njih.
+    const visePostojecih = u.napomena.startsWith("Više sličnih");
+    const rezim = visePostojecih ? null : pretpostaviRezim(s.naziv, o.temperatura, istorija);
+    return {
+      ...s,
+      artikalId: null,
+      artikalSigurno: false,
+      artikalIzvor: null,
+      artikalNapomena: u.napomena,
+      noviArtikal: visePostojecih ? null : { naziv: s.naziv, jedinicaMjere: jedinicaIzOtpremnice(s.jm), rezim: rezim?.rezim ?? null, rezimPo: rezim?.po ?? null },
+      rokIstekao,
+    };
   });
   if (stavke.some((s) => s.rokIstekao)) upozorenja.push("Na otpremnici je roba sa isteklim rokom — takva stavka se ne može prihvatiti.");
-  if (stavke.some((s) => !s.artikalId)) upozorenja.push("Neke stavke nisu prepoznate kao vaš artikal — izaberite ih (napomena je uz stavku); izbor se pamti za ovog dobavljača.");
+  if (stavke.some((s) => !s.artikalId && !s.noviArtikal)) upozorenja.push("Neke stavke nisu prepoznate kao vaš artikal — izaberite ih (napomena je uz stavku); izbor se pamti za ovog dobavljača.");
 
   return { strana: o.strana, broj: o.broj, datum: o.datum, temperaturaNaOtpremnici: o.temperatura, dobavljac, stavke, upozorenja };
 }
 
 /** Cijeli tok: fajl → tekst → otpremnice → prijedlozi. */
 export async function procitajOtpremnicu(sadrzaj: Buffer, vrsta: "pdf" | "slika") {
-  const { strane, pouzdanost } = vrsta === "pdf" ? { strane: await procitajPdf(sadrzaj), pouzdanost: null } : await procitajSliku(sadrzaj);
-  const otpremnice = parsiraj(strane);
+  const { otpremnice, pouzdanost } =
+    vrsta === "pdf" ? { otpremnice: parsiraj(await procitajPdf(sadrzaj)), pouzdanost: null } : await procitajSliku(sadrzaj);
   if (otpremnice.length === 0) {
     throw new ApiGreska(
       422,
       "OTPREMNICA_NIJE_PROCITANA",
       vrsta === "slika"
-        ? "Na slici nije pronađena tabela sa robom. Slikajte cijelu otpremnicu odozgo, ravno, bez sjenke — ili unesite prijem ručno."
-        : "U PDF-u nije pronađena tabela sa robom (kolone kao Šifra, Naziv, Količina, Lot, Rok) — unesite prijem ručno.",
+        ? "Na slici nije pronađena tabela sa robom. Slika je sačuvana uz prijem — upišite stavke ručno, ili slikajte ponovo: cijela otpremnica, odozgo, bez sjenke."
+        : "U PDF-u nije pronađena tabela sa robom (kolone kao Šifra, Naziv, Količina, Lot, Rok). PDF je sačuvan uz prijem — upišite stavke ručno.",
     );
   }
   return { otpremnice: await Promise.all(otpremnice.map(uskladi)), pouzdanostOcr: pouzdanost };

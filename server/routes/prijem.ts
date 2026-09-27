@@ -5,7 +5,7 @@ import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, samoMoje, type AuthZahtjev } from "../auth.js";
 import { kljucIzZaglavlja } from "../services/kljucService.js";
 import { tijelo, str } from "../validacija.js";
-import { kreirajPrijem, donesiOdlukuOLotu, izmijeniStavku } from "../services/prijemService.js";
+import { kreirajPrijem, donesiOdlukuOLotu, izmijeniStavku, javiNepoznatogDobavljaca } from "../services/prijemService.js";
 import { prepoznajVrstu, procitajOtpremnicu } from "../services/otpremnicaService.js";
 
 export const prijemRuter = Router();
@@ -57,8 +57,17 @@ prijemRuter.get(
   }),
 );
 
+// Artikal sa spiska ILI nov (roba sa otpremnice koje nema u Šifarnicima) — upisuje se uz prijem, sa
+// pretpostavljenom granicom temperature koju odgovorno lice potvrđuje (invarijanta #5, #73).
+const noviArtikalSchema = z.object({
+  naziv: z.string().trim().min(2, "Upišite naziv novog artikla (kako piše na otpremnici)."),
+  jedinicaMjere: z.string().trim().min(1).max(10).default("kom"),
+  rezim: z.enum(["rashladjeno", "smrznuto", "bez"]),
+});
+
 const stavkaSchema = z.object({
-  artikalId: z.string().uuid(),
+  artikalId: z.string().uuid().optional(),
+  noviArtikal: noviArtikalSchema.optional(),
   brojLota: z.string().min(1, "Broj lota je obavezan — bez njega nema sledljivosti."),
   proizvodniDatum: z.string().optional(),
   rokTrajanja: z.string().optional(),
@@ -73,7 +82,7 @@ const stavkaSchema = z.object({
       rok: z.string().nullable().optional(),
     })
     .optional(),
-});
+}).refine((s) => !!s.artikalId !== !!s.noviArtikal, { message: "Za svaku stavku izaberite artikal sa spiska ili upišite novi.", path: ["artikalId"] });
 
 // Dobavljač sa spiska ILI nov (nije u Šifarnicima) — upisuje se u istoj transakciji sa prijemom,
 // da roba ne čeka na rampi. Odgovorno lice dobija obavještenje da provjeri podatke.
@@ -113,13 +122,23 @@ prijemRuter.post(
       nazivFajla = null;
     }
     await pool.query(`delete from prijem_dokument where prijem_id is null and created_at < now() - interval '2 days'`);
-    const procitano = await procitajOtpremnicu(sadrzaj, vrsta.vrsta);
+    // Nepročitana otpremnica NIJE slijepa ulica: fajl se ipak čuva (dokaz uz prijem), a magacioner
+    // stavke upisuje ručno — sa slikom priloženom uz prijem.
+    let procitano: Awaited<ReturnType<typeof procitajOtpremnicu>> | { otpremnice: []; pouzdanostOcr: null };
+    let nijeProcitano: string | null = null;
+    try {
+      procitano = await procitajOtpremnicu(sadrzaj, vrsta.vrsta);
+    } catch (e) {
+      if (!(e instanceof ApiGreska) || !["OTPREMNICA_NIJE_PROCITANA", "PDF_BEZ_TEKSTA"].includes(e.code)) throw e;
+      procitano = { otpremnice: [], pouzdanostOcr: null };
+      nijeProcitano = e.message;
+    }
     const dokument = await pool.query<{ id: string }>(
       `insert into prijem_dokument (vrsta, naziv_fajla, mime, velicina, sadrzaj, procitano, uneo_korisnik_id)
        values ($1, $2, $3, $4, $5, $6, $7) returning id`,
-      [vrsta.vrsta, nazivFajla, vrsta.mime, sadrzaj.length, sadrzaj, JSON.stringify(procitano), request.korisnik!.id],
+      [vrsta.vrsta, nazivFajla, vrsta.mime, sadrzaj.length, sadrzaj, JSON.stringify({ ...procitano, nijeProcitano }), request.korisnik!.id],
     );
-    response.status(201).json({ dokumentId: dokument.rows[0].id, vrsta: vrsta.vrsta, ...procitano });
+    response.status(201).json({ dokumentId: dokument.rows[0].id, vrsta: vrsta.vrsta, ...procitano, nijeProcitano });
   }),
 );
 
@@ -148,8 +167,30 @@ prijemRuter.post(
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviPrijemSchema, request.body);
     provjeriProzorUpisa(request.korisnik!.uloga, ulaz.datumPrijema);
+    // Dobavljače upisuje odgovorno lice (odluka vlasnice 27.09.2026, #71); magacioner mu javlja.
+    if (ulaz.noviDobavljac && !["bzr", "izvodjac"].includes(request.korisnik!.uloga)) {
+      throw new ApiGreska(403, "DOBAVLJAC_SAMO_ODGOVORNO_LICE", "Novog dobavljača upisuje odgovorno lice. Javite mu, pa izaberite dobavljača sa spiska.");
+    }
     const { prijemId, upozorenja } = await kreirajPrijem(ulaz, request.korisnik!.id, kljucIzZaglavlja(request.headers["x-kljuc-zahtjeva"]));
     response.status(201).json({ id: prijemId, upozorenja });
+  }),
+);
+
+// Magacioner na rampi: dobavljača sa otpremnice nema u Šifarnicima — javlja odgovornom licu, koje ga
+// upisuje (Šifarnici → Dobavljači), pa magacioner osvježi spisak i nastavi.
+prijemRuter.post(
+  "/prijem/javi-dobavljaca",
+  requireUloga("operater", "bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ulaz = tijelo(
+      z.object({
+        naziv: z.string().trim().min(2, "Upišite naziv dobavljača sa otpremnice."),
+        pib: z.string().trim().max(20).optional(),
+        brojOtpremnice: z.string().trim().max(60).optional(),
+      }),
+      request.body,
+    );
+    response.json(await javiNepoznatogDobavljaca(ulaz, request.korisnik!.id));
   }),
 );
 

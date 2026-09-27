@@ -4,9 +4,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import { pool, prijava, NALOZI, danasCG, posaljiFajl, preuzmi, glavnoSkladiste } from "./pomoc.mjs";
 
-export const naziv = "Otpremnica: PDF i fotografija → prijem, pamćenje artikala, pakovanje, nov dobavljač, manjak, istekao rok";
+export const naziv = "Otpremnica: PDF i fotografija (i okrenuta, tamna, sa cijenama) → prijem, pamćenje artikala, pakovanje, nov dobavljač i artikal, manjak, istekao rok";
 
 const folder = path.join(path.dirname(fileURLToPath(import.meta.url)), "otpremnice");
 const PDF = fs.readFileSync(path.join(folder, "testne_otpremnice.pdf"));
@@ -39,9 +40,10 @@ const pomjeri = (dana) => {
 
 export async function pokreni({ provjeri }) {
   const ana = await prijava(NALOZI.ana);
+  const konsultant = await prijava(NALOZI.konsultant);
   const marko = await prijava(NALOZI.marko);
   const petar = await prijava(NALOZI.petar);
-  const trag = { dokumenti: [], prijemi: [], dobavljacId: null, noviDobavljacId: null };
+  const trag = { dokumenti: [], prijemi: [], dobavljacId: null, noviDobavljacId: null, artikalId: null };
   const zapamti = (r) => r.tijelo?.dokumentId && trag.dokumenti.push(r.tijelo.dokumentId);
 
   try {
@@ -92,6 +94,19 @@ export async function pokreni({ provjeri }) {
     const jg = o154.stavke.find((s) => s.sifra === "J-010");
     provjeri("Predlog po nazivu nosi napomenu da se provjeri pakovanje", !jg?.artikalId || (jg.artikalIzvor === "naziv" && /pakovanje/.test(jg.artikalNapomena ?? "")), JSON.stringify(jg));
 
+    // ── Roba koje nema u Šifarnicima: predlog NOVOG artikla sa otpremnice, sa pretpostavljenim režimom ──
+    provjeri(
+      "Nepoznata roba se predlaže kao nov artikal: naziv i jedinica sa otpremnice, režim po nazivu (rashlađeno)",
+      !!pf && (pf.artikalId !== null || (pf.noviArtikal?.naziv === "Pileći file 1 kg" && pf.noviArtikal.jedinicaMjere === "kg" && pf.noviArtikal.rezim === "rashladjeno" && pf.noviArtikal.rezimPo === "naziv")),
+      JSON.stringify(pf?.noviArtikal),
+    );
+    const f001 = drugi.tijelo.otpremnice.find((o) => o.broj === "2026-000157")?.stavke.find((s) => s.sifra === "F-001");
+    provjeri(
+      "…„Smrznuto povrće“ — pretpostavljeno smrznuto",
+      !!f001 && (f001.artikalId !== null || f001.noviArtikal?.rezim === "smrznuto"),
+      JSON.stringify(f001?.noviArtikal ?? f001?.artikalId),
+    );
+
     // ── Prijem iz otpremnice: manjak (50 na papiru, izbrojano 47) ───────────────────────────
     const artikli = (await marko("/artikli")).tijelo;
     const jogurt = artikli.find((a) => a.naziv.startsWith("Jogurt"));
@@ -134,24 +149,40 @@ export async function pokreni({ provjeri }) {
     provjeri("Sljedeća otpremnica: J-010 je sigurno naš Jogurt (zapamćeno)", j010.artikalId === jogurt.id && j010.artikalSigurno === true);
     provjeri("…i M-001 naše Mlijeko", m001.artikalId === mlijeko.id && m001.artikalSigurno === true);
 
-    // ── Nov dobavljač upisan pri prijemu (magacioner, roba na rampi) ─────────────────────────
+    // ── Nov dobavljač: upisuje ga SAMO odgovorno lice (#71); magacioner javlja ────────────────
     const oznaka = String(Date.now()).slice(-7);
     const pibNovog = `0${oznaka}`;
+    const nazivNovogDobavljaca = `E2E Nov dobavljač ${oznaka} d.o.o.`;
     const stavkaNovog = { artikalId: jogurt.id, brojLota: `E2E-ND-${oznaka}`, rokTrajanja: pomjeri(10), primljenaKolicina: 5, temperaturaPrijema: 3 };
-    const saNovim = await marko("/prijem", {
-      telo: { noviDobavljac: { naziv: `E2E Nov dobavljač ${oznaka} d.o.o.`, pib: pibNovog }, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [stavkaNovog] },
+    const magacionerUpisuje = await marko("/prijem", {
+      telo: { noviDobavljac: { naziv: nazivNovogDobavljaca, pib: pibNovog }, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [stavkaNovog] },
+    });
+    if (magacionerUpisuje.tijelo?.id) trag.prijemi.push(magacionerUpisuje.tijelo.id);
+    provjeri(
+      "Magacioner ne upisuje novog dobavljača (403) — to radi odgovorno lice",
+      magacionerUpisuje.status === 403 && magacionerUpisuje.tijelo.error.code === "DOBAVLJAC_SAMO_ODGOVORNO_LICE",
+      `${magacionerUpisuje.status}`,
+    );
+    const javi = await marko("/prijem/javi-dobavljaca", { telo: { naziv: nazivNovogDobavljaca, pib: pibNovog, brojOtpremnice: "E2E-JAVI" } });
+    provjeri(
+      "…nego javi jednim dugmetom — odgovorno lice dobija obavještenje „Dodajte dobavljača“",
+      javi.status === 200 && (await ana("/obavjestenja")).tijelo.some((o) => o.naslov === `Dodajte dobavljača: ${nazivNovogDobavljaca}`),
+      `${javi.status} ${JSON.stringify(javi.tijelo)}`,
+    );
+    const saNovim = await konsultant("/prijem", {
+      telo: { noviDobavljac: { naziv: nazivNovogDobavljaca, pib: pibNovog }, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [stavkaNovog] },
     });
     if (saNovim.tijelo?.id) trag.prijemi.push(saNovim.tijelo.id);
     const noviRed = (await pool.query(`select id, naziv from dobavljac where pib = $1`, [pibNovog])).rows[0];
     trag.noviDobavljacId = noviRed?.id ?? null;
-    provjeri("Magacioner prima robu od dobavljača kog nema u Šifarnicima — upisan uz prijem", saNovim.status === 201 && !!noviRed, `${saNovim.status} ${saNovim.tijelo?.error?.message ?? ""}`);
-    const detaljNovog = saNovim.tijelo?.id ? (await marko(`/prijem/${saNovim.tijelo.id}`)).tijelo : null;
+    provjeri("Konsultant / odgovorno lice upisuje novog dobavljača uz prijem", saNovim.status === 201 && !!noviRed, `${saNovim.status} ${saNovim.tijelo?.error?.message ?? ""}`);
+    const detaljNovog = saNovim.tijelo?.id ? (await konsultant(`/prijem/${saNovim.tijelo.id}`)).tijelo : null;
     provjeri("…prijem je vezan za tog dobavljača", detaljNovog?.dobavljac_id === noviRed?.id);
     provjeri(
-      "…odgovorno lice dobija obavještenje da provjeri podatke",
+      "…drugo odgovorno lice dobija obavještenje da provjeri podatke",
       (await ana("/obavjestenja")).tijelo.some((o) => o.izvor_id === saNovim.tijelo?.id && o.naslov.includes("Nov dobavljač")),
     );
-    const istiPib = await marko("/prijem", {
+    const istiPib = await konsultant("/prijem", {
       telo: { noviDobavljac: { naziv: "E2E Drugi naziv d.o.o.", pib: pibNovog }, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [{ ...stavkaNovog, brojLota: `E2E-ND2-${oznaka}` }] },
     });
     if (istiPib.tijelo?.id) trag.prijemi.push(istiPib.tijelo.id);
@@ -190,6 +221,89 @@ export async function pokreni({ provjeri }) {
       provjeri(`${opis}: ispravljen lot (JG…) je označen za provjeru`, !!os?.stavke[2]?.nesigurno.includes("lot"));
       provjeri(`${opis}: dobavljač prepoznat`, os?.dobavljac.id === trag.dobavljacId, os?.dobavljac?.naziv);
     }
+
+    // ── Teže fotografije: okrenuta i tamna; otpremnica sa cijenama (čitanje u više prolaza) ──
+    const OCEK_CIJENE = [["JG2609A", 48, "2026-10-05"], ["ML2609B", 120, "2026-10-03"], ["PF2609C", 35.5, "2026-09-30"]];
+    for (const [opis, fajl, broj, ocek] of [
+      ["fotografija okrenuta za 90° i tamna", "telefon_okrenuta_tamna.jpg", "2026-000153", OCEKIVANO["2026-000153"]],
+      ["fotografija otpremnice sa cijenom, rabatom i iznosom", "cijene_fotografija.jpg", "2026-000170", OCEK_CIJENE],
+    ]) {
+      const r = await posaljiFajl(marko, "/prijem/otpremnica", fs.readFileSync(path.join(folder, fajl)), "image/jpeg", fajl);
+      zapamti(r);
+      const o = r.tijelo?.otpremnice?.find((x) => x.broj === broj);
+      const procitano = o?.stavke.map((s) => [s.lot, s.kolicina, s.rok]);
+      provjeri(`${opis}: lotovi, količine i rokovi tačni`, JSON.stringify(procitano) === JSON.stringify(ocek), `${r.status} ${JSON.stringify(procitano ?? r.tijelo?.error?.message)}`);
+    }
+
+    // ── PDF sa rednim brojem, cijenom, rabatom i iznosom; i otpremnica bez kolone lota ──────
+    const cijene = await posaljiFajl(marko, "/prijem/otpremnica", fs.readFileSync(path.join(folder, "sa_cijenama.pdf")), "application/pdf", "sa_cijenama.pdf");
+    zapamti(cijene);
+    const o170 = cijene.tijelo?.otpremnice?.find((o) => o.broj === "2026-000170");
+    provjeri(
+      "PDF sa cijenama: iznos se ne čita kao količina, redni broj ne kao šifra",
+      JSON.stringify(o170?.stavke.map((s) => [s.sifra, s.naziv, s.kolicina, s.lot, s.rok])) ===
+        JSON.stringify([["1001", "Jogurt 1 kg", 48, "JG2609A", "2026-10-05"], ["1002", "Mlijeko 2,8% 1 L", 120, "ML2609B", "2026-10-03"], ["2001", "Pileci file 1 kg", 35.5, "PF2609C", "2026-09-30"]]),
+      JSON.stringify(o170?.stavke),
+    );
+    const o171 = cijene.tijelo?.otpremnice?.find((o) => o.broj === "2026-000171");
+    provjeri(
+      "Otpremnica bez kolone lota: količine pročitane, lot ostaje prazan (upisuje se sa etikete)",
+      JSON.stringify(o171?.stavke.map((s) => [s.kolicina, s.lot])) === JSON.stringify([[24, null], [36, null]]),
+      JSON.stringify(o171?.stavke),
+    );
+
+    // ── Slika bez tabele: nije slijepa ulica ────────────────────────────────────────────────
+    const prazna = await sharp({ create: { width: 900, height: 1200, channels: 3, background: "#ffffff" } }).jpeg().toBuffer();
+    const np = await posaljiFajl(marko, "/prijem/otpremnica", prazna, "image/jpeg", "prazna.jpg");
+    zapamti(np);
+    provjeri(
+      "Nepročitana slika se ne odbija: sačuvana, uz poruku da se stavke upišu ručno",
+      np.status === 201 && np.tijelo.otpremnice.length === 0 && /ručno/.test(np.tijelo.nijeProcitano ?? "") && !!np.tijelo.dokumentId,
+      `${np.status} ${np.tijelo?.nijeProcitano ?? np.tijelo?.error?.message}`,
+    );
+
+    // ── Nov artikal uz prijem (roba koje nema u Šifarnicima) ────────────────────────────────
+    const nazivNovog = `E2E Nov artikal ${oznaka}`;
+    const stavkaNovogArtikla = { noviArtikal: { naziv: nazivNovog, jedinicaMjere: "kg", rezim: "smrznuto" }, brojLota: `E2E-NA-${oznaka}`, rokTrajanja: pomjeri(200), primljenaKolicina: 12.5, temperaturaPrijema: -19 };
+    const saArtiklom = await marko("/prijem", {
+      telo: { dobavljacId: trag.dobavljacId, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), dokumentId: np.tijelo?.dokumentId, stavke: [stavkaNovogArtikla] },
+    });
+    if (saArtiklom.tijelo?.id) trag.prijemi.push(saArtiklom.tijelo.id);
+    const noviArt = (
+      await pool.query(`select id, jedinica_mjere, temp_kontrolisano, temp_min::float as min, temp_max::float as max, granica_potvrdio from artikal where naziv = $1`, [nazivNovog])
+    ).rows[0];
+    trag.artikalId = noviArt?.id ?? null;
+    provjeri("Magacioner prima robu koje nema u Šifarnicima — artikal upisan uz prijem", saArtiklom.status === 201 && !!noviArt, `${saArtiklom.status} ${saArtiklom.tijelo?.error?.message ?? ""}`);
+    provjeri(
+      "…smrznuto −25 do −18 °C, jedinica kg, granica NEPOTVRĐENA",
+      noviArt?.temp_kontrolisano === true && noviArt.min === -25 && noviArt.max === -18 && noviArt.jedinica_mjere === "kg" && noviArt.granica_potvrdio === false,
+      JSON.stringify(noviArt),
+    );
+    const pravilo = (
+      await pool.query(`select count(*)::int as n from pravilo_kontrole p join kontrolna_tacka kt on kt.id = p.kontrolna_tacka_id where p.artikal_id = $1 and p.aktivan and kt.sifra = 'KKT1'`, [noviArt?.id])
+    ).rows[0].n;
+    provjeri("…granica je pravilo za prijem (KKT 1)", pravilo === 1);
+    provjeri(
+      "…odgovorno lice dobija obavještenje da potvrdi granicu",
+      (await ana("/obavjestenja")).tijelo.some((o) => o.izvor_id === saArtiklom.tijelo?.id && o.naslov.includes("Nov artikal")),
+    );
+    const detaljSaSlikom = saArtiklom.tijelo?.id ? (await marko(`/prijem/${saArtiklom.tijelo.id}`)).tijelo : null;
+    provjeri("…nepročitana slika otpremnice je priložena uz taj prijem", detaljSaSlikom?.dokumenti?.length === 1);
+    const istiNaziv = await marko("/prijem", {
+      telo: { dobavljacId: trag.dobavljacId, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko), stavke: [{ ...stavkaNovogArtikla, brojLota: `E2E-NA2-${oznaka}` }] },
+    });
+    if (istiNaziv.tijelo?.id) trag.prijemi.push(istiNaziv.tijelo.id);
+    provjeri("Isti naziv novog artikla drugi put — odbijeno, bira se sa spiska (409)", istiNaziv.status === 409 && istiNaziv.tijelo.error.code === "ARTIKAL_POSTOJI", `${istiNaziv.status}`);
+    const bezTemperature = await marko("/prijem", {
+      telo: {
+        dobavljacId: trag.dobavljacId, datumPrijema: danasCG(), skladisteId: await glavnoSkladiste(marko),
+        stavke: [{ noviArtikal: { naziv: `E2E Drugi ${oznaka}`, jedinicaMjere: "kom", rezim: "rashladjeno" }, brojLota: `E2E-NA3-${oznaka}`, rokTrajanja: pomjeri(20), primljenaKolicina: 3 }],
+      },
+    });
+    if (bezTemperature.tijelo?.id) trag.prijemi.push(bezTemperature.tijelo.id);
+    provjeri("Nov rashlađeni artikal bez temperature — odbijeno (KKT 1)", bezTemperature.status === 400 && bezTemperature.tijelo.error.code === "TEMPERATURA_OBAVEZNA", `${bezTemperature.status}`);
+    const upisanDrugi = (await pool.query(`select count(*)::int as n from artikal where naziv = $1`, [`E2E Drugi ${oznaka}`])).rows[0].n;
+    provjeri("…i ništa nije upisano u Šifarnike", upisanDrugi === 0);
   } finally {
     const k = await pool.connect();
     try {
@@ -199,6 +313,7 @@ export async function pokreni({ provjeri }) {
       const mjerenja = lotovi.length ? (await k.query(`select id from mjerenje_temperature where lot_id = any($1)`, [lotovi])).rows.map((r) => r.id) : [];
       const sve = [...prijemi, ...lotovi, ...trag.dokumenti, ...mjerenja];
       await k.query(`delete from obavjestenje where izvor_id = any($1)`, [sve]);
+      await k.query(`delete from obavjestenje where naslov like 'Dodajte dobavljača: E2E %'`);
       await k.query(`delete from audit_log where entitet_id = any($1)`, [[...sve, trag.dobavljacId].filter(Boolean)]);
       await k.query(`delete from dogadjaj where entitet_id = any($1)`, [sve]);
       await k.query(`delete from kretanje_zalihe where lot_id = any($1)`, [lotovi]);
@@ -208,6 +323,13 @@ export async function pokreni({ provjeri }) {
       await k.query(`delete from prijem_stavka where prijem_id = any($1)`, [prijemi]);
       await k.query(`delete from lot where id = any($1)`, [lotovi]);
       await k.query(`delete from prijem where id = any($1)`, [prijemi]);
+      if (trag.artikalId) {
+        const pravila = (await k.query(`select id from pravilo_kontrole where artikal_id = $1`, [trag.artikalId])).rows.map((r) => r.id);
+        await k.query(`delete from audit_log where entitet_id = any($1)`, [[trag.artikalId, ...pravila]]);
+        await k.query(`delete from pravilo_kontrole where artikal_id = $1`, [trag.artikalId]);
+        await k.query(`delete from artikal_dobavljaca where artikal_id = $1`, [trag.artikalId]);
+        await k.query(`delete from artikal where id = $1`, [trag.artikalId]);
+      }
       for (const id of [trag.dobavljacId, trag.noviDobavljacId].filter(Boolean)) {
         await k.query(`delete from audit_log where entitet_id = $1`, [id]);
         await k.query(`delete from artikal_dobavljaca where dobavljac_id = $1`, [id]);

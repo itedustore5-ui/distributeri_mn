@@ -15,10 +15,12 @@ export function StatCard({ ikonica, boja, oznaka, vrijednost, detalj }: { ikonic
   );
 }
 
-export function Modal({ naslov, podnaslov, onClose, children, footer, greska }: { naslov: string; podnaslov?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; greska?: string }) {
+/** `siroki` — za duge forme (prijem): šire na računaru, i NE zatvara se dodirom van prozora — na
+ * telefonu bi slučajan dodir iznad forme obrisao sve upisano. Zatvara se samo sa X ili „Otkaži“. */
+export function Modal({ naslov, podnaslov, onClose, children, footer, greska, siroki }: { naslov: string; podnaslov?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; greska?: string; siroki?: boolean }) {
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={siroki ? undefined : onClose}>
+      <div className={siroki ? "modal siroki" : "modal"} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             {podnaslov && <span>{podnaslov}</span>}
@@ -28,13 +30,24 @@ export function Modal({ naslov, podnaslov, onClose, children, footer, greska }: 
             <X size={18} />
           </button>
         </div>
-        {greska && (
+        {/* Greška stoji uz dugme, ne na vrhu: kod duge forme magacioner je dole, kod „Sačuvaj“,
+            i poruku na vrhu ne vidi — izgleda kao da dugme ne radi. */}
+        {greska && !footer && (
           <div className="auth-error" style={{ margin: "16px 20px 0" }}>
             <AlertCircle size={14} /> {greska}
           </div>
         )}
         {children}
-        {footer && <div className="modal-footer">{footer}</div>}
+        {footer && (
+          <div className="modal-dno">
+            {greska && (
+              <div className="auth-error" role="alert" style={{ margin: "10px 20px 0" }}>
+                <AlertCircle size={14} /> {greska}
+              </div>
+            )}
+            <div className="modal-footer">{footer}</div>
+          </div>
+        )}
       </div>
     </div>
   );

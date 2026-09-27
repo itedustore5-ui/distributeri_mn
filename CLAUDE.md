@@ -202,7 +202,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Ljudi | `/ljudi` (zaposleni, plan obuke, provjera znanja, nalozi); ulaz u provjeru na `/moja` i `/tabla` | `ljudi.ts`, `provjeraZnanja.ts` | `ljudiService`, `provjeraZnanjaService` | `lice`, `korisnik`, `plan_obuke`, `pitanje`, `sesija_znanja`, `ucesnik_znanja`, `odgovor_znanja` |
 | Šifarnici | `/sifarnici` | `sifarnici.ts` | `skladisteService` | `kupac` (+ PIB, adresa isporuke), `dobavljac` (PIB jedinstven), `artikal` (+ `rok_obavezan`), `skladiste` |
 | Prijem — KKT 1 | `/prijem` | `prijem.ts` | `prijemService`, `haccpService` | `prijem`, `prijem_stavka`, `lot`, `zaliha`, `kretanje_zalihe` |
-| Otpremnica (PDF / fotografija) | `/prijem` → Novi prijem → „Slikaj / PDF / Ručno“ | `prijem.ts` (`/prijem/otpremnica`) | `otpremnicaService` | `prijem_dokument`, `artikal_dobavljaca`, `prijem_stavka.po_otpremnici` |
+| Otpremnica (PDF / fotografija), forma prijema | `/prijem` → Novi prijem → „Slikaj / PDF / Ručno“ (`src/components/NoviPrijem.tsx`) | `prijem.ts` (`/prijem/otpremnica`) | `otpremnicaService` | `prijem_dokument`, `artikal_dobavljaca`, `prijem_stavka.po_otpremnici` |
 | Zalihe, otpis, karantin povrata | `/zalihe` | `zaliha.ts` | `otpisService` (+ `rokoviService` — rok robe) | `zaliha`, `kretanje_zalihe` |
 | HACCP — KKT 2, obrasci | `/haccp` | `haccp.ts` | `haccpService` (`praviloZaMjerenje`, `provjeriTermometar`), `obrasciService` (čita `public/obrasci-cg.json`, ocjenjuje odgovore) | `kontrolna_tacka`, `pravilo_kontrole`, `mjerenje_temperature` (+ `mjerni_uredjaj_id`), `zapis` |
 | Neusaglašenosti | `/neusaglasenosti` | `neusaglasenosti.ts` | `ncService` | `neusaglasenost`, `korektivna_mjera`, `verifikacija` |
@@ -239,7 +239,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 
 | Tačka | Šta se upisuje | Van granice → |
 |---|---|---|
-| **otpremnica** | PDF ili fotografija → server pročita (PDF tekst / lokalni OCR) i POPUNI formu; magacioner upoređuje sa robom i potvrđuje kvačicom | nesigurna polja žuta; dobavljač po PIB-u, pa po nazivu, a nepoznat se upisuje uz prijem (#71); artikal po zapamćenoj vezi, pa po šifri/nazivu uz isto pakovanje i procenat (#72); manjak i drugi lot se vide uz stavku |
+| **otpremnica** | PDF ili fotografija → server pročita (PDF tekst / lokalni OCR) i POPUNI formu; magacioner upoređuje sa robom i potvrđuje kvačicom | nesigurna polja žuta; dobavljač po PIB-u, pa po nazivu, a nepoznatog upisuje odgovorno lice — magacioner mu javlja (#71); artikal po zapamćenoj vezi, pa po šifri/nazivu uz isto pakovanje i procenat (#72), a nepoznat dolazi kao nov artikal sa pretpostavljenim režimom (#73); manjak i drugi lot se vide uz stavku |
 | **plan monitoringa** | `plan_monitoringa`: šta (mjerenje na KKT / obrazac / D1 za vozilo), koliko često, koliko puta, ko (uloga, skladište) | ništa se ne blokira — „Danas po planu" na `/moja`, kartica „Danas fali po planu · juče propušteno" na tabli, propušteni dani na `/haccp-plan` |
 | **KKT 1 — prijem** | stavke sa lotom (bez lota odbijeno) i rokom (osim artikla izuzetog od roka, #64); ista serija jednom po prijemu; temperatura **obavezna za robu pod režimom** (`TEMPERATURA_OBAVEZNA`), ocjena po `pravilo_kontrole` KKT1 artikla | mjerenje FAIL → neusaglašenost + zadatak + obavještenje `bzr` i uprava + **lot na HOLD**. Artikal sa NEPOTVRĐENOM granicom → samo WARNING i obavještenje `bzr`, bez HOLD-a (invarijanta #5) |
 | odluka o lotu | `bzr`: prihvati / HOLD / odbij (odbijanje traži razlog). **Istekao rok se ne prihvata i ne pušta** (`ROK_ISTEKAO`); pri prijemu takve robe `bzr` odmah dobija obavještenje | prihvaćeno → zaliha DOSTUPNO + kretanje PRIJEM; HOLD → KARANTIN + kretanje PRIJEM; magacioner dobija obavještenje |
@@ -311,14 +311,15 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-18 testova, 472 provjere (na čistoj bazi; na demo bazi 470 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+18 testova, 489 provjera (na čistoj bazi; na demo bazi 487 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
 jednoj transakciji, početna i nova lozinka, čitanje po ulogama, kartice direktora, nepoznat izvor
 odbijen u bazi — `faza2_integritet`), i otpremnice (10 probnih u PDF-u tačno do slova, fotografija
 nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamćen artikal, drugo pakovanje i
-procenat se ne uparuju, nov dobavljač upisan uz prijem, manjak, istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
+procenat se ne uparuju, nov dobavljač i nov artikal upisani uz prijem, okrenuta i tamna fotografija, otpremnica
+sa cijenama (PDF i fotografija), slika bez tabele se čuva, manjak, istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
 (temperatura obavezna na KKT 1, granica iz Šifarnika → pravilo sa verzijama, plan monitoringa i
 „šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
 četiri oka — `faza3_sistem`), i push (pretplata po uređaju, šifrovan sadržaj koji dešifruje samo
@@ -446,11 +447,13 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
 37. **Otpremnica samo POPUNJAVA formu — ništa se ne snima bez čovjeka.** Prijem iz otpremnice traži
     kvačicu „uporedio/la sa robom i etiketom"; nesigurna polja su žuta; dobavljač nikad nije „prvi sa
     spiska" — prepoznat (PIB, pa naziv) je izabran, nepoznat sa pročitanim nazivom je „nov dobavljač"
-    popunjen sa otpremnice (#71), ništa pročitano — prazno. Forma prvo pita KAKO se unosi (Slikaj /
-    PDF / Ručno) i tek onda se prikazuje. Čita se **na našem serveru** — PDF tekst direktno, slika lokalnim
-    OCR-om (Tesseract, `srp_latn`). **Nikakav spoljni servis** (vlasnica je to izričito odlučila
-    24.09.2026: bez Anthropica i sličnih). Temperatura sa otpremnice je podatak dobavljača — prikazuje se,
-    ne upisuje; KKT 1 mjeri magacioner.
+    popunjen sa otpremnice (#71), ništa pročitano — prazno. Forma (`src/components/NoviPrijem.tsx`)
+    prvo pita KAKO se unosi (Slikaj / PDF / Ručno), pa ide u koracima: dobavljač → roba → temperatura →
+    potvrda. **Nepročitana otpremnica nije slijepa ulica**: fajl se ipak čuva uz prijem (`nijeProcitano`
+    u odgovoru, 201), a stavke se upisuju ručno. Čita se **na našem serveru** — PDF tekst direktno, slika
+    lokalnim OCR-om (Tesseract, `srp_latn`) u više prolaza (#75). **Nikakav spoljni servis** (vlasnica je
+    to izričito odlučila 24.09.2026: bez Anthropica i sličnih). Temperatura sa otpremnice je podatak
+    dobavljača — prikazuje se, ne upisuje; KKT 1 mjeri magacioner.
 38. **Roba sa isteklim rokom se upisuje, ali se ne prihvata ni pušta** (`ROK_ISTEKAO` u
     `donesiOdlukuOLotu`). Upisuje se jer je stigla (trag za povrat i ocjenu dobavljača); ne HOLD-uje
     se automatski, da greška u kucanju datuma ostane ispravljiva dok odluka nije donesena.
@@ -460,7 +463,10 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     režima. Nijedan KKT ne čita `artikal.temp_min/max` mimo pravila. KKT 1 i KKT 3 se ne mogu
     ugasiti (`TACKA_NEZAMJENJIVA`).
 40. **Roba pod temperaturnim režimom se ne prima bez temperature** (`TEMPERATURA_OBAVEZNA`, i u
-    formi). Temperatura sa otpremnice se ne računa (#37).
+    formi). Temperatura sa otpremnice se ne računa (#37). U formi prijema se upisuje JEDNOM po vrsti
+    robe (rashlađena, smrznuta — ne po tačnoj granici), a svaki artikal se ocjenjuje po SVOJOJ granici:
+    odmah piše „u granici“ ili koji je artikal van granice (potvrđena → HOLD, pretpostavljena →
+    upozorenje). „Različito po stavci“ ostaje kao izbor. Server i dalje prima i ocjenjuje po stavci.
 41. **Četiri oka — izuzetak samo kad firma ima JEDNO aktivno odgovorno lice** (`ncService.verifikuj`).
     Server ga nudi (`VERIFIKACIJA_NIJE_NEZAVISNA` + `izuzetakMoguc`), pregledač ga ne izmišlja.
     Traži izričitu kvačicu i obrazloženje od bar 10 znakova. Trajno je označen
@@ -595,12 +601,14 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     fontovi i sa Google Fonts; blob: za otpremnicu) i HSTS; svuda nosniff, zabrana okvira,
     `Permissions-Policy`. Nova spoljna stvar (skripta, font, API) → prvo u CSP, inače je pregledač blokira.
 
-71. **Nov dobavljač se upisuje uz prijem, ne čeka Šifarnike** (odluka vlasnice 27.09.2026 — roba je na
-    rampi). `POST /prijem` prima `dobavljacId` ILI `noviDobavljac {naziv, pib?}` — tačno jedno (400).
-    Dobavljač se pravi u ISTOJ transakciji sa prijemom (`upisiNovogDobavljaca`, audit), pa napušten
-    obrazac ne ostavlja smeće u Šifarnicima. Isti PIB ili isti naziv već postoji → 409 (`PIB_POSTOJI`,
-    `DOBAVLJAC_POSTOJI`) — bira se sa spiska. Odgovorna lica (osim onog ko je upisao) dobijaju
-    obavještenje (izvor `prijem`) da provjere podatke i dopune adresu i telefon. Radi i magacioner.
+71. **Novog dobavljača upisuje SAMO odgovorno lice** (i konsultant) — odluka vlasnice 27.09.2026:
+    dobavljači su stalan spisak koji vodi odgovorno lice. Odgovorno lice ga može upisati uz prijem
+    (`POST /prijem` sa `noviDobavljac {naziv, pib?}` umjesto `dobavljacId` — tačno jedno, 400; u ISTOJ
+    transakciji, `upisiNovogDobavljaca`, audit; isti PIB ili naziv → 409 `PIB_POSTOJI`/`DOBAVLJAC_POSTOJI`;
+    drugo odgovorno lice dobija obavještenje). Magacioneru server to odbija (403
+    `DOBAVLJAC_SAMO_ODGOVORNO_LICE`); u formi on vidi pročitan naziv i PIB, dugme „Javi odgovornom licu“
+    (`POST /prijem/javi-dobavljaca` → obavještenje „Dodajte dobavljača: …“ svim odgovornim licima) i
+    „Dodat je — osvježi spisak“ (ponovo učita dobavljače i sam izabere onog sa istim PIB-om ili nazivom).
 72. **Artikal sa otpremnice se ne uparuje sa drugim pakovanjem ni procentom** (`upariPoNazivu`,
     `mjereIzNaziva`). Iz naziva se čitaju masa (g/kg), zapremina (ml/l) i procenat; ako se razlikuju od
     artikla iz Šifarnika, to NIJE isti artikal („Pileći file 1 kg“ ≠ „… 500g“, „Mlijeko 2,8%“ ≠ „3.2%“) —
@@ -609,6 +617,33 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     vas važi samo ako se pakovanje slaže i naziv liči. Svaka stavka nosi `artikalIzvor`
     (zapamćeno / šifra / naziv) i `artikalNapomena` — ekran je pokazuje ispod polja. Sigurno je SAMO
     ono što je čovjek ranije potvrdio (`artikal_dobavljaca`).
+73. **Nov artikal se upisuje uz prijem** (odluka vlasnice 27.09.2026 — „neće cijelu isporuku“: jedna
+    roba koje nema u Šifarnicima blokirala je cio prijem). Stavka nosi `artikalId` ILI `noviArtikal
+    {naziv, jedinicaMjere, rezim}` — tačno jedno. Režim daje PRETPOSTAVLJENU granicu (rashlađeno 0–4 °C,
+    smrznuto −25 do −18 °C, `GRANICA_REZIMA`) sa `granica_potvrdio = false` — po njoj se samo upozorava
+    (#5), dok je odgovorno lice ne potvrdi. Artikal + pravila KKT 1/KKT 3 (#39) u ISTOJ transakciji sa
+    prijemom; isti naziv već postoji → 409 `ARTIKAL_POSTOJI`. Odgovorna lica (osim onog ko je upisao)
+    dobijaju obavještenje da potvrde granicu, jedinicu i rok. Rok i temperatura (za režim) obavezni i za
+    nov artikal. Radi i magacioner. **Sa otpremnice se predlaže sam** (`uskladi` → `noviArtikal`): roba
+    koje nema u Šifarnicima (i koja nije podjednako slična dvama postojećim) dolazi već postavljena kao
+    nov artikal — naziv i jedinica sa otpremnice, režim PRETPOSTAVLJEN (`pretpostaviRezim`: naziv robe →
+    temperatura sa otpremnice → roba koju taj dobavljač inače donosi; `rezimPo` kaže po čemu). Polje
+    režima je žuto dok ga magacioner ne potvrdi; nesiguran naziv (OCR) je žut. Magacioner samo pregleda.
+74. **„Sačuvaj“ nikad nije sivo bez objašnjenja.** Duga forma (prijem) drži dugme uvijek aktivnim: klik
+    kad nešto fali ispiše ŠTA fali („Za čuvanje još fali: …“), zacrveni ta polja i skroluje do prvog;
+    poruka se osvježava sama dok se popunjava. Greška (i sa servera) stoji UZ DUGME (`Modal` → `.modal-dno`),
+    ne na vrhu prozora. Prozor se na računaru skroluje (`max-height`), dugme je uvijek vidljivo. Forma sa
+    `siroki` se ne zatvara dodirom van prozora (brisalo je sve upisano na telefonu).
+75. **Fotografija se čita u više prolaza, dok jedan ne da sve** (`procitajSliku`): obično (PSM 6) →
+    CLAHE kontrast → izoštreno → oboje → rijedak tekst (PSM 11); mala slika se za pripremljene prolaze
+    uveća. Ako prvo čitanje nema ni 12 „sigurnih riječi“, slika nije uspravna: brza proba 90°/270°/180° na
+    manjoj kopiji bira položaj sa najviše sigurnih riječi. Staje čim su sve stavke potpune (količina, i
+    lot/rok kad ih otpremnica ima), najviše 10 prolaza / 100 s; uzima se najbolje čitanje. Redovi tabele
+    se slažu po POLOŽAJU riječi (uz ispravku nagiba, `redoviIzRijeci`), ne po Tesseractovim blokovima.
+    Zaglavlje prepoznaje i kolone koje prijem ne koristi („ostalo“: R.br., cijena, rabat, iznos…) da
+    iznos ne bi bio pročitan kao količina. Priprema slike je `sharp` (lokalno). Izmjereno na 16 izmijenjenih
+    verzija probne fotografije (okrenuta, tamna, mutna, mala, nagnuta i kombinacije): 144/144 polja tačno;
+    prije: ~12/99. Dobra fotografija — jedan prolaz (≈3 s), okrenuta ≈15 s na računaru.
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -768,6 +803,11 @@ repozitorijuma. Ovdje samo stanje.
 | „Pileći file 1 kg“ sa otpremnice predložen kao naš „Pileći file smrznuti 500g“ | naziv se poredio slovo po slovo (Dice) — „1 kg“ i „500g“ su tri znaka razlike u dugom nazivu | pakovanje i procenat se čitaju posebno i moraju se slagati; ostatak naziva se poredi bez njih (#72) |
 | magacioner nije mogao primiti robu od dobavljača kog nema u Šifarnicima | dobavljača je dodavalo samo odgovorno lice, a forma je nudila samo spisak | „+ Nov dobavljač“ u formi prijema, upis u istoj transakciji, obavještenje odgovornom licu (#71) |
 | regex u fajlu bez obrnute kose crte (`/(d+…)/` umjesto `/(\d+…)/`), a skripta za izmjenu „prošla“ | skripta pisana kroz bash heredoc: dvostruka kosa crta se sabije u jednu, pa je JS šablon (backtick) proguta | regex i sve sa obrnutom kosom crtom mijenjati alatom Edit ili kroz Python, ne kroz `node` heredoc; poslije izmjene grep-om provjeriti da je `\d` ostalo |
+| „Sačuvaj prijem ne radi“ — na računaru | `.modal` je imao `overflow: hidden` bez visine: sa 3+ stavke sa otpremnice dugme je bilo ispod ekrana, nedostižno | `.modal` sa `max-height` i skrolom, dugme u `.modal-dno` (sticky) za SVE prozore (#74) |
+| „Sačuvaj prijem ne radi“ — na telefonu | dugme sivo bez objašnjenja (fali kvačica na dnu, rok, temperatura…), a greška servera ispisana na VRHU prozora, dok je magacioner dole | dugme uvijek aktivno, „Za čuvanje još fali: …“ uz dugme, skrol do polja (#74) |
+| ista fotografija: jednom tačno, a 5 % manja ili malo tamnija — ništa | Tesseract podijeli tabelu u više blokova; redovi su se slagali po blokovima, pa je „LOT Rok“ ispalo iznad „Proizvod JM Kol“ | redovi po položaju riječi uz ispravku nagiba; čitanje u više prolaza (#75) — 144/144 umjesto ~12/99 |
+| „pojačaj kontrast“ je pogoršalo čitanje (0/9) | globalno razvlačenje (`normalise`) pojača sjenku; Otsu prag isto | lokalni kontrast (CLAHE) i samo Sauvola prag — izmjereno, ne pretpostavljeno |
+| iznos sa kraja reda pročitan kao količina; redni broj kao šifra | zaglavlje nije poznavalo kolone „Cijena“, „Rabat“, „Iznos“, a „R.br.“ je bio šifra | kolona „ostalo“ zadržava položaj (#75); probni `sa_cijenama.pdf` |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |
 
 ### Gdje se zapravo testira
@@ -796,7 +836,9 @@ nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git lo
   `PG_BIN=`) — pravi svoj klaster u `.testbaza/` (u `.gitignore`), pokreće ga samo dok traju testovi.
 - OCR: jedan Tesseract radnik za cijeli server, poslovi idu jedan za drugim, gasi se posle 5 min bez
   posla (oko 150 MB dok radi). Jezik `srp_latn` je u `node_modules` (`@tesseract.js-data/srp_latn`) —
-  ništa se ne preuzima sa interneta. Slika: 3–5 s na računaru; na Render besplatnom planu sporije.
+  ništa se ne preuzima sa interneta. Priprema slike (okretanje, CLAHE, izoštravanje) — `sharp`
+  (zavisnost od 27.09.2026; Render instalira gotov paket za Linux). Dobra slika 3–5 s na računaru,
+  teška (okrenuta, tamna) do ~20 s; na Renderu 2–3 puta sporije — ekran kaže „do jednog minuta“.
 
 ---
 
@@ -823,9 +865,11 @@ važi: da li Uredba 91/2026 ima zaseban Dio 12 „Osposobljavanje" i u kom su Pr
 `prezentacija/napravi_prezentaciju.cjs` (pptxgenjs, react-icons, sharp — nisu u projektu) iz podataka ovog
 fajla — pri promjeni propisa, cijena ili funkcija aplikacije ažurirati i nju.
 
-**Otpremnice — OCR je provjeren samo na izmišljenim i simuliranim fotografijama.** Prve prave
-otpremnice pilot klijenta (više dobavljača, pravi telefon, loše svjetlo) će pokazati šta još ne
-valja. Rukopis se ne čita. Skeniran PDF (samo slika, bez teksta) se odbija uz poruku da se slika.
+**Otpremnice — OCR je provjeren samo na izmišljenim i simuliranim fotografijama** (16 varijanti jedne
+probne fotografije + otpremnica sa cijenama; #75). Prve prave otpremnice pilot klijenta (više
+dobavljača, pravi telefon, loše svjetlo, drugačiji raspored kolona) će pokazati šta još ne valja —
+tada NJIH dodati u `testovi/otpremnice/` (izmijenjenih podataka) i mjeriti. Rukopis se ne čita.
+Skeniran PDF (samo slika, bez teksta) se čuva uz prijem, stavke se upisuju ručno.
 
 **Push obavještenja nisu viđena na pravom telefonu.** Test dokazuje da server šalje ispravno
 potpisano i šifrovano; da li Android/iPhone stvarno prikažu — prvo probati „Pošalji probno" na

@@ -639,7 +639,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm test             # 472 provjere na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 489 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 ```
 
 **`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a
@@ -673,7 +673,7 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `neusaglasenosti_teren` | vozač prijavi problem na isporuci → mjera njemu → samo on je završava, uz opis → provjera; uprava i aktivnost |
 | `znanje_firme` | pitanja firme, termin sa pragom, rezultat „položeno", statistika po pitanju |
 | `faza1_haccp` | HOLD → pusti/odbij sa razlogom, povlačenje blokira puštanje, provjera tek uz urađenu mjeru, odstupanje iz obrasca → neusaglašenost, nepotvrđena granica ne zadržava robu |
-| `otpremnice` | 10 probnih otpremnica iz PDF-a tačno do slova, fotografija (i smanjena kao iz pregledača) sa tačnim lotovima, dobavljač po PIB-u, zapamćen artikal, „1 kg“ se ne upari sa „500 g“ ni „2,8%“ sa „3,2%“, nov dobavljač upisan uz prijem (i od magacionera; isti PIB odbijen), manjak, istekao rok se ne prihvata |
+| `otpremnice` | 10 probnih otpremnica iz PDF-a tačno do slova, fotografija (i smanjena kao iz pregledača) sa tačnim lotovima, dobavljač po PIB-u, zapamćen artikal, „1 kg“ se ne upari sa „500 g“ ni „2,8%“ sa „3,2%“, nov dobavljač samo od odgovornog lica (magacioner javlja jednim dugmetom), nepoznata roba predložena kao nov artikal sa pretpostavljenim režimom i upisana uz prijem (isti PIB / naziv odbijen), fotografija okrenuta i tamna, otpremnica sa cijenom, rabatom i iznosom (PDF i fotografija), slika bez tabele se čuva uz prijem, manjak, istekao rok se ne prihvata |
 | `faza2_integritet` | istovremeni unosi ne dobijaju isti broj, lice + nalog ili oba ili ništa, početna i nova lozinka, terenske uloge ne čitaju tuđe, kartice direktora, baza odbija nepoznat izvor |
 | `push` | pretplata po uređaju, adresa koja nije push servis se odbija, push stiže potpisan i šifrovan i čita ga samo „uređaj", ne šalje se dvaput, nestao uređaj (410) se briše sam, odjava samo svog uređaja |
 | `talas1` | predaja zadržanog lota, isteklog lota i više nego što je na zalihi se odbija, zaliha nikad u minusu; povrat u karantin i odluka o njemu; tuđa isporuka i stari prijem po adresi; isti ključ zahtjeva = jedan upis; potvrda sa svim stavkama; tuđi pogrešni pokušaji prijave ne zaključavaju druge |

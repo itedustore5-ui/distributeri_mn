@@ -9,14 +9,21 @@ import { danasCG } from "../vrijeme.js";
 import { odrediSkladiste } from "./skladisteService.js";
 import { zauzmiKljuc, upisiRezultatKljuca } from "./kljucService.js";
 import { SERIJA_LOTA } from "./sqlDijelovi.js";
+import { uskladiPravilaArtikla } from "./pravilaService.js";
 
 const KKT1_SIFRA = "KKT1";
 
 /** Stavka kako piše na otpremnici — čuva se uz stavku (manjak, lot koji se ne slaže). */
 export type PoOtpremnici = { sifra?: string | null; naziv?: string | null; kolicina?: number | null; lot?: string | null; rok?: string | null };
 
+/** Režim novog artikla → pretpostavljena granica (NEPOTVRĐENA — samo upozorava, invarijanta #5). */
+export const GRANICA_REZIMA = { rashladjeno: { min: 0, max: 4 }, smrznuto: { min: -25, max: -18 } } as const;
+export type NoviArtikalUlaz = { naziv: string; jedinicaMjere: string; rezim: "rashladjeno" | "smrznuto" | "bez" };
+
 export type StavkaUlaz = {
-  artikalId: string;
+  /** Artikal sa spiska — ili `noviArtikal`, kad ga nema u Šifarnicima (tačno jedno od dva). */
+  artikalId?: string;
+  noviArtikal?: NoviArtikalUlaz;
   brojLota: string;
   proizvodniDatum?: string | null;
   rokTrajanja?: string | null;
@@ -39,6 +46,51 @@ export type NoviPrijemUlaz = {
   mjerniUredjajId?: string;
   stavke: StavkaUlaz[];
 };
+
+/** Magacioner javlja da dobavljača sa otpremnice nema u Šifarnicima (dobavljače upisuje odgovorno
+ * lice, #71). Obavještenje ide svim aktivnim odgovornim licima, osim onome ko javlja. */
+export async function javiNepoznatogDobavljaca(ulaz: { naziv: string; pib?: string; brojOtpremnice?: string }, korisnikId: string) {
+  return transakcija(async (klijent) => {
+    const ko = await klijent.query<{ ime: string }>(
+      `select coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id where k.id = $1`,
+      [korisnikId],
+    );
+    const bzr = await klijent.query<{ id: string }>(`select id from korisnik where uloga = 'bzr' and aktivan and id <> $1`, [korisnikId]);
+    for (const b of bzr.rows) {
+      await kreirajObavjestenje(klijent, {
+        korisnikId: b.id,
+        naslov: `Dodajte dobavljača: ${ulaz.naziv}`,
+        poruka: `${ko.rows[0]?.ime ?? "Magacioner"} prima robu${ulaz.brojOtpremnice ? ` po otpremnici ${ulaz.brojOtpremnice}` : ""} od dobavljača kog nema u Šifarnicima${
+          ulaz.pib ? ` (PIB ${ulaz.pib})` : ""
+        }. Upišite ga u Šifarnike → Dobavljači; magacioner zatim osvježi spisak i nastavlja prijem.`,
+        ozbiljnost: "VISOK",
+      });
+    }
+    return { javljeno: bzr.rows.length };
+  });
+}
+
+/** Artikal kog nema u Šifarnicima, upisan pri prijemu (u istoj transakciji). Granica temperature je
+ * PRETPOSTAVKA po režimu i nije potvrđena (invarijanta #5): mjerenje van nje samo upozorava, dok je
+ * odgovorno lice ne potvrdi. Isti naziv već postoji → bira se sa spiska. */
+async function upisiNoviArtikal(klijent: PoolClient, novi: NoviArtikalUlaz, korisnikId: string) {
+  const naziv = novi.naziv.trim();
+  const postoji = await klijent.query<{ naziv: string }>(`select naziv from artikal where lower(btrim(naziv)) = lower($1) limit 1`, [naziv]);
+  if (postoji.rows[0]) {
+    throw new ApiGreska(409, "ARTIKAL_POSTOJI", `Artikal „${postoji.rows[0].naziv}“ već postoji — izaberite ga sa spiska.`);
+  }
+  const granica = novi.rezim === "bez" ? null : GRANICA_REZIMA[novi.rezim];
+  const r = await klijent.query<{ id: string }>(
+    `insert into artikal (naziv, jedinica_mjere, zahtijeva_lot, temp_kontrolisano, temp_min, temp_max, granica_potvrdio, rok_obavezan)
+     values ($1, $2, true, $3, $4, $5, false, true) returning id`,
+    [naziv, novi.jedinicaMjere.trim() || "kom", !!granica, granica?.min ?? null, granica?.max ?? null],
+  );
+  const id = r.rows[0].id;
+  await logKreiranje(klijent, { korisnikId, entitetTip: "artikal", entitetId: id, noveVrijednosti: { naziv, jedinicaMjere: novi.jedinicaMjere, rezim: novi.rezim, pri_prijemu: true } });
+  // Granica postaje pravilo za prijem i predaju (invarijanta #39) — nepotvrđeno.
+  await uskladiPravilaArtikla(klijent, id, korisnikId);
+  return { id, naziv, rezim: novi.rezim };
+}
 
 /** Dobavljač kog nema u Šifarnicima, upisan pri prijemu (u istoj transakciji). Isti PIB ili isti
  * naziv već postoji → to je dupli unos: bira se sa spiska. */
@@ -75,7 +127,8 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
   // serije u istom prijemu su dva reda za istu robu na polici.
   const vidjene = new Set<string>();
   for (const s of ulaz.stavke) {
-    const kljucSerije = `${s.artikalId}|${s.brojLota.trim().toUpperCase()}`;
+    if (!s.artikalId === !s.noviArtikal) throw new ApiGreska(400, "NEVALIDAN_UNOS", "Za svaku stavku izaberite artikal sa spiska ili upišite novi.");
+    const kljucSerije = `${s.artikalId ?? `novi:${s.noviArtikal!.naziv.trim().toLowerCase()}`}|${s.brojLota.trim().toUpperCase()}`;
     if (vidjene.has(kljucSerije)) {
       throw new ApiGreska(400, "SERIJA_DVAPUT", `Serija ${s.brojLota.trim()} istog artikla je upisana dvaput — upišite je jednom, sa ukupnom količinom.`);
     }
@@ -83,24 +136,23 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
   }
   // Rok trajanja se upisuje pri prijemu (R-17) — bez njega nema FEFO-a ni blokade istekle robe.
   // Konsultant ga isključuje po artiklu, za rijetke izuzetke.
-  const saRokom = await upit<{ id: string; naziv: string }>(`select id, naziv from artikal where rok_obavezan and id = any($1)`, [ulaz.stavke.map((s) => s.artikalId)]);
+  const idjevi = ulaz.stavke.map((s) => s.artikalId).filter((id): id is string => !!id);
+  const saRokom = await upit<{ id: string; naziv: string }>(`select id, naziv from artikal where rok_obavezan and id = any($1)`, [idjevi]);
   for (const s of ulaz.stavke) {
-    const a = saRokom.rows.find((r) => r.id === s.artikalId);
-    if (a && !s.rokTrajanja) {
-      throw new ApiGreska(400, "ROK_OBAVEZAN", `Upišite rok trajanja za „${a.naziv}“ (lot ${s.brojLota.trim()}) — sa etikete ili otpremnice.`);
+    const naziv = s.noviArtikal ? s.noviArtikal.naziv.trim() : saRokom.rows.find((r) => r.id === s.artikalId)?.naziv;
+    if (naziv && !s.rokTrajanja) {
+      throw new ApiGreska(400, "ROK_OBAVEZAN", `Upišite rok trajanja za „${naziv}“ (lot ${s.brojLota.trim()}) — sa etikete ili otpremnice.`);
     }
   }
 
   // KKT 1 se prati uz SVAKI prijem robe pod temperaturnim režimom — bez temperature nema dokaza da
   // je hladni lanac održan do magacina (isto kao KKT 3 pri predaji kupcu).
-  const podRezimom = await upit<{ id: string; naziv: string }>(
-    `select id, naziv from artikal where temp_kontrolisano and id = any($1)`,
-    [ulaz.stavke.map((s) => s.artikalId)],
-  );
+  const podRezimom = await upit<{ id: string; naziv: string }>(`select id, naziv from artikal where temp_kontrolisano and id = any($1)`, [idjevi]);
   for (const s of ulaz.stavke) {
-    const a = podRezimom.rows.find((r) => r.id === s.artikalId);
-    if (a && (s.temperaturaPrijema === null || s.temperaturaPrijema === undefined)) {
-      throw new ApiGreska(400, "TEMPERATURA_OBAVEZNA", `Upišite temperaturu pri prijemu za "${a.naziv}" — roba je pod temperaturnim režimom (KKT 1).`);
+    const naziv =
+      s.noviArtikal && s.noviArtikal.rezim !== "bez" ? s.noviArtikal.naziv.trim() : podRezimom.rows.find((r) => r.id === s.artikalId)?.naziv;
+    if (naziv && (s.temperaturaPrijema === null || s.temperaturaPrijema === undefined)) {
+      throw new ApiGreska(400, "TEMPERATURA_OBAVEZNA", `Upišite temperaturu pri prijemu za "${naziv}" — roba je pod temperaturnim režimom (KKT 1).`);
     }
   }
 
@@ -122,6 +174,14 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
     }
     const novi = ulaz.noviDobavljac ? await upisiNovogDobavljaca(klijent, ulaz.noviDobavljac, korisnikId) : null;
     const dobavljacId = novi?.id ?? ulaz.dobavljacId!;
+    // Novi artikli (roba koje nema u Šifarnicima) — jednom po nazivu, i kad je u više stavki (više lotova).
+    const noviArtikli = new Map<string, { id: string; naziv: string; rezim: NoviArtikalUlaz["rezim"] }>();
+    for (const s of ulaz.stavke) {
+      if (!s.noviArtikal) continue;
+      const k = s.noviArtikal.naziv.trim().toLowerCase();
+      if (!noviArtikli.has(k)) noviArtikli.set(k, await upisiNoviArtikal(klijent, s.noviArtikal, korisnikId));
+    }
+    const stavke = ulaz.stavke.map((s) => ({ ...s, artikalId: s.artikalId ?? noviArtikli.get(s.noviArtikal!.naziv.trim().toLowerCase())!.id }));
     const prijem = await klijent.query<{ id: string }>(
       `insert into prijem (dobavljac_id, broj_dokumenta, datum_prijema, status, primio_korisnik_id, napomena, skladiste_id)
        values ($1, $2, $3, 'CEKA_ODLUKU', $4, $5, $6) returning id`,
@@ -129,6 +189,26 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
     );
     const prijemId = prijem.rows[0].id;
     await logKreiranje(klijent, { korisnikId, entitetTip: "prijem", entitetId: prijemId, noveVrijednosti: { dobavljacId, noviDobavljac: !!novi } });
+    if (noviArtikli.size > 0) {
+      const ko = await klijent.query<{ ime: string }>(
+        `select coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id where k.id = $1`,
+        [korisnikId],
+      );
+      const bzrOstali = await klijent.query<{ id: string }>(`select id from korisnik where uloga = 'bzr' and aktivan and id <> $1`, [korisnikId]);
+      const spisak = [...noviArtikli.values()];
+      for (const b of bzrOstali.rows) {
+        await kreirajObavjestenje(klijent, {
+          korisnikId: b.id,
+          naslov: `Nov artikal upisan pri prijemu: ${spisak.map((a) => a.naziv).join(", ")}`,
+          poruka: `${ko.rows[0]?.ime ?? "Zaposleni"} je primio robu koje nije bilo u Šifarnicima. Granica temperature je pretpostavka (${spisak
+            .map((a) => `${a.naziv}: ${a.rezim === "bez" ? "bez režima" : a.rezim === "rashladjeno" ? "rashlađeno 0–4 °C" : "smrznuto −25 do −18 °C"}`)
+            .join("; ")}) i NIJE potvrđena — dok je ne potvrdite u Šifarnicima, mjerenje van nje samo upozorava. Provjerite i jedinicu mjere i rok.`,
+          ozbiljnost: "SREDNJI",
+          izvorTip: "prijem",
+          izvorId: prijemId,
+        });
+      }
+    }
     if (novi) {
       const ko = await klijent.query<{ ime: string }>(
         `select coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id where k.id = $1`,
@@ -150,7 +230,7 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
 
     const lotoviZaProvjeru: { lotId: string; artikalId: string; temperatura: number | null }[] = [];
 
-    for (const stavka of ulaz.stavke) {
+    for (const stavka of stavke) {
       const lot = await klijent.query<{ id: string }>(
         `insert into lot (artikal_id, dobavljac_id, prijem_id, broj_lota, proizvodni_datum, rok_trajanja, status, primljena_kolicina)
          values ($1, $2, $3, $4, $5, $6, 'PRIMLJEN', $7) returning id`,
@@ -194,7 +274,7 @@ export async function kreirajPrijem(ulaz: NoviPrijemUlaz, korisnikId: string, kl
     // Serija već primljena sa DRUGIM rokom: ili greška u kucanju, ili dobavljač — odgovorno lice
     // provjerava etiketu. Ne zaustavlja prijem (roba je stigla), ali ostaje trag (R-17).
     const upozorenja: string[] = [];
-    for (const s of ulaz.stavke) {
+    for (const s of stavke) {
       if (!s.rokTrajanja) continue;
       const drugi = await klijent.query<{ rok: string }>(
         `select distinct to_char(rok_trajanja, 'DD.MM.YYYY.') as rok from lot
