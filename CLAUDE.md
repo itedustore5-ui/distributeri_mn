@@ -311,7 +311,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-18 testova, 489 provjera (na čistoj bazi; na demo bazi 487 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+18 testova, 497 provjera (na čistoj bazi; na demo bazi 495 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -319,7 +319,8 @@ jednoj transakciji, početna i nova lozinka, čitanje po ulogama, kartice direkt
 odbijen u bazi — `faza2_integritet`), i otpremnice (10 probnih u PDF-u tačno do slova, fotografija
 nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamćen artikal, drugo pakovanje i
 procenat se ne uparuju, nov dobavljač i nov artikal upisani uz prijem, okrenuta i tamna fotografija, otpremnica
-sa cijenama (PDF i fotografija), slika bez tabele se čuva, manjak, istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
+sa cijenama (PDF i fotografija), slika bez tabele se čuva, čitanje u pozadini (odgovor odmah, napredak, „ne čekaj“),
+manjak, istekao rok — `otpremnice`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
 (temperatura obavezna na KKT 1, granica iz Šifarnika → pravilo sa verzijama, plan monitoringa i
 „šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
 četiri oka — `faza3_sistem`), i push (pretplata po uređaju, šifrovan sadržaj koji dešifruje samo
@@ -644,6 +645,19 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     iznos ne bi bio pročitan kao količina. Priprema slike je `sharp` (lokalno). Izmjereno na 16 izmijenjenih
     verzija probne fotografije (okrenuta, tamna, mutna, mala, nagnuta i kombinacije): 144/144 polja tačno;
     prije: ~12/99. Dobra fotografija — jedan prolaz (≈3 s), okrenuta ≈15 s na računaru.
+76. **Otpremnica se čita u pozadini — telefon nikad ne „učitava“ bez kraja** (27.09.2026 — na Renderu je
+    fotografija stajala na „Čitam…“: slab procesor, više prolaza, zahtjev bez roka). `POST /prijem/otpremnica`
+    ODMAH sačuva fajl (`procitano` prazno) i pokrene čitanje (`pokreniCitanje`); sačeka najviše
+    `OTPREMNICA_CEKAJ_MS` (5 s) — gotovo → 201 sa rezultatom, inače 202 `{status:"cita", prolaz, opis,
+    sekundi}`. Pregledač pita `GET /prijem/otpremnica/:id/stanje` na 1,5 s i prikazuje napredak („Čitam —
+    pojačavam kontrast · 23 s“) i dugme **„Ne čekaj — upiši ručno“** (`POST …/prekini`: čitanje staje posle
+    tekućeg prolaza, fajl ostaje uz prijem). Forma odustaje sama posle 3 min. Server ponovo pokrenut usred
+    čitanja → `status:"prekinuto"` (fajl je tu). Magacioner vidi samo svoje otpremnice, vodstvo sve.
+    Brzina: telefon šalje 2200 px (JPEG 0,85), server čita najviše 2400 px (`NAJVECA`) — izmjereno jednako
+    tačno kao 3200 (142/144 polja), a brže; ukupno čitanje najviše `OCR_NAJDUZE_MS` (75 s), novi prolaz se ne
+    počinje ako ne bi stao. OCR radnik se pali UNAPRIJED kad se otvori forma (`POST /prijem/otpremnica-priprema`),
+    posle 20 slika se zamijeni novim (memorija), `sharp` bez keša i sa jednom niti. `posaljiFajl` ima rok (90 s)
+    i jasnu poruku za 502/503/504 i prekid veze.
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -806,6 +820,8 @@ repozitorijuma. Ovdje samo stanje.
 | „Sačuvaj prijem ne radi“ — na računaru | `.modal` je imao `overflow: hidden` bez visine: sa 3+ stavke sa otpremnice dugme je bilo ispod ekrana, nedostižno | `.modal` sa `max-height` i skrolom, dugme u `.modal-dno` (sticky) za SVE prozore (#74) |
 | „Sačuvaj prijem ne radi“ — na telefonu | dugme sivo bez objašnjenja (fali kvačica na dnu, rok, temperatura…), a greška servera ispisana na VRHU prozora, dok je magacioner dole | dugme uvijek aktivno, „Za čuvanje još fali: …“ uz dugme, skrol do polja (#74) |
 | ista fotografija: jednom tačno, a 5 % manja ili malo tamnija — ništa | Tesseract podijeli tabelu u više blokova; redovi su se slagali po blokovima, pa je „LOT Rok“ ispalo iznad „Proizvod JM Kol“ | redovi po položaju riječi uz ispravku nagiba; čitanje u više prolaza (#75) — 144/144 umjesto ~12/99 |
+| na Renderu fotografija „samo se učitava“ | čitanje u više prolaza na 3200 px traje na slabom serveru minutama; zahtjev je čekao do kraja, bez roka, napretka i izlaza | čitanje u pozadini + stanje + „Ne čekaj — upiši ručno“, slika 2200 px, rok 75 s, OCR se pali unaprijed (#76) |
+| na manjoj slici iznos pročitan kao lot, a količina prazna | OCR spojio dvije labele zaglavlja u jednu ćeliju („Cijena Rabat %“), pa su dvije kolone nestale | ćelija zaglavlja koja nije jedna labela razlaže se na riječi (`redoslijedKolona`) — ali samo kratka (≤ 4 riječi) i sa većinom labela, inače rečenica iz napomene („roba …, lot i rok provjereni, količina …“) postane „zaglavlje“ |
 | „pojačaj kontrast“ je pogoršalo čitanje (0/9) | globalno razvlačenje (`normalise`) pojača sjenku; Otsu prag isto | lokalni kontrast (CLAHE) i samo Sauvola prag — izmjereno, ne pretpostavljeno |
 | iznos sa kraja reda pročitan kao količina; redni broj kao šifra | zaglavlje nije poznavalo kolone „Cijena“, „Rabat“, „Iznos“, a „R.br.“ je bio šifra | kolona „ostalo“ zadržava položaj (#75); probni `sa_cijenama.pdf` |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |

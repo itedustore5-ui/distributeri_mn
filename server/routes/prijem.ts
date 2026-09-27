@@ -6,7 +6,7 @@ import { requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, samoMoje, type Au
 import { kljucIzZaglavlja } from "../services/kljucService.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajPrijem, donesiOdlukuOLotu, izmijeniStavku, javiNepoznatogDobavljaca } from "../services/prijemService.js";
-import { prepoznajVrstu, procitajOtpremnicu } from "../services/otpremnicaService.js";
+import { prepoznajVrstu, pokreniCitanje, stanjeCitanja, prekiniCitanje, dokumentZaCitanje, pripremiOcr } from "../services/otpremnicaService.js";
 
 export const prijemRuter = Router();
 prijemRuter.get(
@@ -122,23 +122,56 @@ prijemRuter.post(
       nazivFajla = null;
     }
     await pool.query(`delete from prijem_dokument where prijem_id is null and created_at < now() - interval '2 days'`);
-    // Nepročitana otpremnica NIJE slijepa ulica: fajl se ipak čuva (dokaz uz prijem), a magacioner
-    // stavke upisuje ručno — sa slikom priloženom uz prijem.
-    let procitano: Awaited<ReturnType<typeof procitajOtpremnicu>> | { otpremnice: []; pouzdanostOcr: null };
-    let nijeProcitano: string | null = null;
-    try {
-      procitano = await procitajOtpremnicu(sadrzaj, vrsta.vrsta);
-    } catch (e) {
-      if (!(e instanceof ApiGreska) || !["OTPREMNICA_NIJE_PROCITANA", "PDF_BEZ_TEKSTA"].includes(e.code)) throw e;
-      procitano = { otpremnice: [], pouzdanostOcr: null };
-      nijeProcitano = e.message;
-    }
+    // Fajl se čuva ODMAH (dokaz uz prijem, i kad se ne pročita), a čita se u pozadini (#76). Kratko se
+    // sačeka: PDF i dobra fotografija na jakom serveru završe odmah (201 sa rezultatom); inače 202 i
+    // pregledač pita za stanje — magacioner vidi napredak i može preći na ručni unos.
     const dokument = await pool.query<{ id: string }>(
-      `insert into prijem_dokument (vrsta, naziv_fajla, mime, velicina, sadrzaj, procitano, uneo_korisnik_id)
-       values ($1, $2, $3, $4, $5, $6, $7) returning id`,
-      [vrsta.vrsta, nazivFajla, vrsta.mime, sadrzaj.length, sadrzaj, JSON.stringify({ ...procitano, nijeProcitano }), request.korisnik!.id],
+      `insert into prijem_dokument (vrsta, naziv_fajla, mime, velicina, sadrzaj, uneo_korisnik_id)
+       values ($1, $2, $3, $4, $5, $6) returning id`,
+      [vrsta.vrsta, nazivFajla, vrsta.mime, sadrzaj.length, sadrzaj, request.korisnik!.id],
     );
-    response.status(201).json({ dokumentId: dokument.rows[0].id, vrsta: vrsta.vrsta, ...procitano, nijeProcitano });
+    const dokumentId = dokument.rows[0].id;
+    const posao = pokreniCitanje(dokumentId, sadrzaj, vrsta.vrsta);
+    const zavrseno = await Promise.race([posao.gotovo.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), CEKAJ_CITANJE_MS))]);
+    if (zavrseno && posao.rezultat) {
+      response.status(201).json({ status: "gotovo", dokumentId, vrsta: vrsta.vrsta, ...posao.rezultat });
+      return;
+    }
+    response.status(202).json(await stanjeCitanja(dokumentId, request.korisnik!));
+  }),
+);
+
+/** Koliko zahtjev za čitanje čeka prije nego što kaže „čitam, pitaj kasnije“ (202). */
+const CEKAJ_CITANJE_MS = Number(process.env.OTPREMNICA_CEKAJ_MS) || 5000;
+
+// Stanje čitanja: „čitam — prolaz 2, pojačavam kontrast, 23 s“, pa rezultat.
+prijemRuter.get(
+  "/prijem/otpremnica/:dokumentId/stanje",
+  requireUloga("operater", "bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    response.json(await stanjeCitanja(str(request.params.dokumentId), request.korisnik!));
+  }),
+);
+
+// Magacioner prelazi na ručni unos — čitanje staje (server se oslobađa), fajl ostaje uz prijem.
+prijemRuter.post(
+  "/prijem/otpremnica/:dokumentId/prekini",
+  requireUloga("operater", "bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const dokumentId = str(request.params.dokumentId);
+    await dokumentZaCitanje(dokumentId, request.korisnik!);
+    prekiniCitanje(dokumentId);
+    response.status(204).end();
+  }),
+);
+
+// Otvorena je forma prijema: OCR se pali unaprijed, dok magacioner slika.
+prijemRuter.post(
+  "/prijem/otpremnica-priprema",
+  requireUloga("operater", "bzr", "izvodjac"),
+  asyncRuta(async (_request, response) => {
+    pripremiOcr();
+    response.status(204).end();
   }),
 );
 

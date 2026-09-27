@@ -100,25 +100,27 @@ export async function procitajPdf(sadrzaj: Buffer): Promise<Linija[][]> {
   return strane;
 }
 
-// Jedan OCR radnik za cijeli server, poslovi idu jedan za drugim (Render ima malo memorije).
-// Gasi se posle 5 minuta bez posla i ponovo pali pri sljedećoj slici.
+// Jedan OCR radnik za cijeli server, poslovi idu jedan za drugim (Render ima malo memorije i slab
+// procesor). Pali se UNAPRIJED, čim se otvori „Novi prijem“ (pripremiOcr) — dok magacioner slika, a ne
+// kad slika stigne. Gasi se posle 5 min bez posla; posle 20 slika se zamijeni novim (Tesseract ne
+// vraća zauzetu memoriju, a Render ima 512 MB).
 type OcrRadnik = Awaited<ReturnType<typeof import("tesseract.js").createWorker>>;
 let radnik: Promise<OcrRadnik> | null = null;
 let gasenje: NodeJS.Timeout | null = null;
 let red: Promise<unknown> = Promise.resolve();
+let upotreba = 0;
 
 async function dajRadnika(): Promise<OcrRadnik> {
   if (!radnik) {
+    upotreba = 0;
     radnik = (async () => {
       const { createWorker } = await import("tesseract.js");
       const require = createRequire(import.meta.url);
       const langPath = path.join(path.dirname(require.resolve("@tesseract.js-data/srp_latn/package.json")), "4.0.0_best_int");
       const w = await createWorker("srp_latn", 1, { langPath, cacheMethod: "none", gzip: true });
-      // Sauvola (2) umjesto Otsu: lokalni prag ne "pojede" dio papira u sjenci — na probnoj
-      // fotografiji pouzdanost je skočila sa 67 na 90 %. Razmaci se čuvaju da se vide kolone.
-      // PSM 3 (automatska podjela stranice): tesseract.js inače čita sve kao jedan blok i na
-      // probi je gubio red tabele.
-      await w.setParameters({ thresholding_method: "2", preserve_interword_spaces: "1", tessedit_pageseg_mode: "3" } as Record<string, string>);
+      // Sauvola (2) umjesto Otsu: lokalni prag ne "pojede" dio papira u sjenci (Otsu na fotografiji sa
+      // sjenkom ne pročita ništa — mjereno). Razmaci se čuvaju da se vide kolone.
+      await w.setParameters({ thresholding_method: "2", preserve_interword_spaces: "1", tessedit_pageseg_mode: "6" } as Record<string, string>);
       return w;
     })();
     radnik.catch(() => {
@@ -126,6 +128,26 @@ async function dajRadnika(): Promise<OcrRadnik> {
     });
   }
   return radnik;
+}
+
+function ugasiRadnika() {
+  const r = radnik;
+  radnik = null;
+  upotreba = 0;
+  r?.then((x) => x.terminate()).catch(() => undefined);
+}
+
+function zakaziGasenje() {
+  if (gasenje) clearTimeout(gasenje);
+  gasenje = setTimeout(ugasiRadnika, 5 * 60_000);
+  gasenje.unref();
+}
+
+/** Pali OCR radnika unaprijed (pozove se kad se otvori forma prijema). Ne čeka ništa. */
+export function pripremiOcr() {
+  dajRadnika()
+    .then(() => zakaziGasenje())
+    .catch(() => undefined);
 }
 
 type Okvir = { x0: number; y0: number; x1: number; y1: number };
@@ -198,14 +220,11 @@ async function ocr(sadrzaj: Buffer, psm = "6") {
     try {
       await w.setParameters({ tessedit_pageseg_mode: psm } as Record<string, string>);
       const { data } = await w.recognize(sadrzaj, { rotateAuto: true }, { text: true, blocks: true });
+      upotreba++;
       return data;
     } finally {
-      gasenje = setTimeout(() => {
-        const r = radnik;
-        radnik = null;
-        r?.then((x) => x.terminate()).catch(() => undefined);
-      }, 5 * 60_000);
-      gasenje.unref();
+      if (upotreba >= 20) ugasiRadnika();
+      else zakaziGasenje();
     }
   });
   red = posao.catch(() => undefined);
@@ -221,18 +240,37 @@ async function ocr(sadrzaj: Buffer, psm = "6") {
 
 type Priprema = "sirovo" | "kontrast" | "ostro" | "kontrast-ostro";
 
-/** Slika za jedan prolaz: okrenuta (fotografija „položena“ ili naopako) i pripremljena.
+/** Najveća slika koja se čita. Mjereno: 2200 px je jednako tačno kao 3200 (90/99 polja), a ~30 % brže;
+ * na slabom serveru to je razlika između pola minuta i dva minuta. */
+const NAJVECA = 2400;
+let sharpPodesen = false;
+
+/** Slika za jedan prolaz: okrenuta (fotografija „položena“ ili naopako), smanjena i pripremljena.
  * kontrast = CLAHE (lokalni kontrast — spašava tamnu sliku), ostro = izoštravanje (mutna slika).
  * Mala slika se za te prolaze uveća (mala + tamna se tek tada pročita). Globalno razvlačenje
  * kontrasta (normalise) je na probi POGORŠAVALO — pojača sjenku. */
-async function pripremljena(sadrzaj: Buffer, ugao: number, priprema: Priprema, najvise = 3200): Promise<Buffer> {
-  if (ugao === 0 && priprema === "sirovo" && najvise >= 3200) return sadrzaj;
-  const sharp = (await import("sharp")).default;
+async function pripremljena(sadrzaj: Buffer, ugao: number, priprema: Priprema, najvise = NAJVECA): Promise<Buffer> {
+  let sharp: typeof import("sharp");
+  try {
+    sharp = (await import("sharp")).default;
+  } catch {
+    // Bez biblioteke za slike: čita se samo original, uspravno.
+    if (ugao === 0 && priprema === "sirovo") return sadrzaj;
+    throw new Error("sharp nije dostupan");
+  }
+  if (!sharpPodesen) {
+    // Render ima malo memorije: bez keša, jedna nit.
+    sharp.cache(false);
+    sharp.concurrency(1);
+    sharpPodesen = true;
+  }
   const m = await sharp(sadrzaj, { failOn: "none" }).metadata();
-  const duza = Math.max(m.width ?? 2000, m.height ?? 2000);
+  const duza = Math.max(m.width ?? 0, m.height ?? 0) || 2000;
+  const uspravna = !m.orientation || m.orientation === 1;
+  if (ugao === 0 && priprema === "sirovo" && duza <= najvise && uspravna) return sadrzaj;
   let s = sharp(sadrzaj, { failOn: "none" }).autoOrient();
   if (ugao) s = s.rotate(ugao);
-  const cilj = priprema !== "sirovo" && duza < 2400 && najvise >= 3200 ? 2600 : Math.min(najvise, duza);
+  const cilj = priprema !== "sirovo" && duza < 1800 ? najvise : Math.min(najvise, duza);
   s = s.resize({ width: cilj, height: cilj, fit: "inside" });
   if (priprema !== "sirovo") s = s.grayscale();
   if (priprema.includes("kontrast")) {
@@ -240,7 +278,7 @@ async function pripremljena(sadrzaj: Buffer, ugao: number, priprema: Priprema, n
     s = s.clahe({ width: plocica, height: plocica, maxSlope: 3 });
   }
   if (priprema.includes("ostro")) s = s.sharpen({ sigma: 1.5, m1: 1, m2: 3 });
-  return s.jpeg({ quality: 92 }).toBuffer();
+  return s.jpeg({ quality: 90 }).toBuffer();
 }
 
 /** Koliko je čitanje upotrebljivo: stavke sa količinom, lotom i rokom (onim kolonama koje otpremnica
@@ -273,27 +311,49 @@ const PROLAZI: { priprema: Priprema; psm: string }[] = [
   { priprema: "sirovo", psm: "11" },
   { priprema: "kontrast", psm: "11" },
 ];
-const NAJVISE_PROLAZA = 10;
-const NAJDUZE_MS = 100_000;
+const OPIS_PROLAZA: Record<string, string> = {
+  "sirovo:6": "čitam otpremnicu",
+  "kontrast:6": "pojačavam kontrast",
+  "ostro:6": "izoštravam sliku",
+  "kontrast-ostro:6": "kontrast i izoštravanje",
+  "sirovo:11": "tražim sitan tekst",
+  "kontrast:11": "sitan tekst, pojačan kontrast",
+};
+const NAJVISE_PROLAZA = 9;
+/** Ukupno vrijeme čitanja jedne slike. Novi prolaz se ne počinje ako ne bi stao u ovo vrijeme (po
+ * trajanju prethodnog) — na slabom serveru se uzima najbolje do tada, umjesto da magacioner čeka. */
+const NAJDUZE_MS = Number(process.env.OCR_NAJDUZE_MS) || 75_000;
 /** Ispod ovoliko dobrih riječi slika nije uspravna (ili na njoj nema teksta). */
 const USPRAVNA = 12;
 
+export type OpcijeCitanja = {
+  /** Pozove se prije svakog prolaza — za prikaz napretka. */
+  naNapredak?: (prolaz: number, opis: string) => void;
+  /** Magacioner je odustao (prešao na ručni unos) — dalje se ne čita. */
+  prekinuto?: () => boolean;
+};
+
 /** Fotografija otpremnice → otpremnice. Jedno čitanje je krhko (mala promjena veličine, svjetla ili
  * nagiba ga obori — mjereno), pa se čita u prolazima dok jedan ne da sve: obično → kontrast →
- * izoštreno → oboje → rijedak tekst. Ako u prvom čitanju skoro nema sigurnih riječi, slika je
+ * izoštreno → oboje → sitan tekst. Ako u prvom čitanju skoro nema sigurnih riječi, slika je
  * „položena“ ili naopako: brza proba na manjoj kopiji za 90°, 270° i 180° bira položaj sa najviše
  * sigurnih riječi. Uzima se najbolje čitanje. Dobra fotografija završi posle prvog prolaza. */
-export async function procitajSliku(sadrzaj: Buffer): Promise<{ otpremnice: Otpremnica[]; pouzdanost: number; prolaza: number }> {
+export async function procitajSliku(sadrzaj: Buffer, opcije: OpcijeCitanja = {}): Promise<{ otpremnice: Otpremnica[]; pouzdanost: number; prolaza: number }> {
   const pocetak = Date.now();
   let najbolje: { otpremnice: Otpremnica[]; pouzdanost: number; ocjena: number } | null = null;
   let prolaza = 0;
-  const isteklo = () => prolaza >= NAJVISE_PROLAZA || Date.now() - pocetak > NAJDUZE_MS;
+  let zadnjeTrajanje = 0;
+  const isteklo = () =>
+    prolaza >= NAJVISE_PROLAZA || !!opcije.prekinuto?.() || (prolaza > 0 && Date.now() - pocetak + zadnjeTrajanje > NAJDUZE_MS);
 
-  const citaj = async (ugao: number, p: { priprema: Priprema; psm: string }, najvise = 3200) => {
+  const citaj = async (ugao: number, p: { priprema: Priprema; psm: string }, najvise = NAJVECA, opis?: string) => {
     const slika = await pripremljena(sadrzaj, ugao, p.priprema, najvise).catch(() => null);
     if (!slika) return { potpuno: false, dobrihRijeci: 0 };
     prolaza++;
+    opcije.naNapredak?.(prolaza, opis ?? OPIS_PROLAZA[`${p.priprema}:${p.psm}`] ?? "čitam");
+    const t0 = Date.now();
     const { linije, pouzdanost, dobrihRijeci } = await ocr(slika, p.psm);
+    zadnjeTrajanje = Date.now() - t0;
     const otpremnice = parsiraj([linije]);
     const o = ocjenaCitanja(otpremnice);
     if (!najbolje || o.ocjena > najbolje.ocjena || (o.ocjena === najbolje.ocjena && pouzdanost > najbolje.pouzdanost)) {
@@ -311,7 +371,7 @@ export async function procitajSliku(sadrzaj: Buffer): Promise<{ otpremnice: Otpr
     let naj = { ugao: 0, dobrih: prvi.dobrihRijeci };
     for (const u of [90, 270, 180]) {
       if (isteklo()) break;
-      const r = await citaj(u, PROLAZI[0], 1600);
+      const r = await citaj(u, PROLAZI[0], 1600, "provjeravam da li je slika okrenuta");
       if (r.potpuno) return gotovo();
       if (r.dobrihRijeci > naj.dobrih) naj = { ugao: u, dobrih: r.dobrihRijeci };
     }
@@ -390,7 +450,16 @@ function kolonaZaglavlja(tekst: string): Kolona | null {
 /** Zaglavlje tabele: red u kom su bar tri prepoznate kolone, među njima lot ili količina. Kolone
  * „ostalo“ (cijena, iznos…) ostaju na svom mjestu, svaka; prave kolone se broje jednom. */
 function redoslijedKolona(linija: Linija): Kolona[] | null {
-  let kolone = linija.map((c) => kolonaZaglavlja(c.tekst));
+  // Ćelija koja nije jedna labela razlaže se na riječi: OCR na manjoj slici spoji susjedne labele
+  // („Cijena Rabat %“) — bez toga se izgube dvije kolone i vrijednosti reda se pomjere.
+  // Samo KRATKA ćelija u kojoj su labele većina — rečenica „roba …, lot i rok provjereni“ nije zaglavlje.
+  let kolone = linija.flatMap((c): (Kolona | null)[] => {
+    const k = kolonaZaglavlja(c.tekst);
+    if (k) return [k];
+    const rijeci = c.tekst.split(/\s+/).filter(Boolean);
+    const nadjene = rijeci.map((r) => kolonaZaglavlja(r)).filter((x): x is Kolona => x !== null);
+    return nadjene.length > 0 && rijeci.length <= 4 && nadjene.length * 2 >= rijeci.length ? nadjene : [null];
+  });
   // OCR ponekad spoji dvije labele u jednu ćeliju ("Šifra Proizvod") — probaj po riječima.
   if (kolone.filter((k) => k && k !== "ostalo").length < 3) {
     const poRijecima = linija.flatMap((c) => c.tekst.split(/\s+/).map((r) => kolonaZaglavlja(r)));
@@ -878,9 +947,9 @@ export async function uskladi(o: Otpremnica): Promise<Prijedlog> {
 }
 
 /** Cijeli tok: fajl → tekst → otpremnice → prijedlozi. */
-export async function procitajOtpremnicu(sadrzaj: Buffer, vrsta: "pdf" | "slika") {
+export async function procitajOtpremnicu(sadrzaj: Buffer, vrsta: "pdf" | "slika", opcije: OpcijeCitanja = {}) {
   const { otpremnice, pouzdanost } =
-    vrsta === "pdf" ? { otpremnice: parsiraj(await procitajPdf(sadrzaj)), pouzdanost: null } : await procitajSliku(sadrzaj);
+    vrsta === "pdf" ? { otpremnice: parsiraj(await procitajPdf(sadrzaj)), pouzdanost: null } : await procitajSliku(sadrzaj, opcije);
   if (otpremnice.length === 0) {
     throw new ApiGreska(
       422,
@@ -891,4 +960,89 @@ export async function procitajOtpremnicu(sadrzaj: Buffer, vrsta: "pdf" | "slika"
     );
   }
   return { otpremnice: await Promise.all(otpremnice.map(uskladi)), pouzdanostOcr: pouzdanost };
+}
+
+
+// ─── Čitanje u pozadini ──────────────────────────────────────────────────────────────────────────
+// Fotografija se na slabom serveru (Render) čita i do minut. Zahtjev zato NE čeka čitanje do kraja:
+// server sačuva fajl, čita u pozadini, a pregledač pita za stanje (napredak, prekid, rezultat) — i
+// magacioner u svakom trenutku može preći na ručni unos. Ranije je telefon samo „učitavao“.
+export type RezultatCitanja = { otpremnice: Prijedlog[]; pouzdanostOcr: number | null; nijeProcitano: string | null };
+type Posao = {
+  pocetak: number;
+  prolaz: number;
+  opis: string;
+  prekini: boolean;
+  gotovo: Promise<void>;
+  rezultat?: RezultatCitanja;
+};
+const poslovi = new Map<string, Posao>();
+const NEPROCITANO = ["OTPREMNICA_NIJE_PROCITANA", "PDF_BEZ_TEKSTA"];
+
+export function pokreniCitanje(dokumentId: string, sadrzaj: Buffer, vrsta: "pdf" | "slika"): Posao {
+  const posao: Posao = { pocetak: Date.now(), prolaz: 0, opis: "čeka na red", prekini: false, gotovo: Promise.resolve() };
+  poslovi.set(dokumentId, posao);
+  posao.gotovo = (async () => {
+    let rezultat: RezultatCitanja;
+    try {
+      const r = await procitajOtpremnicu(sadrzaj, vrsta, {
+        naNapredak: (prolaz, opis) => {
+          posao.prolaz = prolaz;
+          posao.opis = opis;
+        },
+        prekinuto: () => posao.prekini,
+      });
+      rezultat = { ...r, nijeProcitano: null };
+    } catch (e) {
+      if (e instanceof ApiGreska && NEPROCITANO.includes(e.code)) rezultat = { otpremnice: [], pouzdanostOcr: null, nijeProcitano: e.message };
+      else {
+        console.error("Čitanje otpremnice nije uspjelo:", e);
+        rezultat = { otpremnice: [], pouzdanostOcr: null, nijeProcitano: "Čitanje nije uspjelo. Otpremnica je sačuvana uz prijem — upišite stavke ručno ili slikajte ponovo." };
+      }
+    }
+    posao.rezultat = rezultat;
+    await upit(`update prijem_dokument set procitano = $1 where id = $2`, [JSON.stringify(rezultat), dokumentId]).catch(() => undefined);
+    // Gotov posao se pamti još 15 minuta (zakašnjelo pitanje za stanje), pa se briše.
+    setTimeout(() => poslovi.delete(dokumentId), 15 * 60_000).unref();
+  })();
+  return posao;
+}
+
+/** Magacioner je prešao na ručni unos: posle tekućeg prolaza se više ne čita (oslobađa server). */
+export function prekiniCitanje(dokumentId: string) {
+  const p = poslovi.get(dokumentId);
+  if (p) p.prekini = true;
+}
+
+/** Dokument otpremnice: magacioner vidi samo svoje, vodstvo sve. */
+export async function dokumentZaCitanje(dokumentId: string, korisnik: { id: string; uloga: string }) {
+  const d = (
+    await upit<{ vrsta: "pdf" | "slika"; procitano: (RezultatCitanja & { status?: string }) | null; uneo_korisnik_id: string }>(
+      `select vrsta, procitano, uneo_korisnik_id from prijem_dokument where id = $1`,
+      [dokumentId],
+    )
+  ).rows[0];
+  if (!d || (!["bzr", "izvodjac"].includes(korisnik.uloga) && d.uneo_korisnik_id !== korisnik.id)) {
+    throw new ApiGreska(404, "DOKUMENT_NE_POSTOJI", "Otpremnica nije pronađena.");
+  }
+  return d;
+}
+
+export async function stanjeCitanja(dokumentId: string, korisnik: { id: string; uloga: string }) {
+  const d = await dokumentZaCitanje(dokumentId, korisnik);
+  const p = poslovi.get(dokumentId);
+  if (p?.rezultat) return { status: "gotovo" as const, dokumentId, vrsta: d.vrsta, ...p.rezultat };
+  if (p) return { status: "cita" as const, dokumentId, vrsta: d.vrsta, prolaz: p.prolaz, opis: p.opis, sekundi: Math.round((Date.now() - p.pocetak) / 1000) };
+  if (d.procitano && Array.isArray(d.procitano.otpremnice)) {
+    return { status: "gotovo" as const, dokumentId, vrsta: d.vrsta, otpremnice: d.procitano.otpremnice, pouzdanostOcr: d.procitano.pouzdanostOcr ?? null, nijeProcitano: d.procitano.nijeProcitano ?? null };
+  }
+  // Fajl je tu, a posla nema: server je ponovo pokrenut usred čitanja.
+  return {
+    status: "prekinuto" as const,
+    dokumentId,
+    vrsta: d.vrsta,
+    otpremnice: [] as Prijedlog[],
+    pouzdanostOcr: null,
+    nijeProcitano: "Čitanje je prekinuto (server je ponovo pokrenut). Otpremnica je sačuvana uz prijem — slikajte ponovo ili upišite stavke ručno.",
+  };
 }

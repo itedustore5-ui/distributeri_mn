@@ -488,6 +488,8 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
 .prijem-citam strong { display: block; font-size: 13px; }
 .prijem-citam span { font-size: 11px; color: #6d7d88; }
 .vrti { animation: vrti 1s linear infinite; }
+.prijem-citam-traka { height: 6px; border-radius: 3px; background: #e6edf2; overflow: hidden; margin: 0 4px 10px; }
+.prijem-citam-traka span { display: block; height: 100%; background: #2f6fa8; border-radius: 3px; transition: width 1s linear; }
 @keyframes vrti { to { transform: rotate(360deg); } }
 .prijem-traka { margin: 14px 20px 4px; padding: 10px 12px; border-radius: 8px; background: #f5f8fa; border: 1px solid #e6edf2; font-size: 11px; color: #455a66; }
 .prijem-traka select { height: 28px; border: 1px solid #dfe7ed; border-radius: 6px; margin-left: 6px; }

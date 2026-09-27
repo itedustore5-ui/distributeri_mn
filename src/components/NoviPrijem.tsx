@@ -9,7 +9,7 @@
 //      ocjenom; „različito po stavci“ ostaje kao izbor. Server i dalje prima temperaturu po stavci.
 //   4. Potvrda — kvačica „uporedio sa robom“ kad je forma popunjena sa otpremnice.
 // „Sačuvaj“ nikad nije sivo bez objašnjenja: kad nešto fali, piše ŠTA i skroluje do tog polja.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, FileText, PenLine, CheckCircle2, AlertTriangle, Plus, Trash2, Thermometer, Snowflake, Loader2 } from "lucide-react";
 import { api, ApiGreska, posaljiFajl } from "../lib/api";
 import { useSlanje, noviKljuc } from "../lib/slanje";
@@ -76,6 +76,11 @@ type Prijedlog = {
   upozorenja: string[];
 };
 type Procitano = { dokumentId: string; vrsta: "pdf" | "slika"; otpremnice: Prijedlog[]; pouzdanostOcr: number | null; nijeProcitano?: string | null };
+/** Odgovor servera dok čita u pozadini (#76): „cita“ sa napretkom, pa „gotovo“ ili „prekinuto“. */
+type StanjeCitanja = Procitano & { status: "cita" | "gotovo" | "prekinuto"; prolaz?: number; opis?: string; sekundi?: number };
+type Napredak = { faza: "priprema" | "saljem" | "cita"; od: number; opis?: string; prolaz?: number };
+/** Najduže što forma čeka čitanje — posle toga prelazi na ručni unos (fajl ostaje uz prijem). */
+const NAJDUZE_CEKANJE_MS = 180_000;
 
 const NOVI = "__novi";
 const ZUTO = { background: "#fff6d6", borderColor: "#e0b400" };
@@ -115,18 +120,20 @@ const opseg = (g: Granica) =>
 const uGranici = (g: Granica, v: number) => (g.min === null || v >= g.min) && (g.max === null || v <= g.max);
 type Clan = { naziv: string; granica: Granica };
 
-/** Fotografija sa telefona je 3–8 MB; za čitanje je dovoljna duža strana od 3200 px (A4 ≈ 270 dpi).
- * Crtanje preko platna usput okrene sliku kako je telefon snimio (EXIF). */
+/** Fotografija sa telefona je 3–8 MB. Šalje se duža strana od 2200 px (A4 ≈ 190 dpi): izmjereno jednako
+ * tačno kao 3200 px, a slanje i čitanje su brži — na slabom signalu u magacinu i na slabom serveru to je
+ * razlika između nekoliko sekundi i „beskonačnog učitavanja“. Crtanje preko platna usput okrene sliku
+ * kako je telefon snimio (EXIF). */
 async function pripremiSliku(fajl: File): Promise<Blob> {
   if (!fajl.type.startsWith("image/") || typeof createImageBitmap !== "function") return fajl;
   try {
     const slika = await createImageBitmap(fajl);
-    const razmjera = Math.min(1, 3200 / Math.max(slika.width, slika.height));
+    const razmjera = Math.min(1, 2200 / Math.max(slika.width, slika.height));
     const platno = document.createElement("canvas");
     platno.width = Math.round(slika.width * razmjera);
     platno.height = Math.round(slika.height * razmjera);
     platno.getContext("2d")!.drawImage(slika, 0, 0, platno.width, platno.height);
-    return await new Promise<Blob>((ok) => platno.toBlob((b) => ok(b ?? fajl), "image/jpeg", 0.9));
+    return await new Promise<Blob>((ok) => platno.toBlob((b) => ok(b ?? fajl), "image/jpeg", 0.85));
   } catch {
     return fajl;
   }
@@ -167,12 +174,27 @@ export function NoviPrijemModal({
   const [pokusano, setPokusano] = useState(false);
   // Otpremnica
   const [citam, setCitam] = useState<"" | "pdf" | "slika">("");
+  const [napredak, setNapredak] = useState<Napredak | null>(null);
+  const [sekunde, setSekunde] = useState(0);
+  // Tekuće čitanje — da „Ne čekaj“ i zatvaranje forme mogu da ga prekinu.
+  const citanjeRef = useRef<{ dokumentId: string | null; odustao: boolean } | null>(null);
   const [procitano, setProcitano] = useState<Procitano | null>(null);
   const [prijedlog, setPrijedlog] = useState<Prijedlog | null>(null);
   const [poruka, setPoruka] = useState<string | null>(null);
   const [uporedjeno, setUporedjeno] = useState(false);
   const { termometri, termometarId, setTermometarId } = useIzborTermometra();
   const [upozorenja, setUpozorenja] = useState<string[]>([]);
+
+  // OCR se pali unaprijed, dok magacioner slika — prvo čitanje ne čeka paljenje (#76).
+  useEffect(() => {
+    api("/prijem/otpremnica-priprema", { method: "POST" }).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!napredak) return;
+    setSekunde(Math.round((Date.now() - napredak.od) / 1000));
+    const t = setInterval(() => setSekunde(Math.round((Date.now() - napredak.od) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [napredak?.od]);
 
   const artikal = (id: string) => artikli.find((a) => a.id === id);
   const azuriraj = (kljuc: number, izmjena: Partial<Red>, polje?: string) =>
@@ -223,10 +245,41 @@ export function NoviPrijemModal({
   const ucitajOtpremnicu = async (fajl: File | undefined) => {
     if (!fajl) return;
     setGreska("");
-    setCitam(fajl.type === "application/pdf" ? "pdf" : "slika");
+    const vrsta = fajl.type === "application/pdf" ? "pdf" : "slika";
+    setCitam(vrsta);
+    const od = Date.now();
+    const ovo = { dokumentId: null as string | null, odustao: false };
+    citanjeRef.current = ovo;
+    setNapredak({ faza: "priprema", od });
     try {
       const za = await pripremiSliku(fajl);
-      const r = await posaljiFajl<Procitano>("/prijem/otpremnica", za, fajl.name);
+      if (ovo.odustao) return;
+      setNapredak({ faza: "saljem", od });
+      let r = await posaljiFajl<StanjeCitanja>("/prijem/otpremnica", za, fajl.name);
+      ovo.dokumentId = r.dokumentId;
+      if (ovo.odustao) {
+        if (r.status === "cita") api(`/prijem/otpremnica/${r.dokumentId}/prekini`, { method: "POST" }).catch(() => undefined);
+        return;
+      }
+      // Server čita u pozadini — pita se za stanje dok ne završi (napredak se vidi na ekranu).
+      let greskeZaredom = 0;
+      while (r.status === "cita") {
+        setNapredak({ faza: "cita", od, opis: r.opis, prolaz: r.prolaz });
+        if (Date.now() - od > NAJDUZE_CEKANJE_MS) {
+          api(`/prijem/otpremnica/${r.dokumentId}/prekini`, { method: "POST" }).catch(() => undefined);
+          r = { ...r, status: "prekinuto", otpremnice: [], nijeProcitano: "Čitanje traje predugo. Otpremnica je sačuvana uz prijem — upišite stavke ručno." };
+          break;
+        }
+        await new Promise((ok) => setTimeout(ok, 1500));
+        if (ovo.odustao) return;
+        try {
+          r = await api<StanjeCitanja>(`/prijem/otpremnica/${ovo.dokumentId}/stanje`);
+          greskeZaredom = 0;
+        } catch (e) {
+          if (++greskeZaredom >= 6) throw e;
+        }
+      }
+      if (ovo.odustao) return;
       setProcitano(r);
       if (r.otpremnice.length > 0) primijeni(r.otpremnice[0]);
       else {
@@ -236,11 +289,50 @@ export function NoviPrijemModal({
         setPoruka(r.nijeProcitano ?? "Otpremnica nije pročitana — upišite stavke ručno. Slika je sačuvana uz prijem.");
       }
     } catch (e) {
-      setGreska(`${e instanceof ApiGreska ? e.message : "Otpremnica nije poslata."} Pokušajte ponovo ili izaberite „Upiši ručno“.`);
+      if (ovo.odustao) return;
+      if (ovo.dokumentId) {
+        // Fajl je stigao, a veza je pukla tokom čitanja: ne gubi se ništa — prilaže se, stavke ručno.
+        setProcitano({ dokumentId: ovo.dokumentId, vrsta, otpremnice: [], pouzdanostOcr: null });
+        setNacin((n) => (n === "" ? "rucno" : n));
+        setPoruka("Veza je prekinuta tokom čitanja. Otpremnica je sačuvana uz prijem — upišite stavke ručno ili slikajte ponovo.");
+      } else {
+        setGreska(`${e instanceof ApiGreska ? e.message : "Otpremnica nije poslata."} Pokušajte ponovo ili izaberite „Upiši ručno“.`);
+      }
     } finally {
-      setCitam("");
+      if (citanjeRef.current === ovo) {
+        citanjeRef.current = null;
+        setCitam("");
+        setNapredak(null);
+      }
     }
   };
+
+  /** „Ne čekaj — upiši ručno“: čitanje staje (i na serveru), otpremnica ostaje priložena uz prijem. */
+  const neCekaj = () => {
+    const ovo = citanjeRef.current;
+    if (!ovo) return;
+    ovo.odustao = true;
+    citanjeRef.current = null;
+    if (ovo.dokumentId) {
+      api(`/prijem/otpremnica/${ovo.dokumentId}/prekini`, { method: "POST" }).catch(() => undefined);
+      // Traka iznad forme već kaže „Ručni unos — otpremnica je priložena uz prijem“.
+      setProcitano({ dokumentId: ovo.dokumentId, vrsta: citam === "pdf" ? "pdf" : "slika", otpremnice: [], pouzdanostOcr: null });
+      setPoruka(null);
+    }
+    setCitam("");
+    setNapredak(null);
+    setNacin((n) => (n === "" ? "rucno" : n));
+  };
+  const zatvori = () => {
+    const ovo = citanjeRef.current;
+    if (ovo) {
+      ovo.odustao = true;
+      if (ovo.dokumentId) api(`/prijem/otpremnica/${ovo.dokumentId}/prekini`, { method: "POST" }).catch(() => undefined);
+    }
+    onClose();
+  };
+  const opisNapretka =
+    !napredak ? "" : napredak.faza === "priprema" ? "Pripremam sliku…" : napredak.faza === "saljem" ? "Šaljem otpremnicu…" : citam === "pdf" ? "Čitam PDF…" : `Čitam — ${napredak.opis ?? "čeka na red"}…`;
 
   // ── Dobavljač kog nema u Šifarnicima (magacioner javlja, odgovorno lice upisuje) ───────────
   const cifre = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
@@ -391,7 +483,7 @@ export function NoviPrijemModal({
 
   if (upozorenja.length > 0) {
     return (
-      <Modal naslov="Prijem je sačuvan — provjerite" onClose={onClose} footer={<button className="primary-button" onClick={onClose}>Zatvori</button>}>
+      <Modal naslov="Prijem je sačuvan — provjerite" onClose={onClose} footer={<button className="primary-button" onClick={zatvori}>Zatvori</button>}>
         <div style={{ padding: 20, fontSize: 12 }}>
           {upozorenja.map((u) => <p key={u} className="danas-fali" style={{ margin: "0 0 8px" }}><AlertTriangle size={12} style={{ verticalAlign: "-1px" }} /> {u}</p>)}
           <p className="muted-text" style={{ fontSize: 11 }}>Odgovorno lice je obaviješteno. Ako je greška u kucanju, ispravite stavku dok lot čeka odluku.</p>
@@ -410,14 +502,14 @@ export function NoviPrijemModal({
       naslov="Novi prijem robe"
       podnaslov="P1 · KKT 1"
       siroki
-      onClose={onClose}
+      onClose={zatvori}
       greska={greska || porukaFali}
       footer={
         nacin === "" ? (
-          <button className="secondary-button" onClick={onClose}>Otkaži</button>
+          <button className="secondary-button" onClick={zatvori}>Otkaži</button>
         ) : (
           <>
-            <button className="secondary-button" onClick={onClose}>Otkaži</button>
+            <button className="secondary-button" onClick={zatvori}>Otkaži</button>
             <button className="primary-button" onClick={() => salji(posalji)} disabled={radim}>
               {radim ? "Čuvam…" : "Sačuvaj prijem"}
             </button>
@@ -429,13 +521,25 @@ export function NoviPrijemModal({
       {nacin === "" && (
         <div className="prijem-izbor">
           {citam ? (
-            <div className="prijem-citam">
-              <Loader2 size={22} className="vrti" />
-              <div>
-                <strong>{citam === "pdf" ? "Čitam PDF…" : "Čitam fotografiju…"}</strong>
-                <span>Obično nekoliko sekundi. Tamna, mutna ili okrenuta slika — do jednog minuta.</span>
+            <>
+              <div className="prijem-citam" role="status" aria-live="polite">
+                <Loader2 size={22} className="vrti" />
+                <div>
+                  <strong>{opisNapretka}</strong>
+                  <span>
+                    {sekunde} s{napredak?.prolaz && citam !== "pdf" ? ` · prolaz ${napredak.prolaz}` : ""}.{" "}
+                    {citam === "pdf" ? "PDF se čita za nekoliko sekundi." : "Dobra slika — nekoliko sekundi; tamna, mutna ili okrenuta — do jednog minuta."}
+                  </span>
+                </div>
               </div>
-            </div>
+              <div className="prijem-citam-traka" aria-hidden="true">
+                <span style={{ width: `${Math.min(95, 8 + (sekunde / 75) * 87)}%` }} />
+              </div>
+              <button type="button" className="prijem-dugme" onClick={neCekaj}>
+                <PenLine size={22} />
+                <span><strong>Ne čekaj — upiši ručno</strong><small>Otpremnica ostaje priložena uz prijem; stavke upisujete sami.</small></span>
+              </button>
+            </>
           ) : (
             <>
               <p className="prijem-pitanje">Kako unosite prijem?</p>
@@ -494,7 +598,12 @@ export function NoviPrijemModal({
                 <Camera size={13} /> {procitano ? "Slikaj ponovo" : "Ipak slikaj otpremnicu"}
                 <input type="file" accept="image/*" capture="environment" hidden disabled={!!citam} onChange={(e) => { ucitajOtpremnicu(e.target.files?.[0]); e.target.value = ""; }} />
               </label>
-              {citam && <span className="muted-text"><Loader2 size={12} className="vrti" /> čitam…</span>}
+              {citam && (
+                <span className="muted-text">
+                  <Loader2 size={12} className="vrti" /> {opisNapretka} {sekunde} s ·{" "}
+                  <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={neCekaj}>ne čekaj</button>
+                </span>
+              )}
             </div>
           </div>
 

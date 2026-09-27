@@ -639,7 +639,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm test             # 489 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 497 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 ```
 
 **`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a

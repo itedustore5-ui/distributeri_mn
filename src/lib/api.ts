@@ -69,18 +69,38 @@ async function posalji<T>(putanja: string, metoda: string, opcije: Opcije): Prom
 }
 
 /** Šalje fajl (PDF, slika) kao sirovo tijelo zahtjeva — bez base64 naduvavanja. */
-export async function posaljiFajl<T = unknown>(putanja: string, fajl: Blob, nazivFajla: string): Promise<T> {
-  const odgovor = await fetch(`/api${putanja}`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "x-zahtjev-app": "1", "Content-Type": fajl.type || "application/octet-stream", "x-naziv-fajla": encodeURIComponent(nazivFajla) },
-    body: fajl,
-  });
+/** Šalje fajl. `rokMs` — posle toga se odustaje (slab signal u magacinu): bolje jasna poruka nego
+ * beskonačno „učitavanje“. Odgovor koji nije JSON (npr. stranica proksija dok se server pokreće) daje
+ * razumljivu poruku, ne grešku parsiranja. */
+export async function posaljiFajl<T = unknown>(putanja: string, fajl: Blob, nazivFajla: string, rokMs = 90_000): Promise<T> {
+  const prekid = new AbortController();
+  const tajmer = setTimeout(() => prekid.abort(), rokMs);
+  let odgovor: Response;
+  try {
+    odgovor = await fetch(`/api${putanja}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "x-zahtjev-app": "1", "Content-Type": fajl.type || "application/octet-stream", "x-naziv-fajla": encodeURIComponent(nazivFajla) },
+      body: fajl,
+      signal: prekid.signal,
+    });
+  } catch (e) {
+    clearTimeout(tajmer);
+    if (prekid.signal.aborted) throw new ApiGreska(0, "ISTEKLO", "Slanje traje predugo — provjerite internet (Wi-Fi ili mobilni signal) pa pokušajte ponovo.");
+    throw new ApiGreska(0, "NEMA_VEZE", "Nema veze sa serverom — provjerite internet pa pokušajte ponovo.");
+  }
+  clearTimeout(tajmer);
   const tekst = await odgovor.text();
-  const podaci = tekst ? JSON.parse(tekst) : null;
+  let podaci: { error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null = null;
+  try {
+    podaci = tekst ? JSON.parse(tekst) : null;
+  } catch {
+    podaci = null;
+  }
   if (!odgovor.ok) {
     const greska = podaci?.error;
-    throw new ApiGreska(odgovor.status, greska?.code ?? "GRESKA", greska?.message ?? `Slanje nije uspjelo (${odgovor.status}).`, greska?.details ?? {});
+    const opsta = [502, 503, 504].includes(odgovor.status) ? "Server trenutno ne odgovara (možda se ponovo pokreće) — pokušajte za minut." : `Slanje nije uspjelo (${odgovor.status}).`;
+    throw new ApiGreska(odgovor.status, greska?.code ?? "GRESKA", greska?.message ?? opsta, greska?.details ?? {});
   }
   return podaci as T;
 }

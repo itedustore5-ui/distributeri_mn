@@ -45,6 +45,19 @@ export async function pokreni({ provjeri }) {
   const petar = await prijava(NALOZI.petar);
   const trag = { dokumenti: [], prijemi: [], dobavljacId: null, noviDobavljacId: null, artikalId: null };
   const zapamti = (r) => r.tijelo?.dokumentId && trag.dokumenti.push(r.tijelo.dokumentId);
+  // Čitanje ide u pozadini (#76): odgovor je 201 sa rezultatom, ili 202 „čitam“ — tada se pita za
+  // stanje dok ne završi (kao što radi forma na telefonu).
+  const procitaj = async (klijent, sadrzaj, tip, naziv) => {
+    const r = await posaljiFajl(klijent, "/prijem/otpremnica", sadrzaj, tip, naziv);
+    if (r.status !== 202) return r;
+    const pocetak = Date.now();
+    let s = r;
+    while (s.tijelo?.status === "cita" && Date.now() - pocetak < 240_000) {
+      await new Promise((ok) => setTimeout(ok, 1000));
+      s = await klijent(`/prijem/otpremnica/${r.tijelo.dokumentId}/stanje`);
+    }
+    return { status: s.tijelo?.status === "gotovo" ? 201 : s.status, tijelo: s.tijelo };
+  };
 
   try {
     // ── Pristup i vrsta fajla ───────────────────────────────────────────────────────────────
@@ -53,7 +66,7 @@ export async function pokreni({ provjeri }) {
     provjeri("Fajl koji nije PDF ni slika — odbijen (415)", tekst.status === 415, tekst.tijelo?.error?.message);
 
     // ── PDF: svih 10 otpremnica, tačno ──────────────────────────────────────────────────────
-    const prvi = await posaljiFajl(marko, "/prijem/otpremnica", PDF, "application/pdf", "testne_otpremnice.pdf");
+    const prvi = await procitaj(marko, PDF, "application/pdf", "testne_otpremnice.pdf");
     zapamti(prvi);
     provjeri("PDF sa 10 otpremnica — pročitano 10", prvi.status === 201 && prvi.tijelo.otpremnice.length === 10, `${prvi.status} ${prvi.tijelo?.otpremnice?.length ?? prvi.tijelo?.error?.message}`);
     const pogresno = [];
@@ -73,7 +86,7 @@ export async function pokreni({ provjeri }) {
     // ── Dobavljač po PIB-u ──────────────────────────────────────────────────────────────────
     const dob = await ana("/dobavljaci", { telo: { naziv: "ADRIATIC DISTRIBUCIJA d.o.o. Podgorica", pib: "03098765" } });
     trag.dobavljacId = dob.tijelo?.id;
-    const drugi = await posaljiFajl(marko, "/prijem/otpremnica", PDF, "application/pdf");
+    const drugi = await procitaj(marko, PDF, "application/pdf");
     zapamti(drugi);
     const o154 = drugi.tijelo.otpremnice.find((o) => o.broj === "2026-000154");
     provjeri("Dobavljač prepoznat po PIB-u, sigurno", o154.dobavljac.id === trag.dobavljacId && o154.dobavljac.sigurno === true);
@@ -141,7 +154,7 @@ export async function pokreni({ provjeri }) {
     provjeri("Ista otpremnica se ne veže za drugi prijem (409)", opet.status === 409 && opet.tijelo.error.code === "OTPREMNICA_VEC_VEZANA");
 
     // ── Zapamćen artikal ────────────────────────────────────────────────────────────────────
-    const treci = await posaljiFajl(marko, "/prijem/otpremnica", PDF, "application/pdf");
+    const treci = await procitaj(marko, PDF, "application/pdf");
     zapamti(treci);
     const o160 = treci.tijelo.otpremnice.find((o) => o.broj === "2026-000160");
     const j010 = o160.stavke.find((s) => s.sifra === "J-010");
@@ -212,7 +225,7 @@ export async function pokreni({ provjeri }) {
 
     // ── Fotografija (lokalni OCR) ───────────────────────────────────────────────────────────
     for (const [opis, slikaFajl] of SLIKE) {
-      const slika = await posaljiFajl(marko, "/prijem/otpremnica", slikaFajl, "image/jpeg", "otpremnica.jpg");
+      const slika = await procitaj(marko, slikaFajl, "image/jpeg", "otpremnica.jpg");
       zapamti(slika);
       const os = slika.tijelo?.otpremnice?.[0];
       provjeri(`${opis} (nakrivljena, sa sjenkom) — pročitana`, slika.status === 201 && slika.tijelo.vrsta === "slika" && os?.broj === "2026-000153", `${slika.status} ${os?.broj ?? slika.tijelo?.error?.message}`);
@@ -228,7 +241,7 @@ export async function pokreni({ provjeri }) {
       ["fotografija okrenuta za 90° i tamna", "telefon_okrenuta_tamna.jpg", "2026-000153", OCEKIVANO["2026-000153"]],
       ["fotografija otpremnice sa cijenom, rabatom i iznosom", "cijene_fotografija.jpg", "2026-000170", OCEK_CIJENE],
     ]) {
-      const r = await posaljiFajl(marko, "/prijem/otpremnica", fs.readFileSync(path.join(folder, fajl)), "image/jpeg", fajl);
+      const r = await procitaj(marko, fs.readFileSync(path.join(folder, fajl)), "image/jpeg", fajl);
       zapamti(r);
       const o = r.tijelo?.otpremnice?.find((x) => x.broj === broj);
       const procitano = o?.stavke.map((s) => [s.lot, s.kolicina, s.rok]);
@@ -236,7 +249,7 @@ export async function pokreni({ provjeri }) {
     }
 
     // ── PDF sa rednim brojem, cijenom, rabatom i iznosom; i otpremnica bez kolone lota ──────
-    const cijene = await posaljiFajl(marko, "/prijem/otpremnica", fs.readFileSync(path.join(folder, "sa_cijenama.pdf")), "application/pdf", "sa_cijenama.pdf");
+    const cijene = await procitaj(marko, fs.readFileSync(path.join(folder, "sa_cijenama.pdf")), "application/pdf", "sa_cijenama.pdf");
     zapamti(cijene);
     const o170 = cijene.tijelo?.otpremnice?.find((o) => o.broj === "2026-000170");
     provjeri(
@@ -252,9 +265,41 @@ export async function pokreni({ provjeri }) {
       JSON.stringify(o171?.stavke),
     );
 
+    // ── Čitanje u pozadini: odgovor odmah, napredak, „ne čekaj“ (#76) ─────────────────────────
+    provjeri("Otvaranje forme pali OCR unaprijed (204)", (await marko("/prijem/otpremnica-priprema", { method: "POST" })).status === 204);
+    const t0 = Date.now();
+    const spora = await posaljiFajl(marko, "/prijem/otpremnica", fs.readFileSync(path.join(folder, "telefon_okrenuta_tamna.jpg")), "image/jpeg", "spora.jpg");
+    const trajalo = Date.now() - t0;
+    zapamti(spora);
+    provjeri(
+      "Teška fotografija: server odgovara odmah (ne čeka čitanje do kraja) — „čitam“ (202) ili gotovo",
+      ((spora.status === 202 && spora.tijelo?.status === "cita") || spora.status === 201) && trajalo < 20_000,
+      `${spora.status} ${spora.tijelo?.status} ${trajalo} ms`,
+    );
+    if (spora.status === 202) {
+      const stanje = await marko(`/prijem/otpremnica/${spora.tijelo.dokumentId}/stanje`);
+      provjeri(
+        "…stanje pokazuje napredak: prolaz, šta radi, sekunde",
+        stanje.tijelo?.status === "gotovo" || (stanje.tijelo?.status === "cita" && typeof stanje.tijelo.opis === "string" && typeof stanje.tijelo.sekundi === "number"),
+        JSON.stringify(stanje.tijelo).slice(0, 160),
+      );
+      provjeri("…vozač ne vidi tuđu otpremnicu (403)", (await petar(`/prijem/otpremnica/${spora.tijelo.dokumentId}/stanje`)).status === 403);
+      provjeri("…odgovorno lice vidi stanje", (await ana(`/prijem/otpremnica/${spora.tijelo.dokumentId}/stanje`)).status === 200);
+      provjeri("…„Ne čekaj — upiši ručno“ prekida čitanje (204)", (await marko(`/prijem/otpremnica/${spora.tijelo.dokumentId}/prekini`, { method: "POST" })).status === 204);
+      let kraj = stanje;
+      const pocetak = Date.now();
+      while (kraj.tijelo?.status === "cita" && Date.now() - pocetak < 120_000) {
+        await new Promise((ok) => setTimeout(ok, 500));
+        kraj = await marko(`/prijem/otpremnica/${spora.tijelo.dokumentId}/stanje`);
+      }
+      provjeri("…posle prekida čitanje završi (fajl ostaje uz prijem)", kraj.tijelo?.status === "gotovo", kraj.tijelo?.status);
+    }
+    const tudja = await ana("/prijem/otpremnica/00000000-0000-0000-0000-000000000000/stanje");
+    provjeri("Stanje nepostojeće otpremnice — 404", tudja.status === 404);
+
     // ── Slika bez tabele: nije slijepa ulica ────────────────────────────────────────────────
     const prazna = await sharp({ create: { width: 900, height: 1200, channels: 3, background: "#ffffff" } }).jpeg().toBuffer();
-    const np = await posaljiFajl(marko, "/prijem/otpremnica", prazna, "image/jpeg", "prazna.jpg");
+    const np = await procitaj(marko, prazna, "image/jpeg", "prazna.jpg");
     zapamti(np);
     provjeri(
       "Nepročitana slika se ne odbija: sačuvana, uz poruku da se stavke upišu ručno",
