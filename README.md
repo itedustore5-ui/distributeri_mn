@@ -59,10 +59,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`31_magacin_mjerenja_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`32_bezbjednost_baze_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`, `25_push_cg.sql`, `26_talas1_cg.sql`, `27_talas2_cg.sql`, `28_talas3_otkaz_cg.sql`, `29_talas3_cg.sql`, `30_bekap_bez_tajni_cg.sql`, `31_magacin_mjerenja_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`, `25_push_cg.sql`, `26_talas1_cg.sql`, `27_talas2_cg.sql`, `28_talas3_otkaz_cg.sql`, `29_talas3_cg.sql`, `30_bekap_bez_tajni_cg.sql`, `31_magacin_mjerenja_cg.sql`, `32_bezbjednost_baze_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -639,7 +639,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm test             # 508 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 518 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 ```
 
 **`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a
@@ -677,6 +677,7 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `faza2_integritet` | istovremeni unosi ne dobijaju isti broj, lice + nalog ili oba ili ništa, početna i nova lozinka, terenske uloge ne čitaju tuđe, kartice direktora, baza odbija nepoznat izvor |
 | `push` | pretplata po uređaju, adresa koja nije push servis se odbija, push stiže potpisan i šifrovan i čita ga samo „uređaj", ne šalje se dvaput, nestao uređaj (410) se briše sam, odjava samo svog uređaja |
 | `talas1` | predaja zadržanog lota, isteklog lota i više nego što je na zalihi se odbija, zaliha nikad u minusu; povrat u karantin i odluka o njemu; tuđa isporuka i stari prijem po adresi; isti ključ zahtjeva = jedan upis; potvrda sa svim stavkama; tuđi pogrešni pokušaji prijave ne zaključavaju druge |
+| `bezbjednost_baze` | RLS na svim tabelama, pogledi po pravima pitaoca, javne uloge Supabase-a (`anon`, `authenticated`) ne čitaju i ne pišu ni sa vraćenim pravom, nova tabela bez prava za njih, aplikacija i dalje vidi sve |
 | `monitoring_magacini` | plan po magacinu: ono što je izmjerio jedan magacioner važi za sve u tom magacinu, mjerenje u magacinu A ne pokriva B, vidi se ko je uradio, mjerenje i zapis (i ispravka) pamte magacin |
 | `talas4` | bekap iz aplikacije bez heševa lozinki, sesija i ključeva, sa svim tabelama; stari bekapi očišćeni; zdravlje javlja i bazu; neispravan JSON, identifikator, veza i šema → 400/409 sa porukom; bezbjednosna zaglavlja |
 | `talas3` | isporuka ne uzima rezervisanu robu, izmjena u okviru svoje rezervacije, otkaz (samo iz pripreme, uz razlog, ne vozač) oslobađa robu, ispravka kupca sa auditom; rok obavezan, serija jednom po prijemu, drugi rok iste serije → upozorenje; povlačenje cijele serije; otpremnica sa PIB-om i adresom isporuke; jedinstven PIB |

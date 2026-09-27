@@ -32,7 +32,7 @@ import { pokreniSlanjePush } from "./services/pushService.js";
 import { pokreniProvjeruRokova } from "./services/rokoviService.js";
 import { pokreniSedmicniBekap } from "./services/bekapService.js";
 import { pripremiSesije } from "./auth.js";
-import { pool } from "./db.js";
+import { tabeleBezPristupa } from "./db.js";
 
 const port = Number(process.env.PORT || 5000);
 const isProduction = process.env.NODE_ENV === "production";
@@ -90,13 +90,16 @@ app.use("/api", zahtjevAppZaglavlje);
 // ── JAVNO: jedino što radi bez prijave (nalaz A3, faza 4). Provjera znanja NIJE javna — radi je
 // prijavljeni zaposleni svojom šifrom (invarijanta #32). ──
 // Zdravlje provjerava i bazu (nalaz R-25): Render i dnevni pregled vide kad baza ne odgovara, ne samo
-// kad server ne radi. Najviše 3 s čekanja.
+// kad server ne radi. Najviše 3 s čekanja. I da aplikacija vidi svoje tabele (RLS, dopuna 32) — inače
+// bi radila „prazna“ bez ijedne greške.
 app.get("/api/zdravlje", async (_request, response) => {
-  const baza = await Promise.race([
-    pool.query("select 1").then(() => true, () => false),
-    new Promise<boolean>((kraj) => setTimeout(() => kraj(false), 3000).unref()),
+  const bezPristupa = await Promise.race([
+    tabeleBezPristupa().catch(() => null),
+    new Promise<null>((kraj) => setTimeout(() => kraj(null), 3000).unref()),
   ]);
-  response.status(baza ? 200 : 503).json({ ok: baza, baza: baza ? "ok" : "ne odgovara", izdanje: IZDANJE });
+  const baza = bezPristupa === null ? "ne odgovara" : bezPristupa.length ? `aplikacija ne vidi tabele (RLS): ${bezPristupa.join(", ")}` : "ok";
+  const ok = baza === "ok";
+  response.status(ok ? 200 : 503).json({ ok, baza, izdanje: IZDANJE });
 });
 app.use("/api", authJavniRuter); // prijava, odjava
 

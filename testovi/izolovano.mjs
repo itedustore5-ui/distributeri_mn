@@ -112,6 +112,19 @@ try {
     baza = { url, ugasi: () => undefined };
   }
 
+  // Kao Supabase: javne uloge Data API-ja (anon, authenticated) i podrazumijevana prava na sve što se
+  // napravi u public — da test `bezbjednost_baze` provjeri da ih dopuna 32 stvarno zatvara (R-12).
+  const supa = new pg.Client({ connectionString: baza.url });
+  await supa.connect();
+  await supa.query(`do $$ begin
+    if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
+    if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
+  end $$`);
+  await supa.query(`grant usage on schema public to anon, authenticated`);
+  await supa.query(`alter default privileges in schema public grant all on tables to anon, authenticated`);
+  await supa.query(`alter default privileges in schema public grant all on sequences to anon, authenticated`);
+  await supa.end();
+
   korak("migracije + demo podaci");
   const migracije = nodeProces([...TSX, "db/migriraj.ts", "--demo"], { DATABASE_URL: baza.url }, ["ignore", "ignore", "inherit"]);
   if ((await zavrsen(migracije)) !== 0) throw new Error("Migracije nisu prošle na test bazi.");

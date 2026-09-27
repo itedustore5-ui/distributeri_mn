@@ -58,3 +58,19 @@ export async function tabelaPostoji(naziv: string): Promise<boolean> {
   const rezultat = await upit<{ regclass: string | null }>("select to_regclass($1) as regclass", [naziv]);
   return rezultat.rows[0]?.regclass !== null;
 }
+
+/** Tabele koje aplikacija NE vidi zbog RLS-a (dopuna 32, R-12): RLS bez politika propušta samo vlasnika
+ * tabele. Ako aplikacija radi kao drugi korisnik baze (npr. DATABASE_URL na Renderu ≠ onaj iz kog su
+ * pokrenute migracije), upiti vraćaju prazno umjesto greške — prijava bi javljala „pogrešna lozinka“.
+ * Zato ovo provjerava /api/zdravlje (503 sa spiskom), da se vidi odmah poslije deploya. */
+export async function tabeleBezPristupa(): Promise<string[]> {
+  const rezultat = await upit<{ naziv: string }>(`
+    select c.relname as naziv
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind in ('r', 'p') and c.relrowsecurity
+      and (c.relforcerowsecurity or not pg_has_role(current_user, c.relowner, 'USAGE'))
+      and not exists (select 1 from pg_roles r where r.rolname = current_user and (r.rolsuper or r.rolbypassrls))
+    order by 1`);
+  return rezultat.rows.map((r) => r.naziv);
+}

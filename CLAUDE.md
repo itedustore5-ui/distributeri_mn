@@ -287,6 +287,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `26_talas1_cg` | CHECK zaliha ≥ 0 i količine stavke isporuke (`NOT VALID`, pa provjera starih redova — ako ne prođe, samo `notice`, a pravilo važi za nove upise); `kljuc_zahtjeva` (R-10) |
 | `27_talas2_cg` | `mjerenje_temperature.mjerni_uredjaj_id` (R-23); `kontrola_vozila` + `granica_min/max`, `temperatura_ok` (R-05); jedinstven `zapis.ispravlja_id` (R-07, u `do`-bloku — grananje na staroj bazi daje `notice`); pogledi za izvoz `v_izvoz_kontrole_vozila`, `v_izvoz_provjere_nc`, `v_izvoz_termometri`, `v_izvoz_verifikacija_sistema`, `v_izvoz_kretanja_zalihe` (R-20) |
 | `28_talas3_otkaz_cg` | samo `isporuka_status_t` + `OTKAZANA` — nova vrijednost enuma u svom fajlu (ne smije se koristiti u istoj transakciji) |
+| `32_bezbjednost_baze_cg` | RLS na svim tabelama šeme public (bez politika), pogledi `security_invoker`, `anon`/`authenticated` bez prava i bez podrazumijevanih prava — samo gdje te uloge postoje (#78, R-12) |
 | `31_magacin_mjerenja_cg` | `mjerenje_temperature.skladiste_id`, `zapis.skladiste_id` (#77); stari redovi popunjeni gdje se zna (lot → magacin prijema; firma sa jednim magacinom) |
 | `30_bekap_bez_tajni_cg` | iz bekapa već sačuvanih u `bekap_log` briše heševe lozinki (R-19) |
 | `29_talas3_cg` | otkaz isporuke (`otkazano_at`, `otkazao_korisnik_id`, `razlog_otkaza` + CHECK), `v_izvoz_isporuke` ponovo (B5); `artikal.rok_obavezan`; jedinstvena serija u prijemu i indeks serije; `kupac.pib`, `kupac.adresa_isporuke`, jedinstven PIB kupca i dobavljača (u `do`-blokovima); `v_zaliha_dostupna` + `rezervisano`, `slobodno` |
@@ -312,7 +313,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-19 testova, 508 provjera (na čistoj bazi; na demo bazi 506 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+20 testova, 518 provjera (na čistoj bazi; na demo bazi 516 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -322,7 +323,9 @@ nakrivljena i sa sjenkom — i originalna i smanjena kao iz pregledača, zapamć
 procenat se ne uparuju, nov dobavljač i nov artikal upisani uz prijem, okrenuta i tamna fotografija, otpremnica
 sa cijenama (PDF i fotografija), slika bez tabele se čuva, čitanje u pozadini (odgovor odmah, napredak, „ne čekaj“),
 manjak, istekao rok — `otpremnice`; plan monitoringa po magacinu — urađeno važi za sve u magacinu, ne za drugi
-magacin, ko je uradio, magacin na mjerenju i zapisu — `monitoring_magacini`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
+magacin, ko je uradio, magacin na mjerenju i zapisu — `monitoring_magacini`; RLS na svim tabelama, pogledi po
+pravima pitaoca, `anon` ne čita ni ne piše ni sa vraćenim pravom, nova tabela bez prava za javne uloge — `bezbjednost_baze`
+(test baza zato pravi `anon`/`authenticated` sa podrazumijevanim pravima kao Supabase); probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
 (temperatura obavezna na KKT 1, granica iz Šifarnika → pravilo sa verzijama, plan monitoringa i
 „šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
 četiri oka — `faza3_sistem`), i push (pretplata po uređaju, šifrovan sadržaj koji dešifruje samo
@@ -599,7 +602,7 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
 69. **Kriv zahtjev je 4xx, ne 500** (R-26, `greskaHandler`): `ZodError` → 400, neispravan JSON → 400,
     PostgreSQL 22P02/22007/22008/22003 → 400, 23503 → 409 „zapis ne postoji“, 23505 → 409, 23514 → 409.
     Poruka iz šeme (na našem jeziku) ide na ekran umjesto opšte. 500 ostaje samo za pravu grešku servera.
-70. **Zdravlje i zaglavlja** (R-25, R-27): `/api/zdravlje` provjerava i bazu (`select 1`, najviše 3 s;
+70. **Zdravlje i zaglavlja** (R-25, R-27): `/api/zdravlje` provjerava i bazu (i da aplikacija vidi svoje tabele — #78; najviše 3 s;
     503 kad ne odgovara). U produkciji `Content-Security-Policy` (skripte samo sa našeg servera; stilovi i
     fontovi i sa Google Fonts; blob: za otpremnicu) i HSTS; svuda nosniff, zabrana okvira,
     `Permissions-Policy`. Nova spoljna stvar (skripta, font, API) → prvo u CSP, inače je pregledač blokira.
@@ -670,6 +673,16 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     Marko Vuković 08:14“. „Danas po planu“ se osvježava sam (45 s i pri povratku u aplikaciju). Na `/haccp`
     firma sa više magacina bira „Radim u magacinu“ (podrazumijevano matični; „Upiši“ sa plana otvara
     magacin stavke).
+78. **Baza je zatvorena i mimo aplikacije** (R-12, dopuna 32, 27.09.2026 — Security Advisor je pokazao sve
+    tabele bez RLS-a, izložene Data API-ju). Prva brava: Supabase Data API isključen u panelu (za svaki
+    projekat). Druga, u bazi: RLS na SVAKOJ tabeli šeme public, **bez ijedne politike** — javne uloge ne vide
+    nijedan red; pogledi `security_invoker` (prava onoga ko pita); `anon` i `authenticated` bez prava na
+    tabele, poglede i sekvence, i na one koje se tek naprave. Aplikacija radi kao **vlasnik tabela**, pa je RLS
+    ne ograničava (nikad `force row level security`). **Nova tabela u dopuni → `alter table … enable row level
+    security`; nov ili ponovo napravljen pogled → `with (security_invoker = true)`** — test `bezbjednost_baze`
+    pada ako se zaboravi. Ako aplikacija radi kao korisnik baze koji NIJE vlasnik tabela, RLS joj krije
+    podatke bez greške (prijava bi javljala „pogrešna lozinka“) — zato `/api/zdravlje` vraća 503 sa spiskom
+    tabela koje ne vidi (`tabeleBezPristupa`). DATABASE_URL na Renderu = isti korisnik kao za `npm run migriraj`.
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -738,7 +751,7 @@ repozitorijuma. Ovdje samo stanje.
 | R-09 | V | Ručno mjerenje ne gleda artikal | ✓ talas 2 — #59 |
 | R-10 | V | Dupli klik pravio duple zapise | ✓ talas 1 — #52 |
 | R-11 | V | Ograničenje prijave iza Render proksija važilo za sve | ✓ talas 1 — #54 |
-| R-12 | V | Supabase Data API i RLS | **NIJE UTVRĐENO** — provjeriti u Supabase panelu (vidi „Otvoreno“) |
+| R-12 | V | Supabase Data API i RLS | ✓ 27.09.2026 — Advisor potvrdio rupu (sve tabele bez RLS-a, 15 pogleda „security definer“); Data API gasi vlasnica u panelu, u bazi dopuna 32 — #78 |
 | R-13 | S | Magacioner čitao bilo koji prijem; stavka mijenjana bez provjere prijema | ✓ talas 1 — #51 |
 | R-16 | S | Potvrda sa djelimičnim spiskom stavki | ✓ talas 1 — #48 |
 | R-26 | S | Bez interneta / 502 → generička poruka | ✓ djelimično (pregledač: „Nema veze…“, „Server ne odgovara…“); ZodError i loš UUID → 500 ostaje |
@@ -771,7 +784,7 @@ repozitorijuma. Ovdje samo stanje.
 | ~~**Talas 2 revizije**~~ ✓ 25.09.2026 | D1 sa temperaturom po granici vozila, „spremno danas“, rashladno vozilo za robu pod režimom, D1 prije predaje; audit „prije → poslije“; ispravka zapisa („Ispravi“, jednom, svoj); odstupanje iz odgovora u obrascu; lot po granici svog artikla; termometar na mjerenju i „upitna“ mjerenja; ponovna kontrola prije zatvaranja; 5 novih izvora izvoza. Dopuna `27_talas2_cg`, test `talas2` (53 provjere). | R-05 – R-09, R-20, R-22, R-23 | urađeno |
 | ~~**Talas 3 revizije**~~ ✓ 26.09.2026 | Rezervacija (slobodno = zaliha − isporuke u pripremi), otkaz isporuke uz razlog i ispravka kupca, rok obavezan po artiklu, serija jednom po prijemu i povlačenje cijele serije, otpremnica za štampu, PIB i adresa isporuke kupca, jedna temperatura po grupi režima. Dopune `28`, `29`, test `talas3` (35 provjera). | R-14, R-15, R-17, R-21, R-28, R-37 | urađeno |
 | ~~**Mali talas 4**~~ ✓ 26.09.2026 | Bekap bez tajni (+ dopuna 30 za stare), zdravlje sa bazom, 4xx umjesto 500, CSP/HSTS/Permissions-Policy. Uz to: provjera znanja uz lozinku prijavljenog, poruke šalju svi zaposleni. Test `talas4` (12 provjera). | R-19, R-25, R-26, R-27 | urađeno |
-| **Ostatak talasa 4** | R-12 (Supabase — vlasnica u panelu), jedan odgovor po pitanju i u bazi (UQ), korisnik baze sa najmanjim pravima, provjera veličine slike za OCR, podjela JS paketa po stranama. | R-12, R-33 – R-36 | posle pilota |
+| **Ostatak talasa 4** | Jedan odgovor po pitanju i u bazi (UQ), korisnik baze sa najmanjim pravima, provjera veličine slike za OCR, podjela JS paketa po stranama. | R-12, R-33 – R-36 | posle pilota |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
 **Pilot sa prvim klijentom ide paralelno od faze 1** — pravi magacioner nađe ono što test ne nađe.
@@ -827,6 +840,7 @@ repozitorijuma. Ovdje samo stanje.
 | test na demo bazi bira lot „na zalihi“, a isporuka pada na `NEDOVOLJNO_ZALIHE` | posle rezervacije lot na zalihi može biti sav rezervisan za isporuke u pripremi (vlasnica ih ima na demo bazi) | test bira po SLOBODNOJ robi (`slobodno()`) |
 | push test pada samo u punom prolazu na demo bazi („2“ umjesto „1“) | povlačenje demo lota javilo je „Ne predajte lot“ i TUĐOJ isporuci u pripremi (vlasnica ju je unijela) — obavještenje vezano za njen id, čišćenje ga nije brisalo, pa ga je push poslao Marku | čišćenje po tekstu testa; nov tok koji obavještava TUĐE zapise → provjeriti čišćenje svih testova koji ga okidaju |
 | „Pileći file 1 kg“ sa otpremnice predložen kao naš „Pileći file smrznuti 500g“ | naziv se poredio slovo po slovo (Dice) — „1 kg“ i „500g“ su tri znaka razlike u dugom nazivu | pakovanje i procenat se čitaju posebno i moraju se slagati; ostatak naziva se poredi bez njih (#72) |
+| provjera „anon ne čita naloge“ prolazila je i kad ništa nije bilo zatvoreno | kao običan korisnik baze (ne superuser) `set role anon` pada sa 42501 — ista šifra kao odbijen upit | test prvo provjeri da korisnik smije glumiti `anon` (`pg_has_role … MEMBER`), inače te provjere preskače i kaže; jednom proći cio skup testova kao vlasnik tabela bez superusera (kao `postgres` na Supabase-u) |
 | UptimeRobot javlja „aplikacija pala“, a radi (odgovor prazan, `Content-Security-Policy: default-src 'none'`) | besplatni UptimeRobot pita metodom HEAD; stranica aplikacije se slala samo za GET, pa je `/` vraćao Expressov 404 | povratak na `index.html` i za HEAD (`server/index.ts`); monitor da gađa `/api/zdravlje` (javlja i bazu) |
 | sa dva magacina, mjerenje komore u jednom „pokrije“ plan drugog; drugi magacioner ne zna da je kolega već izmjerio | mjerenje i zapis nisu pamtili magacin; Moja strana se nije osvježavala; nije pisalo ko je uradio | magacin na mjerenju i zapisu, brojanje po magacinu, „uradio/la: …“, osvježavanje na 45 s (#77) |
 | magacioner nije mogao primiti robu od dobavljača kog nema u Šifarnicima | dobavljača je dodavalo samo odgovorno lice, a forma je nudila samo spisak | „+ Nov dobavljač“ u formi prijema, upis u istoj transakciji, obavještenje odgovornom licu (#71) |
@@ -915,11 +929,12 @@ vozilima i ritmu rada — prazno polje se u štampi vidi kao crveno „— upisa
 prošla ručni klik kroz pregledač (samo build, typecheck i E2E kroz API) — prvo korišćenje na
 Renderu je i prva vizuelna provjera.
 
-**R-12 — Supabase Data API i RLS: NIJE UTVRĐENO.** Aplikacija ide na bazu direktno (`pg`), ali
-Supabase uz svaki projekat nudi i svoj REST pristup (Data API) sa javnim `anon` ključem. Ako je za
-šemu `public` uključen, a RLS na tabelama isključen, ko ima ključ čita i piše bazu mimo aplikacije i
-mimo svih pravila ovdje. Provjeriti u Supabase panelu (Project Settings → Data API): isključiti ga
-za `public`, ili uključiti RLS na svim tabelama. Za svaku bazu klijenta.
+**R-12 — Supabase Data API: gasi se u panelu ZA SVAKI PROJEKAT.** Security Advisor (27.09.2026) je na demo
+projektu pokazao sve tabele bez RLS-a, izložene Data API-ju. U bazi je to zatvoreno dopunom 32 (#78), a u
+panelu: Project Settings → Data API → isključiti „Enable Data API“ (ili izbaciti `public` iz „Exposed
+schemas“). Za svaki nov projekat klijenta: odmah pri otvaranju, prije prvog podatka; pa Advisors → Security
+Advisor → Rerun — ostaje samo INFO „RLS Enabled No Policy“, to je namjerno (niko osim aplikacije). Ako je
+javni `anon` ključ projekta ikad bio negdje zalijepljen — promijeniti ga (Project Settings → API Keys).
 
 **Roba pod režimom ide samo rashladnim vozilom (#55).** Ako klijent ima i preuzimanje u magacinu (kupac
 dolazi sam), takva isporuka se sada ne može upisati bez vozila — tada treba dodati „preuzima kupac“ (sa
