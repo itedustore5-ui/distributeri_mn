@@ -44,6 +44,37 @@ const PRAG_POUZDANOSTI = 80;
 
 // ─── Čitanje ─────────────────────────────────────────────────────────────────────────────────────
 
+/** Najviše piksela slike koja se obrađuje (50 MP — i neumanjena fotografija sa telefona od 50 MP).
+ * Mali PNG može imati 30.000 × 30.000 piksela: raširen u memoriji to je preko 1 GB i ruši server
+ * („slikovna bomba“, talas 5). Provjerava se iz zaglavlja slike, bez raspakivanja. */
+export const NAJVISE_PIKSELA = 50_000_000;
+
+/** Odbija sliku prevelikih dimenzija PRIJE čuvanja i čitanja. PDF se ne dira (pdfjs ga ne raspakuje u piksele). */
+export async function provjeriVelicinuSlike(sadrzaj: Buffer): Promise<void> {
+  let sharp: (typeof import("sharp"))["default"];
+  try {
+    sharp = (await import("sharp")).default;
+  } catch {
+    return; // bez sharp-a nema ni obrade slike u pikselima (OCR dobija fajl kakav jeste)
+  }
+  let sirina = 0;
+  let visina = 0;
+  try {
+    const m = await sharp(sadrzaj, { failOn: "none", limitInputPixels: false }).metadata();
+    sirina = m.width ?? 0;
+    visina = m.height ?? 0;
+  } catch {
+    throw new ApiGreska(415, "NEPOZNAT_FAJL", "Slika se ne može otvoriti — slikajte otpremnicu ponovo.");
+  }
+  if (sirina * visina > NAJVISE_PIKSELA) {
+    throw new ApiGreska(
+      400,
+      "SLIKA_PREVELIKA",
+      `Slika je prevelika (${sirina} × ${visina} piksela). Slikajte otpremnicu telefonom iz aplikacije ili pošaljite manju sliku.`,
+    );
+  }
+}
+
 export function prepoznajVrstu(sadrzaj: Buffer): { vrsta: "pdf" | "slika"; mime: string } | null {
   if (sadrzaj.subarray(0, 5).toString("latin1") === "%PDF-") return { vrsta: "pdf", mime: "application/pdf" };
   if (sadrzaj[0] === 0xff && sadrzaj[1] === 0xd8 && sadrzaj[2] === 0xff) return { vrsta: "slika", mime: "image/jpeg" };
@@ -58,6 +89,8 @@ type PdfStavka = { str: string; transform: number[]; width: number; height: numb
  * pola visine slova je nova ćelija (tako se ćelije tabele ne slijepe). */
 export async function procitajPdf(sadrzaj: Buffer): Promise<Linija[][]> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // Fajl dolazi spolja: pdfjs od verzije 6 uopšte ne izvršava kod iz fonta (CVE-2024-4367 zatvoren u
+  // samoj biblioteci — opcija isEvalSupported više ne postoji). Ne vraćati se na verziju ispod 4.2.67.
   const ucitavanje = pdfjs.getDocument({ data: new Uint8Array(sadrzaj), useSystemFonts: false, verbosity: 0 });
   const dokument = await ucitavanje.promise;
   const strane: Linija[][] = [];
@@ -250,7 +283,7 @@ let sharpPodesen = false;
  * Mala slika se za te prolaze uveća (mala + tamna se tek tada pročita). Globalno razvlačenje
  * kontrasta (normalise) je na probi POGORŠAVALO — pojača sjenku. */
 async function pripremljena(sadrzaj: Buffer, ugao: number, priprema: Priprema, najvise = NAJVECA): Promise<Buffer> {
-  let sharp: typeof import("sharp");
+  let sharp: (typeof import("sharp"))["default"];
   try {
     sharp = (await import("sharp")).default;
   } catch {
@@ -264,11 +297,11 @@ async function pripremljena(sadrzaj: Buffer, ugao: number, priprema: Priprema, n
     sharp.concurrency(1);
     sharpPodesen = true;
   }
-  const m = await sharp(sadrzaj, { failOn: "none" }).metadata();
+  const m = await sharp(sadrzaj, { failOn: "none", limitInputPixels: NAJVISE_PIKSELA }).metadata();
   const duza = Math.max(m.width ?? 0, m.height ?? 0) || 2000;
   const uspravna = !m.orientation || m.orientation === 1;
   if (ugao === 0 && priprema === "sirovo" && duza <= najvise && uspravna) return sadrzaj;
-  let s = sharp(sadrzaj, { failOn: "none" }).autoOrient();
+  let s = sharp(sadrzaj, { failOn: "none", limitInputPixels: NAJVISE_PIKSELA }).autoOrient();
   if (ugao) s = s.rotate(ugao);
   const cilj = priprema !== "sirovo" && duza < 1800 ? najvise : Math.min(najvise, duza);
   s = s.resize({ width: cilj, height: cilj, fit: "inside" });

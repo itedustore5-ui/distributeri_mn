@@ -22,9 +22,11 @@ import {
   Bell,
   MessageSquare,
   ClipboardCheck,
+  WifiOff,
 } from "lucide-react";
 import { useAuth, NAZIV_ULOGE, type Uloga } from "../lib/auth";
 import { api } from "../lib/api";
+import { GreskaGranica } from "./GreskaGranica";
 
 type StavkaMenija = { putanja: string; naziv: string; ikonica: ReactNode; uloge: Uloga[] };
 
@@ -69,6 +71,18 @@ export function Layout({ children }: { children: ReactNode }) {
   const [korisnikMenu, setKorisnikMenu] = useState(false);
   const navigate = useNavigate();
   const lokacija = useLocation();
+  // Traka „nema interneta“ (talas 5): magacioner inače klikne „Sačuvaj“ u podrumu hladnjače i misli da je upisano.
+  const [naMrezi, setNaMrezi] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+  useEffect(() => {
+    const da = () => setNaMrezi(true);
+    const ne = () => setNaMrezi(false);
+    window.addEventListener("online", da);
+    window.addEventListener("offline", ne);
+    return () => {
+      window.removeEventListener("online", da);
+      window.removeEventListener("offline", ne);
+    };
+  }, []);
   const [neprocitano, setNeprocitano] = useState(0);
   const [izdanje, setIzdanje] = useState("");
 
@@ -189,7 +203,15 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
           </div>
         </header>
-        <div className="page-content">{children}</div>
+        <div className="page-content">
+          {!naMrezi && (
+            <div className="upozorenje-traka" role="status">
+              <WifiOff size={16} />
+              <span>Nema interneta — ono što sada upišete neće se sačuvati. Sačekajte signal (ili pređite na Wi-Fi), forma ostaje popunjena.</span>
+            </div>
+          )}
+          <GreskaGranica kljuc={lokacija.pathname}>{children}</GreskaGranica>
+        </div>
       </main>
     </div>
   );

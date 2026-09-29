@@ -21,7 +21,10 @@ const TABELE = [
   "plan_monitoringa", "mjerni_uredjaj", "provjera_uredjaja", "verifikacija_sistema",
 ] as const;
 // Kolone koje ne idu u bekap: heš lozinke (tajna) i sam fajl otpremnice (velik — on je u pg_dump bekapu).
-const BEZ_KOLONA: Partial<Record<(typeof TABELE)[number], string[]>> = { korisnik: ["lozinka_hash"], prijem_dokument: ["sadrzaj"] };
+const BEZ_KOLONA: Partial<Record<(typeof TABELE)[number], string[]>> = {
+  korisnik: ["lozinka_hash", "totp_tajna", "totp_rezervni", "totp_zadnji_korak"],
+  prijem_dokument: ["sadrzaj"],
+};
 
 type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
 

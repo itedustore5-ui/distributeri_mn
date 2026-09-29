@@ -28,11 +28,14 @@ import { haccpPlanRuter } from "./routes/haccpPlan.js";
 import { povlacenjeRuter } from "./routes/povlacenje.js";
 import { bekapRuter } from "./routes/bekap.js";
 import { pushRuter } from "./routes/push.js";
+import { greskeRuter } from "./routes/greske.js";
+import { migracijeNaCekanju, primijeniMigracije } from "./migracije.js";
+import { opisGreske, pokreniCiscenjeGresaka, zapisiGresku } from "./services/greskeLogService.js";
 import { pokreniSlanjePush } from "./services/pushService.js";
 import { pokreniProvjeruRokova } from "./services/rokoviService.js";
 import { pokreniSedmicniBekap } from "./services/bekapService.js";
 import { pripremiSesije } from "./auth.js";
-import { tabeleBezPristupa } from "./db.js";
+import { pool, tabeleBezPristupa } from "./db.js";
 
 const port = Number(process.env.PORT || 5000);
 const isProduction = process.env.NODE_ENV === "production";
@@ -92,12 +95,14 @@ app.use("/api", zahtjevAppZaglavlje);
 // Zdravlje provjerava i bazu (nalaz R-25): Render i dnevni pregled vide kad baza ne odgovara, ne samo
 // kad server ne radi. Najviše 3 s čekanja. I da aplikacija vidi svoje tabele (RLS, dopuna 32) — inače
 // bi radila „prazna“ bez ijedne greške.
+// I da su sve dopune baze primijenjene (#79) — nov kod bez svoje dopune pada tek kad neko klikne.
 app.get("/api/zdravlje", async (_request, response) => {
-  const bezPristupa = await Promise.race([
-    tabeleBezPristupa().catch(() => null),
-    new Promise<null>((kraj) => setTimeout(() => kraj(null), 3000).unref()),
-  ]);
-  const baza = bezPristupa === null ? "ne odgovara" : bezPristupa.length ? `aplikacija ne vidi tabele (RLS): ${bezPristupa.join(", ")}` : "ok";
+  const provjera = Promise.all([tabeleBezPristupa(), migracijeNaCekanju(pool)]).catch(() => null);
+  const rezultat = await Promise.race([provjera, new Promise<null>((kraj) => setTimeout(() => kraj(null), 3000).unref())]);
+  let baza = "ok";
+  if (rezultat === null) baza = "ne odgovara";
+  else if (rezultat[0].length) baza = `aplikacija ne vidi tabele (RLS): ${rezultat[0].join(", ")}`;
+  else if (rezultat[1].length) baza = `dopune baze nisu primijenjene: ${rezultat[1].join(", ")} — npm run migriraj`;
   const ok = baza === "ok";
   response.status(ok ? 200 : 503).json({ ok, baza, izdanje: IZDANJE });
 });
@@ -127,6 +132,7 @@ app.use("/api", haccpPlanRuter);
 app.use("/api", povlacenjeRuter);
 app.use("/api", bekapRuter);
 app.use("/api", pushRuter);
+app.use("/api", greskeRuter);
 
 app.use("/api", (_request: Request, response: Response, _next: NextFunction) => {
   response.status(404).json({ error: { code: "RUTA_NE_POSTOJI", message: "Traženi API resurs ne postoji." } });
@@ -173,6 +179,18 @@ const start = async () => {
     });
   }
 
+  // Dopune baze prije prvog zahtjeva (#79): u produkciji podrazumijevano, inače uz MIGRACIJE_PRI_STARTU=1.
+  // Ako dopuna padne, server NE kreće — Render tada ostavlja prethodno izdanje da radi.
+  if (process.env.MIGRACIJE_PRI_STARTU === "1" || (isProduction && process.env.MIGRACIJE_PRI_STARTU !== "0")) {
+    try {
+      const primijenjeno = await primijeniMigracije(pool);
+      if (primijenjeno.length) console.log(`Dopune baze primijenjene pri pokretanju: ${primijenjeno.join(", ")}`);
+    } catch (e) {
+      console.error("Dopuna baze nije uspjela — server ne kreće:", e);
+      process.exit(1);
+    }
+  }
+
   try {
     await pripremiSesije();
   } catch (e) {
@@ -186,6 +204,7 @@ const start = async () => {
   pokreniSedmicniBekap();
   pokreniSlanjePush().catch((e) => console.error("Push obavještenja nisu pokrenuta:", e));
   pokreniProvjeruRokova();
+  pokreniCiscenjeGresaka();
 
   const shutdown = async () => {
     await vite?.close();
@@ -194,6 +213,21 @@ const start = async () => {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 };
+
+// Greške koje niko nije uhvatio idu i u dnevnik (#80). Odbačeno obećanje se zapiše i server radi dalje;
+// neuhvaćena greška ostavlja proces u nepoznatom stanju — zapiše se pa proces izlazi (Render ga podiže).
+process.on("unhandledRejection", (razlog) => {
+  console.error("Neuhvaćeno odbijeno obećanje:", razlog);
+  void zapisiGresku({ izvor: "proces", kod: "UNHANDLED_REJECTION", ...opisGreske(razlog) });
+});
+process.on("uncaughtException", (greska) => {
+  console.error("Neuhvaćena greška:", greska);
+  const izlaz = setTimeout(() => process.exit(1), 2000);
+  zapisiGresku({ izvor: "proces", kod: "UNCAUGHT_EXCEPTION", ...opisGreske(greska) }).finally(() => {
+    clearTimeout(izlaz);
+    process.exit(1);
+  });
+});
 
 start().catch((error) => {
   console.error(error);

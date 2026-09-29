@@ -25,10 +25,19 @@ export const IZVORI_IZVOZA = [
   { kod: "audit", naziv: "Audit log", izvor: "audit_log" },
 ] as const;
 
-function csvVrijednost(v: unknown): string {
+/** Trenutak po podgoričkom vremenu, „2026-09-28 14:05:09“ — inspektor čita lokalni sat, ne UTC (#11). */
+const PODGORICA = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Europe/Podgorica", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+});
+
+/** Ćelija CSV-a. Tekst koji počinje sa = + - @ (ili tab/CR) Excel izvršava kao formulu — napomena
+ * „=HYPERLINK(…)“ iz aplikacije bi se izvršila kod konsultanta (talas 5). Takvom tekstu ide apostrof
+ * ispred; broj ostaje broj („-18,5“ je temperatura, ne formula). */
+export function csvVrijednost(v: unknown): string {
   if (v === null || v === undefined) return "";
-  const tekst = v instanceof Date ? v.toISOString() : String(v);
-  if (/[",\n;]/.test(tekst)) return `"${tekst.replaceAll('"', '""')}"`;
+  let tekst = v instanceof Date ? PODGORICA.format(v) : String(v);
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(tekst) && !/^[+-]?\d+([.,]\d+)?$/.test(tekst)) tekst = `'${tekst}`;
+  if (/[",\n;]/.test(tekst)) return `"${tekst.replace(/"/g, '""')}"`;
   return tekst;
 }
 

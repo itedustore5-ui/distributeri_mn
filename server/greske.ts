@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
+import { opisGreske, zapisiGresku } from "./services/greskeLogService.js";
 
 export class ApiGreska extends Error {
   status: number;
@@ -58,6 +59,12 @@ export function greskaHandler(err: unknown, _request: Request, response: Respons
     return;
   }
   console.error(err);
+  // Dnevnik grešaka (#80): ruta, status, ko — nikad tijelo zahtjeva (lozinke, lični podaci).
+  const { poruka, detalji } = opisGreske(err);
+  void zapisiGresku({
+    izvor: "server", metod: _request.method, putanja: _request.originalUrl?.split("?")[0] ?? null, status: 500, kod: e?.code ?? null,
+    poruka, detalji, korisnikId: (_request as Request & { korisnik?: { id: string } }).korisnik?.id ?? null,
+  });
   posalji(response, 500, "GRESKA_SERVERA", "Došlo je do neočekivane greške na serveru.");
 }
 

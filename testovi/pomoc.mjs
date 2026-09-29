@@ -10,13 +10,17 @@ const BAZA = `${APP_URL}/api`;
 const URL_BAZE = process.env.DATABASE_URL ?? "";
 export const pool = new pg.Pool({ connectionString: URL_BAZE, ssl: URL_BAZE.includes("localhost") ? undefined : { rejectUnauthorized: false } });
 
-// Demo nalozi iz db/13_demo_cg.sql i db/migriraj.ts (lozinke su tamo javne — samo za demo bazu).
+// Demo nalozi iz db/13_demo_cg.sql. Na lokalnoj bazi (npm test, CI — svaki put čista, iz 13_demo_cg.sql)
+// važe početne lozinke. Na živoj demo bazi su promijenjene (`npm run demo-lozinke`, talas 5 — repozitorijum
+// je bio javan) i čitaju se iz .env: DEMO_LOZINKA_ANA, _MARKO, _PETAR, _DIREKTOR, _KONSULTANT.
+const LOKALNA = URL_BAZE.includes("localhost");
+const lozinka = (kljuc, pocetna) => (LOKALNA ? pocetna : process.env[`DEMO_LOZINKA_${kljuc}`] || pocetna);
 export const NALOZI = {
-  ana: { ime: "ana.b", lozinka: "Podgorica-2026!", id: "11000000-0000-0000-0000-000000000002" },
-  marko: { ime: "marko.v", lozinka: "Magacin-2026!", id: "11000000-0000-0000-0000-000000000003" },
-  petar: { ime: "petar.j", lozinka: "Vozac-2026!", id: "11000000-0000-0000-0000-000000000004" },
-  direktor: { ime: "direktor", lozinka: "Uprava-2026!", id: "11000000-0000-0000-0000-000000000005" },
-  konsultant: { ime: "konsultant", lozinka: "Konsultant-2026!", id: "11000000-0000-0000-0000-000000000001" },
+  ana: { ime: "ana.b", lozinka: lozinka("ANA", "Podgorica-2026!"), id: "11000000-0000-0000-0000-000000000002" },
+  marko: { ime: "marko.v", lozinka: lozinka("MARKO", "Magacin-2026!"), id: "11000000-0000-0000-0000-000000000003" },
+  petar: { ime: "petar.j", lozinka: lozinka("PETAR", "Vozac-2026!"), id: "11000000-0000-0000-0000-000000000004" },
+  direktor: { ime: "direktor", lozinka: lozinka("DIREKTOR", "Uprava-2026!"), id: "11000000-0000-0000-0000-000000000005" },
+  konsultant: { ime: "konsultant", lozinka: lozinka("KONSULTANT", "Konsultant-2026!"), id: "11000000-0000-0000-0000-000000000001" },
 };
 
 /** Baza je demo samo ako u njoj stoje svih pet demo naloga sa svojim fiksnim ID-jevima. */

@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
+import { migracijeNaCekanju } from "../server/migracije.js";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,8 +18,9 @@ async function ucitajKlijente(): Promise<{ naziv: string; url: string }[]> {
       .map((red) => red.trim())
       .filter((red) => red && !red.startsWith("#"))
       .map((red) => {
-        const [naziv, url] = red.split("=").map((deo) => deo.trim());
-        return { naziv, url };
+        // Samo PRVI znak „=“ dijeli naziv od adrese — adresa baze i sama može imati „=“ (?sslmode=require).
+        const i = red.indexOf("=");
+        return { naziv: red.slice(0, i).trim(), url: red.slice(i + 1).trim() };
       });
   } catch {
     if (!process.env.DATABASE_URL) throw new Error("Nema alati/klijenti.txt ni DATABASE_URL u .env.");
@@ -31,14 +33,46 @@ async function provjeriKlijenta(naziv: string, url: string): Promise<boolean> {
   try {
     const zadnjiZapis = await pool.query<{ max: string | null }>(`select max(created_at) from zapis`);
     const zadnjaIsporuka = await pool.query<{ max: string | null }>(`select max(created_at) from isporuka`);
-    const otvoreneNc = await pool.query<{ broj: string }>(`select count(*) from neusaglasenost where status not in ('ZATVORENA')`);
+    const otvoreneNc = await pool.query<{ broj: string }>(`select count(*) as broj from neusaglasenost where status not in ('ZATVORENA')`);
 
     const poslednja = [zadnjiZapis.rows[0].max, zadnjaIsporuka.rows[0].max].filter(Boolean).sort().pop();
     const danaOdZadnjeg = poslednja ? Math.floor((Date.now() - new Date(poslednja).getTime()) / 86400000) : null;
     const uZastoju = danaOdZadnjeg === null || danaOdZadnjeg > 2;
 
-    console.log(`${uZastoju ? "⚠" : "✓"} ${naziv}: poslednji unos ${danaOdZadnjeg === null ? "nikad" : `prije ${danaOdZadnjeg} dana`}, otvorenih NC: ${otvoreneNc.rows[0].broj}`);
-    return !uZastoju;
+    // Talas 5: greške servera i ekrana (dnevnik #80), dopune baze koje nisu primijenjene (#79) i
+    // nalozi vodstva bez potvrde u dva koraka (#81). Stara baza bez tih tabela — samo se preskoči.
+    const napomene: string[] = [];
+    let problem = false;
+    try {
+      const g = (await pool.query<{ n: number; zadnja: string | null }>(
+        `select count(*)::int as n, (array_agg(left(poruka, 80) order by vrijeme desc))[1] as zadnja from greska_log where vrijeme > now() - interval '24 hours'`,
+      )).rows[0];
+      if (g.n > 0) napomene.push(`grešaka 24 h: ${g.n} (posljednja: ${g.zadnja})`);
+    } catch {
+      napomene.push("dnevnik grešaka još ne postoji (dopuna 33)");
+    }
+    try {
+      const fale = await migracijeNaCekanju(pool);
+      if (fale.length) {
+        problem = true;
+        napomene.push(`NEPRIMIJENJENE DOPUNE: ${fale.join(", ")}`);
+      }
+    } catch {
+      // bez schema_migracije — javiće se kao greška povezivanja ili prazna baza
+    }
+    try {
+      const bez2fa = (await pool.query<{ ime: string }>(
+        `select korisnicko_ime as ime from korisnik where aktivan and uloga in ('izvodjac', 'bzr') and totp_ukljucen_at is null order by 1`,
+      )).rows.map((r) => r.ime);
+      if (bez2fa.length) napomene.push(`bez potvrde u dva koraka: ${bez2fa.join(", ")}`);
+    } catch {
+      // kolone 2FA još nema (dopuna 33)
+    }
+
+    const znak = uZastoju || problem ? "⚠" : "✓";
+    const dodatak = napomene.map((n) => `\n    ${n}`).join("");
+    console.log(`${znak} ${naziv}: poslednji unos ${danaOdZadnjeg === null ? "nikad" : `prije ${danaOdZadnjeg} dana`}, otvorenih NC: ${otvoreneNc.rows[0].broj}${dodatak}`);
+    return !uZastoju && !problem;
   } catch (greska) {
     console.log(`✗ ${naziv}: greška pri povezivanju — ${(greska as Error).message}`);
     return false;

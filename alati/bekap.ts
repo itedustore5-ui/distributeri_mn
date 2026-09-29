@@ -107,7 +107,7 @@ for (const k of spisak) {
 
   // Samo šema public (Supabase ima i svoje sistemske šeme). Sesije se ne kopiraju — to su živi
   // tokeni prijave i ne smiju ležati u fajlu na disku; tabela ostaje, prazna.
-  const argumenti = ["--format=custom", "--schema=public", "--exclude-table-data=public.sesija_prijave", "--exclude-table-data=public.bekap_log", "--no-owner", "--no-privileges"];
+  const argumenti = ["--format=custom", "--schema=public", "--exclude-table-data=public.sesija_prijave", "--exclude-table-data=public.prijava_izazov", "--exclude-table-data=public.bekap_log", "--no-owner", "--no-privileges"];
   const dump = spawnSync(pgDump, [...argumenti, "--file", fajl, "--dbname", adresa], {
     encoding: "utf8",
     env: { ...process.env, PGPASSWORD: lozinka },

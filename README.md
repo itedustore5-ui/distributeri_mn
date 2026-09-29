@@ -59,10 +59,10 @@ tokenom (za razliku od ranije verzije aplikacije). Sve administrativne operacije
 ### Migracije
 
 `npm run migriraj` primjenjuje SQL fajlove iz `db/` po redu (`01_organizacija.sql` →
-`32_bezbjednost_baze_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
+`33_talas5_cg.sql`), i pamti šta je već primijenjeno u tabeli `schema_migracije` —
 bezbjedno je pokrenuti ga više puta. `db/13_demo_cg.sql` se primjenjuje samo sa `--demo`
 (odnosno `npm run seed:demo`), i **nikad na bazi pravog klijenta**. Fajlovi poslije 13
-(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`, `25_push_cg.sql`, `26_talas1_cg.sql`, `27_talas2_cg.sql`, `28_talas3_otkaz_cg.sql`, `29_talas3_cg.sql`, `30_bekap_bez_tajni_cg.sql`, `31_magacin_mjerenja_cg.sql`, `32_bezbjednost_baze_cg.sql`) su dodati naknadno namjerno —
+(`14_povlacenje.sql`, `15_isporuka_uneo_cg.sql`, `16_bekap_cg.sql`, `17_naknadno_cg.sql`, `18_temperatura_predaje_cg.sql`, `19_skladista_poruke_cg.sql`, `20_sesije_prijave_cg.sql`, `21_pitanja_firme_cg.sql`, `22_integritet_cg.sql`, `23_otpremnice_cg.sql`, `24_haccp_sistem_cg.sql`, `25_push_cg.sql`, `26_talas1_cg.sql`, `27_talas2_cg.sql`, `28_talas3_otkaz_cg.sql`, `29_talas3_cg.sql`, `30_bekap_bez_tajni_cg.sql`, `31_magacin_mjerenja_cg.sql`, `32_bezbjednost_baze_cg.sql`, `33_talas5_cg.sql`) su dodati naknadno namjerno —
 brojevi fajlova prate redoslijed kad su nastali, ne semantičku grupu; runner demo fajl uvijek
 tretira posebno bez obzira na njegov broj.
 
@@ -136,19 +136,19 @@ Demo baza (za prodajne sastanke) se pravi na isti način, ali sa `npm run seed:d
 | Alat | Šta radi |
 |---|---|
 | `npm run prvi-korisnik -- --firma "..." --ime "..." --korisnik ...` | Prvi nalog (`bzr`) poslije instalacije kod klijenta. |
-| `npm run dnevni-pregled` | Stanje SVIH klijenata iz `alati/klijenti.txt` u jednom ispisu (poslednji unos, otvorene neusaglašenosti). Izlazni kod `1` ako je neko u zastoju (>2 dana bez unosa) — pogodno za Task Scheduler + mejl na grešku. |
+| `npm run dnevni-pregled` | Stanje SVIH klijenata iz `alati/klijenti.txt` u jednom ispisu (poslednji unos, otvorene neusaglašenosti, greške servera i ekrana u 24 h, neprimijenjene dopune baze, vodstvo bez potvrde u dva koraka). Izlazni kod `1` ako je neko u zastoju (>2 dana bez unosa) — pogodno za Task Scheduler + mejl na grešku. |
+| `npm run demo-lozinke` | Nove lozinke za pet demo naloga — SAMO na demo bazi (provjeri fiksne ID-jeve); upiše ih u `.env` (`DEMO_LOZINKA_*`, za `test:e2e`) i ispiše jednom. |
+| `npm run iskljuci-2fa -- --korisnik ime` | Isključuje potvrdu u dva koraka nalogu koji je izgubio telefon i rezervne kodove; prekida njegove prijave, upisuje se u audit. |
+| `npm run zakazi-bekap` | Upisuje `npm run bekap` u Windows Task Scheduler (svaki dan u 13:00, i čim se računar upali ako je tada bio ugašen). `-Vrijeme 09:30`, `-Ukloni`. |
+| `npm run demo:lokalno` | Aplikacija na LOKALNOJ probnoj bazi sa demo podacima (http://localhost:5059) — da se ekrani proklikaju bez diranja žive baze. |
 | `node alati/napravi-licencu.ts "Naziv klijenta"` | Administrativni licencni ključ za ugovor (aplikacija ga ne provjerava — to je papirni trag, ne tehnička brava). |
 | `npm run bekap` | `pg_dump` svake baze iz `alati/klijenti.txt` (ili, bez tog fajla, baze iz `DATABASE_URL`) u `bekap/<klijent>/`. Samo šema `public`, bez podataka sesija prijave. Svaki fajl se odmah provjeri (`pg_restore --list`); stariji od 90 dana se brišu; ishod u `bekap/POSLJEDNJI-BEKAP.txt`; izlazni kod `1` ako ijedan klijent padne. Traži PostgreSQL alate iste ili novije verzije od servera (uzima najnoviji iz `C:\Program Files\PostgreSQL`, ili `PG_DUMP=` / `PG_RESTORE=`). |
 
 `alati/klijenti.txt` (format `Naziv = postgresql://...`, po jedan red) sadrži lozinke baza — u
 `.gitignore` je i mora tu i ostati.
 
-**Bekap van baze** pravi `npm run bekap`, ali **ne pokreće se sam** dok nije dodat u Task
-Scheduler (računar mora biti uključen u to vrijeme). Dnevno u 2:00, na primjer:
-
-```bat
-schtasks /Create /SC DAILY /ST 02:00 /TN "PILOT bekap" /TR "cmd /c cd /d C:\masaze\distributeri_mn && npm run bekap"
-```
+**Bekap van baze** pravi `npm run bekap`, ali **ne pokreće se sam** dok nije u Task Scheduleru —
+jednom pokrenuti `npm run zakazi-bekap` (svaki dan u 13:00; ako je računar tada ugašen, čim se upali).
 
 **Vraćanje** — uvijek u NOVU, praznu bazu, nikad preko žive:
 
@@ -639,7 +639,7 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm test             # 518 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 558 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 ```
 
 **`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a
@@ -679,6 +679,7 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `talas1` | predaja zadržanog lota, isteklog lota i više nego što je na zalihi se odbija, zaliha nikad u minusu; povrat u karantin i odluka o njemu; tuđa isporuka i stari prijem po adresi; isti ključ zahtjeva = jedan upis; potvrda sa svim stavkama; tuđi pogrešni pokušaji prijave ne zaključavaju druge |
 | `bezbjednost_baze` | RLS na svim tabelama, pogledi po pravima pitaoca, javne uloge Supabase-a (`anon`, `authenticated`) ne čitaju i ne pišu ni sa vraćenim pravom, nova tabela bez prava za njih, aplikacija i dalje vidi sve |
 | `monitoring_magacini` | plan po magacinu: ono što je izmjerio jedan magacioner važi za sve u tom magacinu, mjerenje u magacinu A ne pokriva B, vidi se ko je uradio, mjerenje i zapis (i ispravka) pamte magacin |
+| `talas5` | slika od 56 MP (mali fajl) odbijena prije obrade; izvoz bez Excel formula i sa vremenom po Podgorici; stari heš lozinke radi i pojača se; zdravlje javlja neprimijenjenu dopunu; dnevnik grešaka (pregledač, konsultant čita, 400 ne ide u dnevnik); potvrda u dva koraka — uključivanje, QR, rezervni kodovi, ponovljen kod ne važi, 5 pogrešnih = novi izazov, isključivanje, tajna nije u auditu ni bekapu, obavezna 2FA na drugom serveru |
 | `talas4` | bekap iz aplikacije bez heševa lozinki, sesija i ključeva, sa svim tabelama; stari bekapi očišćeni; zdravlje javlja i bazu; neispravan JSON, identifikator, veza i šema → 400/409 sa porukom; bezbjednosna zaglavlja |
 | `talas3` | isporuka ne uzima rezervisanu robu, izmjena u okviru svoje rezervacije, otkaz (samo iz pripreme, uz razlog, ne vozač) oslobađa robu, ispravka kupca sa auditom; rok obavezan, serija jednom po prijemu, drugi rok iste serije → upozorenje; povlačenje cijele serije; otpremnica sa PIB-om i adresom isporuke; jedinstven PIB |
 | `talas2` | D1 ocjenjuje temperaturu po granici vozila, roba pod režimom samo rashladnim vozilom, predaja traži današnju D1; izmjene pamte „prije"; ispravka zapisa jednom, istog obrasca, svog zapisa; odstupanje iz odgovora u obrascu; lot po granici svog artikla; termometar na mjerenju i „upitna" mjerenja; zatvaranje tek posle ponovne kontrole; novi izvori izvoza |
@@ -719,7 +720,7 @@ koji magacioner stvarno koristi, ne enterprise WMS.
 
 ## Otvoreno
 
-- `npm run bekap` postoji, ali nije u Task Scheduleru — dok ga niko ne doda, ne radi sam.
+- `npm run bekap` se ne pokreće sam dok vlasnica jednom ne pokrene `npm run zakazi-bekap`.
 - Plan monitoringa i tekst HACCP plana su polazni prijedlog — za svakog klijenta ih konsultant
   prilagođava stvarnim komorama, vozilima i ritmu rada.
 - Obavještenje o „tišini" klijenta (`dnevni-pregled`) je alat koji se pokreće ručno, ne mejl —

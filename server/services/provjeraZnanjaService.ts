@@ -44,7 +44,7 @@ async function potvrdiDaJeOn(korisnikId: string, lozinka: string, ip: string | u
   if (!k) throw new ApiGreska(404, "NALOG_NE_POSTOJI", "Nalog nije pronađen.");
   const kljuc = `${ip || "nepoznato"}|${k.korisnicko_ime}`;
   provjeriOgranicenjeLogina(kljuc);
-  if (!provjeriLozinku(lozinka, k.lozinka_hash)) {
+  if (!(await provjeriLozinku(lozinka, k.lozinka_hash))) {
     zabiljeziNeuspjeliPokusaj(kljuc);
     await logSigurnosniDogadjaj(pool, { korisnikId, entitetTip: "korisnik", entitetId: korisnikId, ipAdresa: ip ?? null, noveVrijednosti: { radnja: "provjera znanja — pogrešna lozinka" } });
     throw new ApiGreska(403, "POGRESNA_LOZINKA", "Lozinka nije tačna. Provjeru radi samo onaj ko je prijavljen — svojom lozinkom.");

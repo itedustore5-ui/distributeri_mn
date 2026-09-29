@@ -33,11 +33,17 @@ export async function api<T = unknown>(putanja: string, opcije: Opcije = {}): Pr
   return zahtjev;
 }
 
+/** Koliko običan zahtjev najviše čeka odgovor. Slanje fajla ima svoj rok (posaljiFajl). */
+const ROK_ZAHTJEVA_MS = 45_000;
+
 async function posalji<T>(putanja: string, metoda: string, opcije: Opcije): Promise<T> {
   const zaglavlja: Record<string, string> = { "x-zahtjev-app": "1" };
   if (opcije.telo !== undefined) zaglavlja["Content-Type"] = "application/json";
   if (opcije.kljuc) zaglavlja["x-kljuc-zahtjeva"] = opcije.kljuc;
 
+  // Rok (talas 5): na slabom signalu zahtjev inače visi bez kraja, a dugme ostaje zaključano.
+  const prekid = new AbortController();
+  const tajmer = window.setTimeout(() => prekid.abort(), ROK_ZAHTJEVA_MS);
   let odgovor: Response;
   try {
     odgovor = await fetch(`/api${putanja}`, {
@@ -45,9 +51,15 @@ async function posalji<T>(putanja: string, metoda: string, opcije: Opcije): Prom
       credentials: "include",
       headers: zaglavlja,
       body: opcije.telo !== undefined ? JSON.stringify(opcije.telo) : undefined,
+      signal: prekid.signal,
     });
   } catch {
+    if (prekid.signal.aborted) {
+      throw new ApiGreska(0, "ISTEKLO", "Server ne odgovara na vrijeme — provjerite internet pa pokušajte ponovo. Unos je ostao u formi.");
+    }
     throw new ApiGreska(0, "NEMA_VEZE", "Nema veze sa serverom — provjerite internet pa pokušajte ponovo. Unos je ostao u formi.");
+  } finally {
+    window.clearTimeout(tajmer);
   }
 
   if (odgovor.status === 204) return undefined as T;

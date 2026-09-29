@@ -9,6 +9,7 @@ import { ListaZadataka, ListaObavjestenja } from "../components/Zadaci";
 import { lokalniDatum } from "../lib/vrijeme";
 import { ProvjeraZnanjaUlaz } from "../components/ProvjeraZnanjaUlaz";
 import { PushObavjestenja } from "../components/PushObavjestenja";
+import { DvaKoraka } from "../components/DvaKoraka";
 
 type Lice = { id: string; ime: string; sifra: string; sanitarna_knjizica_rok: string | null; knjizica_status: string | null; rukuje_hranom: boolean };
 
@@ -120,6 +121,7 @@ export function Moja() {
           </div>
         )}
         <PromjenaLozinke />
+        <DvaKoraka />
         <PushObavjestenja />
       </div>
     </>

@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { Ucitavanje } from "./components/Zajednicko";
 import { Prijava } from "./pages/Prijava";
 import { PromijeniLozinku } from "./pages/PromijeniLozinku";
+import { ObaveznaDvaKoraka } from "./components/DvaKoraka";
 import { Tabla } from "./pages/Tabla";
 import { Ljudi } from "./pages/Ljudi";
 import { Sifarnici } from "./pages/Sifarnici";
@@ -30,6 +31,7 @@ function Zasticeno({ uloge, children }: { uloge?: Uloga[]; children: ReactNode }
   if (ucitavanje) return <Ucitavanje />;
   if (!korisnik) return <Navigate to="/prijava" replace />;
   if (korisnik.mora_promijeniti_lozinku) return <PromijeniLozinku />;
+  if (korisnik.mora2fa) return <ObaveznaDvaKoraka />;
   if (uloge && !uloge.includes(korisnik.uloga)) return <Navigate to="/moja" replace />;
   return <Layout>{children}</Layout>;
 }
@@ -40,6 +42,7 @@ function SamoPrijavljen({ children }: { children: ReactNode }) {
   if (ucitavanje) return <Ucitavanje />;
   if (!korisnik) return <Navigate to="/prijava" replace />;
   if (korisnik.mora_promijeniti_lozinku) return <PromijeniLozinku />;
+  if (korisnik.mora2fa) return <ObaveznaDvaKoraka />;
   return <>{children}</>;
 }
 

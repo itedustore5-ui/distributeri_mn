@@ -47,7 +47,8 @@ const TABELE_AUDITA = [
 ] as const;
 export type TabelaAudita = (typeof TABELE_AUDITA)[number];
 // Ne ulazi u audit: tehnička polja i ono što se ne smije ni čuvati van svoje tabele.
-const BEZ_AUDITA = new Set(["updated_at", "created_at", "lozinka_hash", "sadrzaj"]);
+// Tajne se ne pišu u audit: heš lozinke, sadržaj fajla, tajna i rezervni kodovi potvrde u dva koraka (#81).
+const BEZ_AUDITA = new Set(["updated_at", "created_at", "lozinka_hash", "sadrzaj", "totp_tajna", "totp_rezervni", "totp_zadnji_korak"]);
 
 /** Red tabele kao objekat — stanje „prije" ili „poslije" izmjene (R-06). `zakljucaj` = `for update`,
  * da se između čitanja i izmjene red ne promijeni. */

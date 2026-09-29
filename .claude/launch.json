@@ -19,6 +19,15 @@
         "5174"
       ],
       "port": 5174
+    },
+    {
+      "name": "lokalno",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "demo:lokalno"
+      ],
+      "port": 5059
     }
   ]
 }

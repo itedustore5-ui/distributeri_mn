@@ -45,7 +45,7 @@ async function main() {
   const privremenaLozinka = crypto.randomBytes(9).toString("base64url").slice(0, MINIMALNA_DUZINA_LOZINKE + 4);
   await pool.query(
     `insert into korisnik (korisnicko_ime, lozinka_hash, uloga, lice_id) values ($1, $2, 'bzr', $3)`,
-    [korisnickoIme, hashLozinke(privremenaLozinka), lice.rows[0].id],
+    [korisnickoIme, await hashLozinke(privremenaLozinka), lice.rows[0].id],
   );
 
   console.log("\nNalog kreiran.");

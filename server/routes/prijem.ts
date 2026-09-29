@@ -6,7 +6,7 @@ import { requireUloga, ogranicenjeDatuma, provjeriProzorUpisa, samoMoje, type Au
 import { kljucIzZaglavlja } from "../services/kljucService.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajPrijem, donesiOdlukuOLotu, izmijeniStavku, javiNepoznatogDobavljaca } from "../services/prijemService.js";
-import { prepoznajVrstu, pokreniCitanje, stanjeCitanja, prekiniCitanje, dokumentZaCitanje, pripremiOcr } from "../services/otpremnicaService.js";
+import { prepoznajVrstu, provjeriVelicinuSlike, pokreniCitanje, stanjeCitanja, prekiniCitanje, dokumentZaCitanje, pripremiOcr } from "../services/otpremnicaService.js";
 
 export const prijemRuter = Router();
 prijemRuter.get(
@@ -115,6 +115,7 @@ prijemRuter.post(
     if (!Buffer.isBuffer(sadrzaj) || sadrzaj.length === 0) throw new ApiGreska(400, "FAJL_PRAZAN", "Nije poslat fajl otpremnice.");
     const vrsta = prepoznajVrstu(sadrzaj);
     if (!vrsta) throw new ApiGreska(415, "NEPOZNAT_FAJL", "Pošaljite PDF ili sliku otpremnice (JPG, PNG).");
+    if (vrsta.vrsta === "slika") await provjeriVelicinuSlike(sadrzaj);
     let nazivFajla: string | null = null;
     try {
       nazivFajla = decodeURIComponent(String(request.headers["x-naziv-fajla"] ?? "")).slice(0, 200) || null;

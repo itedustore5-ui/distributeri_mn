@@ -11,12 +11,21 @@ export type Korisnik = {
   lice_ime: string | null;
   mora_promijeniti_lozinku: boolean;
   lozinka_stanje: string;
+  /** Potvrda u dva koraka uključena (#81). */
+  totp_ukljucen?: boolean;
+  /** Za ulogu je 2FA obavezna na ovoj instanci, a nije uključena — ništa drugo se ne otvara dok je ne uključi. */
+  mora2fa?: boolean;
 };
+
+/** Posle tačne lozinke nalog sa 2FA dobija izazov; sesija se daje tek uz kod. */
+export type DrugiKorak = { izazov: string };
 
 type AuthKontekst = {
   korisnik: Korisnik | null;
   ucitavanje: boolean;
-  prijavi: (korisnickoIme: string, lozinka: string) => Promise<void>;
+  /** Vraća drugi korak kad nalog ima potvrdu u dva koraka; inače je korisnik prijavljen. */
+  prijavi: (korisnickoIme: string, lozinka: string) => Promise<DrugiKorak | null>;
+  potvrdiKod: (izazov: string, kod: string) => Promise<void>;
   odjavi: () => Promise<void>;
   osvjeziKorisnika: () => Promise<void>;
 };
@@ -41,7 +50,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const prijavi = async (korisnickoIme: string, lozinka: string) => {
-    await api("/auth/prijava", { telo: { korisnickoIme, lozinka } });
+    const odgovor = await api<{ potreban2fa?: boolean; izazov?: string }>("/auth/prijava", { telo: { korisnickoIme, lozinka } });
+    if (odgovor?.potreban2fa && odgovor.izazov) return { izazov: odgovor.izazov };
+    await osvjeziKorisnika();
+    return null;
+  };
+
+  const potvrdiKod = async (izazov: string, kod: string) => {
+    await api("/auth/prijava/2fa", { telo: { izazov, kod } });
     await osvjeziKorisnika();
   };
 
@@ -50,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setKorisnik(null);
   };
 
-  return <Kontekst.Provider value={{ korisnik, ucitavanje, prijavi, odjavi, osvjeziKorisnika }}>{children}</Kontekst.Provider>;
+  return <Kontekst.Provider value={{ korisnik, ucitavanje, prijavi, potvrdiKod, odjavi, osvjeziKorisnika }}>{children}</Kontekst.Provider>;
 }
 
 export function useAuth() {

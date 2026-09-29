@@ -53,7 +53,7 @@ async function otvoriNalogU(klijent: PoolClient, ulaz: NoviNalog, izvrsilac: Izv
   try {
     const r = await klijent.query<{ id: string }>(
       `insert into korisnik (korisnicko_ime, lozinka_hash, uloga, lice_id) values ($1, $2, $3, $4) returning id`,
-      [korisnickoIme, hashLozinke(privremenaLozinka), ulaz.uloga, ulaz.liceId ?? null],
+      [korisnickoIme, await hashLozinke(privremenaLozinka), ulaz.uloga, ulaz.liceId ?? null],
     );
     await logKreiranje(klijent, { korisnikId: izvrsilac.id, entitetTip: "korisnik", entitetId: r.rows[0].id, noveVrijednosti: { uloga: ulaz.uloga, liceId: ulaz.liceId ?? null } });
     return { id: r.rows[0].id, korisnickoIme, privremenaLozinka };
@@ -180,7 +180,7 @@ export async function novaLozinka(ciljId: string, zadata: string | undefined, iz
     const prije = await stanjeReda(klijent, "korisnik", ciljId, true);
     await klijent.query(
       `update korisnik set lozinka_hash = $1, lozinka_stanje = 'privremena', mora_promijeniti_lozinku = true, updated_at = now() where id = $2`,
-      [hashLozinke(privremenaLozinka), ciljId],
+      [await hashLozinke(privremenaLozinka), ciljId],
     );
     await obrisiSveSesijeZaKorisnika(ciljId, undefined, klijent);
     await logIzmjenaReda(klijent, {

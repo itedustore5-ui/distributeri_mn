@@ -15,6 +15,8 @@ export type SesijskiKorisnik = {
   lice_ime: string | null;
   mora_promijeniti_lozinku: boolean;
   lozinka_stanje: string;
+  /** Potvrda u dva koraka uključena (#81). */
+  totp_ukljucen: boolean;
 };
 
 export type AuthZahtjev = Request & { korisnik?: SesijskiKorisnik };
@@ -94,7 +96,7 @@ export async function ucitajKorisnikaPoSesiji(token: string | undefined): Promis
   if (!token) return undefined;
   const rezultat = await upit<SesijskiKorisnik & { aktivan: boolean }>(
     `select k.id, k.korisnicko_ime, k.uloga, k.lice_id, k.mora_promijeniti_lozinku, k.lozinka_stanje,
-            k.aktivan, l.ime as lice_ime
+            k.aktivan, l.ime as lice_ime, k.totp_ukljucen_at is not null as totp_ukljucen
      from sesija_prijave s
      join korisnik k on k.id = s.korisnik_id
      left join lice l on l.id = k.lice_id
@@ -106,10 +108,25 @@ export async function ucitajKorisnikaPoSesiji(token: string | undefined): Promis
   return red;
 }
 
+/** Uloge koje smiju uključiti potvrdu u dva koraka (#81): nalozi koji vide sve podatke firme. Terenske
+ * ne — izgubljen telefon magacionera ne smije zaustaviti prijem robe. */
+export const ULOGE_2FA: Uloga[] = ["izvodjac", "bzr", "uprava"];
+/** Kome je 2FA OBAVEZNA na ovoj instanci: env OBAVEZNA_2FA="izvodjac,bzr" (podrazumijevano nikome). */
+export const OBAVEZNA_2FA: Uloga[] = String(process.env.OBAVEZNA_2FA ?? "")
+  .split(",").map((u) => u.trim()).filter((u): u is Uloga => (ULOGE_2FA as string[]).includes(u));
+/** Dok obavezna 2FA nije uključena, nalog smije samo ovo: da vidi ko je, da je uključi, da promijeni
+ * lozinku i da javi grešku ekrana. */
+const BEZ_2FA_DOZVOLJENO = new Set(["/auth/ja", "/auth/2fa", "/auth/2fa/pocni", "/auth/2fa/potvrdi", "/auth/promijeni-lozinku", "/greske/pregledac"]);
+export const mora2fa = (k: SesijskiKorisnik) => OBAVEZNA_2FA.includes(k.uloga) && !k.totp_ukljucen;
+
 export const requireAuth = async (request: AuthZahtjev, response: Response, next: NextFunction) => {
   const korisnik = await ucitajKorisnikaPoSesiji(tokenIzZahtjeva(request));
   if (!korisnik) {
     posalji(response, 401, "NEPRIJAVLJEN", "Prijava je potrebna.");
+    return;
+  }
+  if (mora2fa(korisnik) && !BEZ_2FA_DOZVOLJENO.has(request.path)) {
+    posalji(response, 403, "DVA_FAKTORA_OBAVEZNA", "Za vašu ulogu je obavezna potvrda u dva koraka — uključite je na Mojoj strani.");
     return;
   }
   request.korisnik = korisnik;

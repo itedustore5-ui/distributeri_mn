@@ -5,7 +5,7 @@ Ovdje je sve što se ne vidi iz koda: mapa aplikacije, zašto je nešto tako, š
 dirati, šta je poznato da ne valja, i na čemu se već izgubilo vrijeme.
 
 Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — upiši ovdje.
-Posljednji pregled koda i usklađivanje ovog fajla: **25.09.2026.** (revizija + talasi popravki 1–3 i mali talas 4) (Ranija verzija ovog fajla
+Posljednji pregled koda i usklađivanje ovog fajla: **29.09.2026.** (inspekcija + talas 5; ranije revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
 opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje u ovom kodu nema.)
 
 ---
@@ -14,7 +14,11 @@ opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje
 
 Aplikacija za **dobru higijensku praksu i HACCP kod distributera hrane u Crnoj Gori.**
 Vlasnica je konsultantkinja iz Srbije koja uslugu prodaje crnogorskim firmama:
-uspostavljanje sistema jednokratno (900–1.600 €) + mjesečno održavanje (80–180 €).
+tri paketa (odluka vlasnice 28.09.2026) — **Pod ključ / Standard / Start**: uspostavljanje
+2.400 / 1.490 / 990 € + „vođenje i usklađenost“ 290 / 179 / 119 € mjesečno; cijena po veličini firme
+(magacini, vozila, zaposleni), **nikad po korisniku**. Iznosi stoje u `prezentacija/podaci.cjs`, a
+pozicioniranje, garancija „Svaki dan“, osnivački klijenti i prodajni tok u `dokumenti/strategija_prodaje.md`
+(oboje van gita).
 
 **Šta se stvarno prodaje:** ne softver, nego odgovor na pitanje *„serija je sporna, kojim
 kupcima je otišla?"* i dokaz da zapisi nastaju svakog dana, a ne noć prije inspekcije.
@@ -287,6 +291,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `26_talas1_cg` | CHECK zaliha ≥ 0 i količine stavke isporuke (`NOT VALID`, pa provjera starih redova — ako ne prođe, samo `notice`, a pravilo važi za nove upise); `kljuc_zahtjeva` (R-10) |
 | `27_talas2_cg` | `mjerenje_temperature.mjerni_uredjaj_id` (R-23); `kontrola_vozila` + `granica_min/max`, `temperatura_ok` (R-05); jedinstven `zapis.ispravlja_id` (R-07, u `do`-bloku — grananje na staroj bazi daje `notice`); pogledi za izvoz `v_izvoz_kontrole_vozila`, `v_izvoz_provjere_nc`, `v_izvoz_termometri`, `v_izvoz_verifikacija_sistema`, `v_izvoz_kretanja_zalihe` (R-20) |
 | `28_talas3_otkaz_cg` | samo `isporuka_status_t` + `OTKAZANA` — nova vrijednost enuma u svom fajlu (ne smije se koristiti u istoj transakciji) |
+| `33_talas5_cg` | potvrda u dva koraka (`korisnik.totp_*`, `prijava_izazov`) i dnevnik grešaka (`greska_log`) — obje tabele sa RLS-om (#78, #80, #81) |
 | `32_bezbjednost_baze_cg` | RLS na svim tabelama šeme public (bez politika), pogledi `security_invoker`, `anon`/`authenticated` bez prava i bez podrazumijevanih prava — samo gdje te uloge postoje (#78, R-12) |
 | `31_magacin_mjerenja_cg` | `mjerenje_temperature.skladiste_id`, `zapis.skladiste_id` (#77); stari redovi popunjeni gdje se zna (lot → magacin prijema; firma sa jednim magacinom) |
 | `30_bekap_bez_tajni_cg` | iz bekapa već sačuvanih u `bekap_log` briše heševe lozinki (R-19) |
@@ -301,6 +306,10 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run prvi-korisnik -- --firma … --ime … --korisnik …` | prvi `bzr` nalog u novoj bazi |
 | `npm run dnevni-pregled` | stanje svih klijenata iz `alati/klijenti.txt`; izlazni kod 1 ako je neko u zastoju |
 | `alati/napravi-licencu.ts` | licencni ključ za ugovor (papirni trag, aplikacija ga ne provjerava) |
+| `npm run demo-lozinke` | nove lozinke pet demo naloga, SAMO na demo bazi; upiše ih u `.env` (`DEMO_LOZINKA_*`) za `test:e2e` |
+| `npm run iskljuci-2fa -- --korisnik ime` | isključi 2FA nalogu bez telefona i rezervnih kodova (#81); prekida prijave, audit |
+| `npm run zakazi-bekap` | `npm run bekap` u Windows Task Scheduler — svaki dan 13:00 (`-Vrijeme`, `-Ukloni`); pokreće vlasnica |
+| `npm run demo:lokalno` | aplikacija na LOKALNOJ probnoj bazi sa demo podacima (http://localhost:5059, isti klaster kao `npm test`, baza `pilot_lokalno`) — za klik kroz ekrane bez žive baze |
 | `npm run bekap` (`alati/bekap.ts`) | `pg_dump` svake baze iz `klijenti.txt` (ili `DATABASE_URL`) u `bekap/<klijent>/`, samo šema `public`, **bez podataka sesija** (živi tokeni). Svaki fajl se odmah provjeri (`pg_restore --list`), stariji od 90 dana se brišu, ishod u `bekap/POSLJEDNJI-BEKAP.txt`, izlazni kod 1 ako ijedan klijent padne. `bekap/` je u `.gitignore`. Treba mu `pg_dump` ≥ verzije servera (traži najnoviji u `C:/Program Files/PostgreSQL`, ili `PG_DUMP=`). |
 
 `alati/klijenti.txt` ima lozinke baza — u `.gitignore` je i ostaje.
@@ -313,7 +322,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-20 testova, 518 provjera (na čistoj bazi; na demo bazi 516 — dvije se preskaču), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+21 test, 558 provjera (na čistoj bazi; na demo bazi 552 — dvije se preskaču, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -325,7 +334,9 @@ sa cijenama (PDF i fotografija), slika bez tabele se čuva, čitanje u pozadini 
 manjak, istekao rok — `otpremnice`; plan monitoringa po magacinu — urađeno važi za sve u magacinu, ne za drugi
 magacin, ko je uradio, magacin na mjerenju i zapisu — `monitoring_magacini`; RLS na svim tabelama, pogledi po
 pravima pitaoca, `anon` ne čita ni ne piše ni sa vraćenim pravom, nova tabela bez prava za javne uloge — `bezbjednost_baze`
-(test baza zato pravi `anon`/`authenticated` sa podrazumijevanim pravima kao Supabase); probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
+(test baza zato pravi `anon`/`authenticated` sa podrazumijevanim pravima kao Supabase); slikovna bomba, izvoz bez Excel formula i
+po Podgorici, stari heš lozinke se pojača, zdravlje javlja neprimijenjenu dopunu, dnevnik grešaka, potvrda u dva koraka od uključivanja do
+obavezne na drugom serveru — `talas5`; probni fajlovi u `testovi/otpremnice/` su izmišljeni), i Faza 3
 (temperatura obavezna na KKT 1, granica iz Šifarnika → pravilo sa verzijama, plan monitoringa i
 „šta danas fali", termometri, verifikacija sistema, podaci za štampu HACCP plana, izuzetak od
 četiri oka — `faza3_sistem`), i push (pretplata po uređaju, šifrovan sadržaj koji dešifruje samo
@@ -602,7 +613,7 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
 69. **Kriv zahtjev je 4xx, ne 500** (R-26, `greskaHandler`): `ZodError` → 400, neispravan JSON → 400,
     PostgreSQL 22P02/22007/22008/22003 → 400, 23503 → 409 „zapis ne postoji“, 23505 → 409, 23514 → 409.
     Poruka iz šeme (na našem jeziku) ide na ekran umjesto opšte. 500 ostaje samo za pravu grešku servera.
-70. **Zdravlje i zaglavlja** (R-25, R-27): `/api/zdravlje` provjerava i bazu (i da aplikacija vidi svoje tabele — #78; najviše 3 s;
+70. **Zdravlje i zaglavlja** (R-25, R-27): `/api/zdravlje` provjerava i bazu (i da aplikacija vidi svoje tabele — #78, i da su sve dopune primijenjene — #79; najviše 3 s;
     503 kad ne odgovara). U produkciji `Content-Security-Policy` (skripte samo sa našeg servera; stilovi i
     fontovi i sa Google Fonts; blob: za otpremnicu) i HSTS; svuda nosniff, zabrana okvira,
     `Permissions-Policy`. Nova spoljna stvar (skripta, font, API) → prvo u CSP, inače je pregledač blokira.
@@ -683,6 +694,40 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     pada ako se zaboravi. Ako aplikacija radi kao korisnik baze koji NIJE vlasnik tabela, RLS joj krije
     podatke bez greške (prijava bi javljala „pogrešna lozinka“) — zato `/api/zdravlje` vraća 503 sa spiskom
     tabela koje ne vidi (`tabeleBezPristupa`). DATABASE_URL na Renderu = isti korisnik kao za `npm run migriraj`.
+79. **Dopune baze se primjenjuju same pri pokretanju u produkciji** (talas 5 — 27.09.2026 kod je otišao
+    na Render prije dopune 31 i mjerenja su padala). `server/migracije.ts` je JEDNO mjesto za `npm run migriraj`
+    i server: prije prvog zahtjeva server primijeni sve što fali (bez demo podataka; `pg_advisory_lock` protiv
+    dva istovremena procesa; svaki fajl jedna transakcija). Padne li dopuna — server NE kreće, pa Render ostavlja
+    prethodno izdanje. `MIGRACIJE_PRI_STARTU=0` gasi, `=1` pali i van produkcije. `/api/zdravlje` vraća 503 i
+    ime svake neprimijenjene dopune; `dnevni-pregled` ih takođe javlja.
+80. **Dnevnik grešaka je u bazi klijenta** (`greska_log`, dopuna 33, `greskeLogService`) — greška servera (500,
+    iz `greskaHandler`), pad ekrana u pregledaču (`GreskaGranica` → `POST /greske/pregledac`, najviše 20 na sat po
+    korisniku) i neuhvaćena greška procesa. Bez spoljnog servisa (u duhu #37). Nikad tijelo zahtjeva (lozinke, lični
+    podaci) — samo ruta, status, kod, poruka, stek, korisnik, izdanje. Najviše 30 upisa u minuti; čuva se 90 dana.
+    4xx NIJE greška servera i ne ide u dnevnik. Čita samo konsultant (`GET /greske`) i `npm run dnevni-pregled`.
+81. **Potvrda u dva koraka (TOTP, RFC 6238) za vodstvo** — `izvodjac`, `bzr`, `uprava` je SAMI uključuju na Mojoj
+    strani (lozinka → QR u aplikaciji na telefonu → kod → 8 rezervnih kodova, prikazanih JEDNOM). Terenske uloge
+    ne (izgubljen telefon magacionera ne smije zaustaviti prijem). Posle tačne lozinke nalog sa 2FA dobija izazov
+    (`prijava_izazov`, 5 min, najviše 5 pokušaja, u bazi samo heš), a sesiju tek uz kod iz aplikacije ili rezervni
+    kod. Isti kod ne važi dvaput (`totp_zadnji_korak`); pogrešan kod se broji u ograničenje prijave (IP + ime).
+    Uključivanje odjavljuje ostale uređaje. Tajna i rezervni kodovi NE idu u audit (`BEZ_AUDITA`) ni u bekap iz
+    aplikacije (`BEZ_KOLONA`), a `pg_dump` ne nosi izazove. Isključivanje: lozinka + kod; izgubljen telefon i kodovi
+    → `npm run iskljuci-2fa -- --korisnik ime`. **Obavezna** je samo gdje je env `OBAVEZNA_2FA` (npr. `izvodjac,bzr`):
+    tada granica prijave (`requireAuth`) takvom nalogu propušta samo `/auth/ja`, `/auth/2fa*`, promjenu lozinke i
+    javljanje greške, a pregledač pokazuje `ObaveznaDvaKoraka` umjesto aplikacije. Izdavač u aplikaciji na telefonu
+    je „PILOT <naziv firme>“ — konsultant ima jedan unos po klijentu.
+82. **Izvoz (CSV) je bezbjedan za Excel i u lokalnom vremenu** (`csvVrijednost`): tekst koji počinje sa = + - @
+    (tab, CR) dobija apostrof, da ga Excel ne izvrši kao formulu (napomena „=HYPERLINK(…)“ iz aplikacije); broj
+    („-18,5“) ostaje broj. Trenutak (`timestamptz`) se piše po Podgorici „2026-09-29 14:05:09“, ne UTC „…T…Z“ (#11).
+    JSON izvoz ostaje ISO (mašinski čitljiv).
+83. **Slika spolja se provjerava prije obrade** (`provjeriVelicinuSlike`): više od 50 MP (`NAJVISE_PIKSELA`) → 400
+    `SLIKA_PREVELIKA` i ništa se ne čuva — mali PNG sa lažnim dimenzijama bi se raširio na stotine MB i srušio
+    server („slikovna bomba“). Svaki `sharp()` nosi `limitInputPixels`. `sharp` ≥ 0.35.5 (ranije verzije imaju
+    ranjivosti u libvips), `pdfjs-dist` nikad ispod 4.2.67 (CVE-2024-4367; od v6 nema ni opcije isEvalSupported).
+84. **Lozinke: asinhroni scrypt sa parametrima u hešu** (`server/lozinke.ts`, `scrypt2$N$r$p$salt$heš`, N = 2^15).
+    Sinhroni `scryptSync` je pri svakoj prijavi zaustavljao CIJELI server. Stari format (`scrypt$salt$heš`) i dalje
+    radi i pri uspješnoj prijavi se tiho zamijeni novim (ista lozinka — ne ide u audit). Nepostojeće korisničko ime
+    troši isto vrijeme kao pogrešna lozinka (`lazniPokusaj`) — po vremenu odgovora se ne vidi koje ime postoji.
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -716,7 +761,7 @@ Ozbiljnost: **K** kritično (pogrešan podatak ili zaglavljena roba) · **V** vi
 
 | # | | Nalaz | Gdje |
 |---|:-:|---|---|
-| A1 | ✓ **riješeno u fazi 1 (23.09.2026)** — osim rasporeda | ~~Bekap samo u istoj bazi.~~ Sada `npm run bekap` (`pg_dump` na računar, provjeren, 90 dana). **Ostaje:** da se pokreće SAM (Task Scheduler) — dok nije u rasporedu, bekap zavisi od toga da se neko sjeti. | `alati/bekap.ts` |
+| A1 | ✓ **riješeno u fazi 1 (23.09.2026)** — osim rasporeda | ~~Bekap samo u istoj bazi.~~ Sada `npm run bekap` (`pg_dump` na računar, provjeren, 90 dana). **Ostaje:** raspored — alat je spreman (`npm run zakazi-bekap`, talas 5), a pokreće ga vlasnica jednom na svom računaru. | `alati/bekap.ts` |
 | A2 | ✓ **riješeno u fazi 2 (24.09.2026)** | ~~Više koraka bez transakcije.~~ Sada 26 mjesta u transakciji: šifarnici, nalozi (uloga, lozinka, deaktivacija + brisanje sesija), zadaci, pravila kontrole (`for update`), zapis + neusaglašenost, izmjena stavke prijema (`for update` — ne preplete se sa odlukom), povlačenje, bekap sa table (`repeatable read` — jedan snimak). Prijava (poslednja prijava + sesija) svjesno nije. | rute, servisi |
 | A3 | ✓ **riješeno u fazi 4 (24.09.2026)** | ~~Ko smije zavisi od redoslijeda montiranja.~~ Riješeno drugačije nego „svaki ruter svoj prefiks" (to bi promijenilo sve adrese u pregledaču i testovima): jedna granica prijave, ruteri bez `.use`, uloge na svakoj ruti, i `provjeriRute()` pri startu (invarijanta #44). Pri prvom pokretanju je sama našla 10 ruta bez uloga. | `server/index.ts`, `provjeraRuta.ts` |
 | A4 | ✓ **riješeno u fazi 4 (24.09.2026)** — za navedenih pet | ~~SQL u rutama `zadaci`, `poruke`, `tabla`, `ljudi`, `provjeraZnanja`.~~ Sada `zadaciService`, `porukeService`, `tablaService`, `ljudiService`, `provjeraZnanjaService`. Usput: promjena uloge i deaktivacija naloga sada pišu audit. **Ostaje:** liste u ostalim rutama (invarijanta #47). | `server/services/` |
@@ -784,6 +829,9 @@ repozitorijuma. Ovdje samo stanje.
 | ~~**Talas 2 revizije**~~ ✓ 25.09.2026 | D1 sa temperaturom po granici vozila, „spremno danas“, rashladno vozilo za robu pod režimom, D1 prije predaje; audit „prije → poslije“; ispravka zapisa („Ispravi“, jednom, svoj); odstupanje iz odgovora u obrascu; lot po granici svog artikla; termometar na mjerenju i „upitna“ mjerenja; ponovna kontrola prije zatvaranja; 5 novih izvora izvoza. Dopuna `27_talas2_cg`, test `talas2` (53 provjere). | R-05 – R-09, R-20, R-22, R-23 | urađeno |
 | ~~**Talas 3 revizije**~~ ✓ 26.09.2026 | Rezervacija (slobodno = zaliha − isporuke u pripremi), otkaz isporuke uz razlog i ispravka kupca, rok obavezan po artiklu, serija jednom po prijemu i povlačenje cijele serije, otpremnica za štampu, PIB i adresa isporuke kupca, jedna temperatura po grupi režima. Dopune `28`, `29`, test `talas3` (35 provjera). | R-14, R-15, R-17, R-21, R-28, R-37 | urađeno |
 | ~~**Mali talas 4**~~ ✓ 26.09.2026 | Bekap bez tajni (+ dopuna 30 za stare), zdravlje sa bazom, 4xx umjesto 500, CSP/HSTS/Permissions-Policy. Uz to: provjera znanja uz lozinku prijavljenog, poruke šalju svi zaposleni. Test `talas4` (12 provjera). | R-19, R-25, R-26, R-27 | urađeno |
+| ~~**Talas 5 — sigurnost i pogon**~~ ✓ 29.09.2026 (inspekcija 29.09.) | `sharp` 0.35.5 (ranjivosti u libvips) i provjera veličine slike; izvoz bez Excel formula i po Podgorici; asinhroni scrypt sa parametrima u hešu; dopune baze pri pokretanju + zdravlje; dnevnik grešaka u bazi; potvrda u dva koraka za vodstvo (+ obavezna po instanci); zaštita od pada ekrana, rok za zahtjev, traka „nema interneta“; demo lozinke iz koda u `.env` + `npm run demo-lozinke`; `npm run zakazi-bekap`, `npm run iskljuci-2fa`, `npm run demo:lokalno`; dnevni pregled sa greškama, dopunama i 2FA. Repozitorijum je vlasnica prebacila u privatni. Dopuna `33_talas5_cg`, test `talas5` (40 provjera). | inspekcija #1–#10 | urađeno |
+| **Talas 6 — teren i testovi** | Rad bez interneta za vozača i magacionera (lokalno čuvanje D1, mjerenja i predaje, slanje kad dođe signal — ključ zahtjeva već postoji); testovi ekrana (Playwright, 375 px, 5 uloga); paket po stranama (`React.lazy`); server kompajliran u JS umjesto `tsx`; `statement_timeout`; ESLint/Prettier; podjela `otpremnicaService` i `NoviPrijem`; ograničenje slanja otpremnica po korisniku; alat za novog klijenta. | inspekcija #11–#18 | oko 1,5 sedmica |
+| **Talas 7 — prodajne funkcije** | „Inspekcijski paket“ jednim klikom (PDF/ZIP za period); mjesečni izvještaj direktoru automatski; demo koji se vraća svake noći; uvoz iz Excela (zaposleni, artikli, kupci, dobavljači); pregled svih klijenata za konsultanta; EAN skeniranje; „preuzima kupac“. | inspekcija #20–#26 | 2–3 sedmice |
 | **Ostatak talasa 4** | Jedan odgovor po pitanju i u bazi (UQ), korisnik baze sa najmanjim pravima, provjera veličine slike za OCR, podjela JS paketa po stranama. | R-12, R-33 – R-36 | posle pilota |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
@@ -852,14 +900,21 @@ repozitorijuma. Ovdje samo stanje.
 | na manjoj slici iznos pročitan kao lot, a količina prazna | OCR spojio dvije labele zaglavlja u jednu ćeliju („Cijena Rabat %“), pa su dvije kolone nestale | ćelija zaglavlja koja nije jedna labela razlaže se na riječi (`redoslijedKolona`) — ali samo kratka (≤ 4 riječi) i sa većinom labela, inače rečenica iz napomene („roba …, lot i rok provjereni, količina …“) postane „zaglavlje“ |
 | „pojačaj kontrast“ je pogoršalo čitanje (0/9) | globalno razvlačenje (`normalise`) pojača sjenku; Otsu prag isto | lokalni kontrast (CLAHE) i samo Sauvola prag — izmjereno, ne pretpostavljeno |
 | iznos sa kraja reda pročitan kao količina; redni broj kao šifra | zaglavlje nije poznavalo kolone „Cijena“, „Rabat“, „Iznos“, a „R.br.“ je bio šifra | kolona „ostalo“ zadržava položaj (#75); probni `sa_cijenama.pdf` |
+| repozitorijum na GitHubu bio javan od 20.09. — sa cijelim kodom, CLAUDE.md i lozinkama demo naloga u kodu | napravljen kao javni; niko nije provjerio | vlasnica ga je 29.09. prebacila u privatni; demo lozinke u testovima iz `.env` (`DEMO_LOZINKA_*`), na živom demou promijeniti `npm run demo-lozinke`; istorija pregledana — pravih tajni nije bilo |
+| prijava „zamrzne“ cio server na ~100 ms za svakoga | `crypto.scryptSync` u ruti — sinhrono, blokira petlju događaja | asinhroni `crypto.scrypt`, parametri u hešu, stari heš se pojača pri prijavi (#84) |
+| pogrešan kod 2FA nije se brojao, a audit ga nije pamtio | greška bačena UNUTAR `transakcija()` poslije upisa — rollback je poništio i brojanje i audit | transakcija vraća ishod, greška se baca POSLIJE nje |
+| typecheck pada posle nadogradnje `sharp` 0.35 / `pdfjs` 6 | `typeof import("sharp")` je sada modul, ne funkcija; `pdfjs` 6 nema opciju `isEvalSupported` | `(typeof import("sharp"))["default"]`; opcija uklonjena (zaštita je sada u samoj biblioteci) |
+| lokalni PostgreSQL odbija vezu (`ECONNRESET`), u logu `0xC0000142` | klaster ugašen naglo (zajedno sa pregledačem) pa oporavak; `pg_ctl start` iz basha visi | klaster pokretati iz Node-a (`spawnSync`, `stdio: "ignore"`), ne istovremeno `npm test` i `demo:lokalno`; posle naglog gašenja jednom uredno ugasiti pa ponovo |
+| ekran se provjerava u pregledaču, a lozinke se ne kucaju u pregledač (odluka vlasnice) | — | prijava na lokalni server iz Node-a (`fetch /api/auth/prijava`), pregledaču se da samo kolačić sesije |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |
 
 ### Gdje se zapravo testira
 
 **Vlasnica radi na ŽIVOJ aplikaciji na Renderu.** Izmjena na računaru ne mijenja ništa dok ne ode
 `git push` pa Render → Manual Deploy. Migracije (`npm run migriraj`) idu na istu Supabase bazu
-i djeluju odmah — kod ne. Zato: **prvo migracije, pa deploy** (nov kod koji traži tabelu koje
-nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git log -1 --format=%h`.
+i djeluju odmah — kod ne. Od talasa 5 server u produkciji **sam primijeni dopune pri pokretanju** (#79) —
+`npm run migriraj` prije deploya je i dalje dobar običaj, ali zaboravljena dopuna više ne ruši funkcije, a ako
+dopuna padne, novo izdanje ne kreće i Render ostavlja staro. Da li je deploy prošao: izdanje u dnu menija = `git log -1 --format=%h`.
 
 ### Okruženje
 
@@ -872,6 +927,8 @@ nema ruši tu funkciju). Da li je deploy prošao: izdanje u dnu menija = `git lo
   besplatni UptimeRobot pita). Na besplatnom planu
   ping svakih 5 min drži servis budnim 24/7 i troši ~750 besplatnih sati mjesečno.
 - Server ne učitava izmjene sam (`tsx` bez watch): poslije izmjene u `server/` — restart.
+- **Env na Renderu (talas 5):** `OBAVEZNA_2FA=izvodjac` (ili `izvodjac,bzr`) za svakog klijenta čim konsultant na toj
+  instanci uključi svoju 2FA; `MIGRACIJE_PRI_STARTU` ne treba (u produkciji je podrazumijevano uključeno).
 - **Node ≥ 22.13** (`engines` u `package.json`) — zbog `pdfjs-dist`.
 - **Push:** VAPID ključ server pravi sam i čuva u bazi (`web_push_kljuc`) — na Renderu ne treba ništa
   podešavati; `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` samo ako se želi ručno. Push radi
@@ -906,9 +963,14 @@ pa nova D1 → „Spremno danas“. HACCP: obrazac sa odgovorom koji je odstupan
 
 Tehnički nalozi i plan su u „Nalazi" i „Plan izmjena po fazama" iznad. Od ranijih stavki i dalje
 važi: da li Uredba 91/2026 ima zaseban Dio 12 „Osposobljavanje" i u kom su Prilogu Dio 4 i Dio 13
-(vidi pravni okvir). **Prodajna prezentacija** (`prezentacija/`, van gita) se pravi skriptom
-`prezentacija/napravi_prezentaciju.cjs` (pptxgenjs, react-icons, sharp — nisu u projektu) iz podataka ovog
-fajla — pri promjeni propisa, cijena ili funkcija aplikacije ažurirati i nju.
+(vidi pravni okvir). **Prodajna prezentacija i ponuda** (`prezentacija/`, van gita): `node napravi_prezentaciju.cjs` (18 slajdova,
+.pptx) i `node napravi_ponudu.cjs` (jedna A4 strana → `PILOT_ponuda_paketi.pdf`, preko Chrome-a/Edge-a bez
+prozora). Paketi, uslovi i kontakt su na JEDNOM mjestu — `prezentacija/podaci.cjs`. Biblioteke (pptxgenjs,
+react-icons, sharp) su u `prezentacija/node_modules` (`npm install` u tom folderu), ne u projektu. Na ovom
+računaru nema PowerPointa ni LibreOffice-a — slajdovi se ne mogu pretvoriti u slike, pa se tekst provjerava
+mjerenjem stvarnim Calibri fontom (Chrome bez prozora); ponuda se gleda kao snimak strane. Pri promjeni
+propisa, cijena ili funkcija aplikacije ažurirati oba. **Kontakt još nije upisan** — ponuda ima crveno
+„[upisati kontakt]“ i takva se ne šalje.
 
 **Otpremnice — OCR je provjeren samo na izmišljenim i simuliranim fotografijama** (16 varijanti jedne
 probne fotografije + otpremnica sa cijenama; #75). Prve prave otpremnice pilot klijenta (više
@@ -940,6 +1002,10 @@ javni `anon` ključ projekta ikad bio negdje zalijepljen — promijeniti ga (Pro
 dolazi sam), takva isporuka se sada ne može upisati bez vozila — tada treba dodati „preuzima kupac“ (sa
 temperaturom pri predaji), ne ukidati pravilo. Odluka vlasnice kad se pojavi.
 
+**Ekrani se sada mogu proklikati lokalno** (`npm run demo:lokalno`, talas 5): u talasu 5 provjereni traka i panel 2FA,
+traka „nema interneta“ i pad strane (greška uhvaćena i upisana). Drugi korak prijave i QR korak nisu viđeni u pregledaču —
+lozinka se ne kuca u pregledač; pokriveni su kroz API (`talas5`).
+
 **Talas 3 u ekranima nije proklikan.** Rezervacija, otkaz, otpremnica za štampu, jedna temperatura po grupi i
 nova polja u Šifarnicima su provjereni kroz API (test `talas3`), typecheck i build — štampu otpremnice (A4,
 potpisi) treba jednom odštampati i pogledati na papiru.
@@ -947,15 +1013,21 @@ potpisi) treba jednom odštampati i pogledati na papiru.
 **Na demo bazi je isključen (ne obrisan) termometar „E2E ubodni termometar (T-99)“** — ostatak testa od
 24.09. Može se obrisati kad vlasnica želi; isključen ne smeta ni prikazu ni testovima.
 
-**Bekap se ne pokreće sam** dok `npm run bekap` nije u Task Scheduleru na računaru
-konsultantkinje. Skripta postoji i radi; raspored je odluka vlasnice (računar mora biti uključen
-u to vrijeme).
+**Bekap se ne pokreće sam** dok vlasnica jednom ne pokrene `npm run zakazi-bekap` (Task Scheduler, svaki dan
+u 13:00; ako je računar ugašen — čim se upali). Raspored je njena odluka, alat je spreman.
+
+**Demo lozinke su bile javne** (repozitorijum javan 20.–29.09.2026). Na živoj demo bazi pokrenuti `npm run demo-lozinke`
+— nove lozinke idu u `.env` i ispišu se jednom. Dok se ne pokrene, svako ko je vidio kod može ući u demo.
+
+**Potvrda u dva koraka** — konsultant je uključuje na svakoj instanci klijenta (Moja strana), pa na Renderu postavi
+`OBAVEZNA_2FA=izvodjac` (i `bzr` kad odgovorno lice pristane). `dnevni-pregled` javlja ko je još bez nje.
 
 ### Van koda
 
 - Ugovor nije pregledao crnogorski pravnik (naročito čl. 6, 7 i 9)
 - Nije riješeno fakturisanje prema Crnoj Gori
-- Nema nijedne reference — prvi klijent je pilot i tako se i cijeni
+- Nema nijedne reference — prva tri klijenta su „osnivački“ (uspostavljanje −50 %, mjesečno puna cijena
+  zaključana na 24 mjeseca, zauzvrat preporuka i studija slučaja) — `dokumenti/strategija_prodaje.md`
 - Banka pitanja nije validirana ni na jednoj grupi; prvih ~30 ispitanika su pilot,
   ne mjerenje. **Ne slati klijentu analizu pitanja kao nalaz.**
 
