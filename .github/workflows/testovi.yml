@@ -1,5 +1,7 @@
 # Testovi na svaki push (nalaz A5, faza 4): čista PostgreSQL baza u GitHub-u, sve migracije +
 # demo podaci, server samo sa /api, svi E2E testovi. Render-ova demo baza se ne dira.
+# Talas 6: pa testovi ekrana — izgrađena aplikacija, server kao na Renderu, Chrome (već je na GitHub-ovom
+# računaru) u veličini telefona, svih pet uloga i rad bez mreže.
 # Ishod: GitHub → Actions (zelena kvačica / crveni krstić pored commita).
 name: Testovi
 

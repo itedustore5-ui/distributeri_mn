@@ -5,7 +5,7 @@ Ovdje je sve što se ne vidi iz koda: mapa aplikacije, zašto je nešto tako, š
 dirati, šta je poznato da ne valja, i na čemu se već izgubilo vrijeme.
 
 Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — upiši ovdje.
-Posljednji pregled koda i usklađivanje ovog fajla: **29.09.2026.** (inspekcija + talas 5; ranije revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
+Posljednji pregled koda i usklađivanje ovog fajla: **30.09.2026.** (talas 6; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
 opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje u ovom kodu nema.)
 
 ---
@@ -180,7 +180,10 @@ PostgreSQL na Supabase (`db/`) · Render, jedan servis po klijentu.
 
 ```
 pregledač  src/pages/*.tsx  ──►  src/lib/api.ts  (zaglavlje x-zahtjev-app, kolačić pilot_sesija;
-                                                x-kljuc-zahtjeva za nov prijem i novu isporuku)
+   │                                            x-kljuc-zahtjeva za nov prijem i novu isporuku)
+   │  bez mreže (#85): upis sa terena ──► src/lib/izlaz.ts (red na telefonu) ──► kad dođe signal:
+   │                                      isti ključ + x-uradjeno-at (vrijeme kad je urađeno)
+   │  public/sw.js: aplikacija sačuvana na telefonu, GET /api — mreža, pa posljednje sačuvano
    │
    ▼
 server/index.ts   1. JAVNO: samo /api/zdravlje i prijava/odjava (javniRuter())
@@ -220,6 +223,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Prilozi, izvještaji, izvoz | `/prilozi`, `/izvjestaji` | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
 | Audit | `/audit` („bilo → sada“) | `audit.ts` | `auditService` (`stanjeReda`, `logIzmjenaReda`) | `audit_log` (`dogadjaj` se od faze 4 ne puni — stari redovi ostaju) |
 | Bekap | `/tabla` (kartica) — bez tajni (#68); pun bekap je `npm run bekap` | `bekap.ts` | `bekapService` | `bekap_log` |
+| Rad bez interneta (#85) | traka na vrhu svake strane (`VanMreze.tsx`), „Sačuvano na telefonu“; red `src/lib/izlaz.ts`; `public/sw.js` | `vanMreze.ts` (odbijeni upisi) + posrednik `server/vanMreze.ts` na D1, predaji, mjerenju, zapisu i prijavi problema | `vrijemeVanMreze()` u `vozilaService`, `isporukaService`, `haccpService`, `ncService` | `van_mreze_odbijeno`, `kljuc_zahtjeva`, kolona `van_mreze` (`potvrda_van_mreze` na isporuci) |
 | Podešavanje (konsultant) | `/admin` | `firma.ts`, `provjeraZnanja.ts` | — | `firma`, banka pitanja konsultanta |
 
 Meni i ko smije na koju stranu: `STAVKE` u `src/components/Layout.tsx` (isti spisak koristi
@@ -291,6 +295,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `26_talas1_cg` | CHECK zaliha ≥ 0 i količine stavke isporuke (`NOT VALID`, pa provjera starih redova — ako ne prođe, samo `notice`, a pravilo važi za nove upise); `kljuc_zahtjeva` (R-10) |
 | `27_talas2_cg` | `mjerenje_temperature.mjerni_uredjaj_id` (R-23); `kontrola_vozila` + `granica_min/max`, `temperatura_ok` (R-05); jedinstven `zapis.ispravlja_id` (R-07, u `do`-bloku — grananje na staroj bazi daje `notice`); pogledi za izvoz `v_izvoz_kontrole_vozila`, `v_izvoz_provjere_nc`, `v_izvoz_termometri`, `v_izvoz_verifikacija_sistema`, `v_izvoz_kretanja_zalihe` (R-20) |
 | `28_talas3_otkaz_cg` | samo `isporuka_status_t` + `OTKAZANA` — nova vrijednost enuma u svom fajlu (ne smije se koristiti u istoj transakciji) |
+| `34_van_mreze_cg` | rad bez interneta (#85): `van_mreze` na mjerenju, D1, zapisu i neusaglašenosti, `isporuka.potvrda_van_mreze`; `van_mreze_odbijeno` (sa RLS-om) |
 | `33_talas5_cg` | potvrda u dva koraka (`korisnik.totp_*`, `prijava_izazov`) i dnevnik grešaka (`greska_log`) — obje tabele sa RLS-om (#78, #80, #81) |
 | `32_bezbjednost_baze_cg` | RLS na svim tabelama šeme public (bez politika), pogledi `security_invoker`, `anon`/`authenticated` bez prava i bez podrazumijevanih prava — samo gdje te uloge postoje (#78, R-12) |
 | `31_magacin_mjerenja_cg` | `mjerenje_temperature.skladiste_id`, `zapis.skladiste_id` (#77); stari redovi popunjeni gdje se zna (lot → magacin prijema; firma sa jednim magacinom) |
@@ -319,10 +324,11 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | Komanda | Baza | Kad |
 |---|---|---|
 | **`npm test`** | SOPSTVENA, svaki put čista: klaster u `.testbaza/` (port 54329, bez lozinke, samo localhost) iz PostgreSQL-a instaliranog na računaru; server na 5055 sa `SAMO_API=1` | **uvijek prvo ovo** — Render-ova demo baza se ne dira |
-| `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
+| `npm run test:ekrani` | kao `npm test`, pa `vite build` i server KAO NA RENDERU (produkcija, service worker); Chrome bez prozora u veličini telefona (375 × 812) | posle izmjene ekrana — `testovi/ekrani/*.ekran.mjs` |
+| `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) — API testovi pa ekrani (`--sve`) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-21 test, 558 provjera (na čistoj bazi; na demo bazi 552 — dvije se preskaču, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+22 testa, 589 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -348,7 +354,9 @@ vozilo za robu pod režimom, audit „prije“, ispravka zapisa, odstupanje iz o
 termometar i „upitna“ mjerenja, ponovna kontrola prije zatvaranja, novi izvori izvoza — `talas2`), i talas 3 (rezervacija i
 slobodna roba, otkaz i izmjena kupca, rok obavezan i serija jednom po prijemu, drugi rok iste serije, povlačenje cijele
 serije, otpremnica, jedinstven PIB — `talas3`), i mali talas 4 (bekap bez tajni, zdravlje sa bazom, 400/409 umjesto 500, zaglavlja —
-`talas4`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
+`talas4`), i talas 6 (isti upis dvaput → jedan zapis, neuspio upis ne zauzima ključ, ključ u obradi → 409 `U_TOKU`, vrijeme
+sa telefona i oznaka „bez mreže“, budućnost i starije od 36 h odbijeno, D1 i rok po DANU PREDAJE, kasna jučerašnja D1 ne mijenja
+današnji status vozila, odbijen upis javljen odgovornom licu — `talas6`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
 fiksnim ID-jevima) i brišu sve što naprave. Nov tok u aplikaciji = nov test.
 
 Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
@@ -360,6 +368,15 @@ važeći (`nijeIstekao()` iz `pomoc.mjs`). Demo lotovi su roba pod režimom — 
 vraća status vozila i briše svoje kontrole. Test koji mjeri pravi svoj ispravan termometar — ne oslanja se
 na termometre demo baze. Rok je obavezan pri prijemu — testovi ga šalju (`rokZaDana()`); demo lot za isporuku se bira
 po SLOBODNOJ robi (`slobodno()` — isporuke u pripremi na demo bazi drže dio zalihe).
+
+**Testovi ekrana** (`testovi/ekrani/`, talas 6, 32 provjere): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
+koristi instaliran Chrome; `PW_KANAL=msedge` za Edge; na GitHub-u je Chrome već na računaru) u veličini telefona, prijava
+kroz API pa samo kolačić u pregledač (lozinka se ne kuca u pregledač). `1_uloge` — svaka strana svake od pet uloga: otvara
+se, ne viri van ekrana (vodoravni skrol), nema greške u konzoli; meni na telefonu nudi samo strane uloge; sva četiri priloga
+za štampu. `2_teren` — vozač D1 pa predaja kroz ekran, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema,
+direktor kartica → lista. `3_bez_mreze` — vozač bez signala: sve strane sačuvane na telefonu, D1 i predaja „Sačuvano na
+telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. Scenario pravi svoje podatke
+(`priprema.mjs`) i briše ih. Pomoćne funkcije su u `telefon.mjs`, NE u `pokreni.mjs` (vidi „Naučeno“ — ciklus uvoza).
 
 ---
 
@@ -728,6 +745,24 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     Sinhroni `scryptSync` je pri svakoj prijavi zaustavljao CIJELI server. Stari format (`scrypt$salt$heš`) i dalje
     radi i pri uspješnoj prijavi se tiho zamijeni novim (ista lozinka — ne ide u audit). Nepostojeće korisničko ime
     troši isto vrijeme kao pogrešna lozinka (`lazniPokusaj`) — po vremenu odgovora se ne vidi koje ime postoji.
+85. **Rad bez interneta za teren — upis se ne gubi i ne duplira** (talas 6, 30.09.2026). Bez signala se na telefonu
+    čuvaju (`src/lib/izlaz.ts`, localStorage, red PO KORISNIKU) samo: D1, predaja isporuke, mjerenje, dnevni zapis i prijava
+    problema (`upisiIliSacuvaj`). Prijem, odluke, otpis, nalozi — samo sa mrežom. Red se šalje sam (povratak signala,
+    otvaranje aplikacije, na 30 s), REDOM kojim je urađen (D1 prije predaje), a staje na prvom koji nije stigao. Svaki upis
+    nosi isti ključ zahtjeva kao prvi pokušaj (posrednik `vanMreze()` u `server/vanMreze.ts`, tabela `kljuc_zahtjeva`,
+    radnja `vm:…`): ponovljen → prvi odgovor; neuspio (4xx) → ključ se oslobađa; još u obradi → 409 `U_TOKU` (telefon
+    pokušava kasnije); rezervacija bez ishoda starija od 10 min → oslobađa se. Upis iz reda nosi `x-uradjeno-at` —
+    vrijeme radnje (izmjereno_at, izvrseno_at, potvrdjeno_at) je vrijeme sa telefona, `created_at` kad je stiglo, a red
+    dobija `van_mreze` (isporuka `potvrda_van_mreze`); budućnost (+2 min) i starije od 36 h se ne primaju. **Predaja se
+    provjerava po DANU PREDAJE** (#48, #50, #55): D1 tog dana, rok tog dana. **Status vozila mijenja samo najnovija D1** —
+    kasna jučerašnja ne poništava današnju. Upis koji server tada odbije (4xx) NE nestaje: telefon ga šalje na
+    `POST /van-mreze/odbijeno` (tabela `van_mreze_odbijeno`, obavještenje odgovornim licima VISOK), a radnik ga vidi
+    („server nije primio“) dok ga ne ukloni. `public/sw.js` čuva SVE fajlove aplikacije po spisku koji pravi gradnja
+    (`vite.offline.ts` → `offline-spisak.json`, nova verzija = nov keš) i posljednje GET odgovore `/api` (bez prijave,
+    izvoza, bekapa, audita, grešaka, push-a, otpremnica; zaglavlje `x-pilot-sacuvano` → traka „podaci su od …“). Keš
+    podataka i zapamćen korisnik (`pilot-korisnik-van-mreze`) brišu se pri prijavi i odjavi — zajednički telefon.
+    Odjava traži mrežu (sesiju gasi server). Nov upis koji treba da radi bez mreže: `vanMreze("…")` na ruti,
+    `vrijemeVanMreze()` u servisu, `upisiIliSacuvaj` u formi, `SacuvanoNaTelefonu` na ekranu, provjera u `talas6`.
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -830,7 +865,8 @@ repozitorijuma. Ovdje samo stanje.
 | ~~**Talas 3 revizije**~~ ✓ 26.09.2026 | Rezervacija (slobodno = zaliha − isporuke u pripremi), otkaz isporuke uz razlog i ispravka kupca, rok obavezan po artiklu, serija jednom po prijemu i povlačenje cijele serije, otpremnica za štampu, PIB i adresa isporuke kupca, jedna temperatura po grupi režima. Dopune `28`, `29`, test `talas3` (35 provjera). | R-14, R-15, R-17, R-21, R-28, R-37 | urađeno |
 | ~~**Mali talas 4**~~ ✓ 26.09.2026 | Bekap bez tajni (+ dopuna 30 za stare), zdravlje sa bazom, 4xx umjesto 500, CSP/HSTS/Permissions-Policy. Uz to: provjera znanja uz lozinku prijavljenog, poruke šalju svi zaposleni. Test `talas4` (12 provjera). | R-19, R-25, R-26, R-27 | urađeno |
 | ~~**Talas 5 — sigurnost i pogon**~~ ✓ 29.09.2026 (inspekcija 29.09.) | `sharp` 0.35.5 (ranjivosti u libvips) i provjera veličine slike; izvoz bez Excel formula i po Podgorici; asinhroni scrypt sa parametrima u hešu; dopune baze pri pokretanju + zdravlje; dnevnik grešaka u bazi; potvrda u dva koraka za vodstvo (+ obavezna po instanci); zaštita od pada ekrana, rok za zahtjev, traka „nema interneta“; demo lozinke iz koda u `.env` + `npm run demo-lozinke`; `npm run zakazi-bekap`, `npm run iskljuci-2fa`, `npm run demo:lokalno`; dnevni pregled sa greškama, dopunama i 2FA. Repozitorijum je vlasnica prebacila u privatni. Dopuna `33_talas5_cg`, test `talas5` (40 provjera). | inspekcija #1–#10 | urađeno |
-| **Talas 6 — teren i testovi** | Rad bez interneta za vozača i magacionera (lokalno čuvanje D1, mjerenja i predaje, slanje kad dođe signal — ključ zahtjeva već postoji); testovi ekrana (Playwright, 375 px, 5 uloga); paket po stranama (`React.lazy`); server kompajliran u JS umjesto `tsx`; `statement_timeout`; ESLint/Prettier; podjela `otpremnicaService` i `NoviPrijem`; ograničenje slanja otpremnica po korisniku; alat za novog klijenta. | inspekcija #11–#18 | oko 1,5 sedmica |
+| ~~**Talas 6 — teren i testovi**~~ ✓ 30.09.2026 | Rad bez interneta za vozača i magacionera (#85): red na telefonu, isti ključ, vrijeme sa telefona i oznaka „bez mreže“, predaja po danu predaje, odbijeni upisi odgovornom licu, aplikacija i posljednji podaci sačuvani na telefonu (service worker). Testovi ekrana (`npm run test:ekrani`, Chrome, 375 px, 5 uloga, bez mreže) — odmah našli dvije greške (bijela strana posle gradnje, Prilozi van ekrana). Paket po stranama (`React.lazy`) i gradnja bez serverovog `.env`: 970 → 257 KB. Dopuna `34_van_mreze_cg`, testovi `talas6` (31) i ekrani (32). | inspekcija #11–#18 (dio) | urađeno |
+| **Ostatak talasa 6** | Server kompajliran u JS umjesto `tsx`; `statement_timeout`; ESLint/Prettier; podjela `otpremnicaService` i `NoviPrijem`; ograničenje slanja otpremnica po korisniku; alat za novog klijenta. | inspekcija #11–#18 (ostalo) | oko 1 sedmica |
 | **Talas 7 — prodajne funkcije** | „Inspekcijski paket“ jednim klikom (PDF/ZIP za period); mjesečni izvještaj direktoru automatski; demo koji se vraća svake noći; uvoz iz Excela (zaposleni, artikli, kupci, dobavljači); pregled svih klijenata za konsultanta; EAN skeniranje; „preuzima kupac“. | inspekcija #20–#26 | 2–3 sedmice |
 | **Ostatak talasa 4** | Jedan odgovor po pitanju i u bazi (UQ), korisnik baze sa najmanjim pravima, provjera veličine slike za OCR, podjela JS paketa po stranama. | R-12, R-33 – R-36 | posle pilota |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
@@ -906,6 +942,15 @@ repozitorijuma. Ovdje samo stanje.
 | typecheck pada posle nadogradnje `sharp` 0.35 / `pdfjs` 6 | `typeof import("sharp")` je sada modul, ne funkcija; `pdfjs` 6 nema opciju `isEvalSupported` | `(typeof import("sharp"))["default"]`; opcija uklonjena (zaštita je sada u samoj biblioteci) |
 | lokalni PostgreSQL odbija vezu (`ECONNRESET`), u logu `0xC0000142` | klaster ugašen naglo (zajedno sa pregledačem) pa oporavak; `pg_ctl start` iz basha visi | klaster pokretati iz Node-a (`spawnSync`, `stdio: "ignore"`), ne istovremeno `npm test` i `demo:lokalno`; posle naglog gašenja jednom uredno ugasiti pa ponovo |
 | ekran se provjerava u pregledaču, a lozinke se ne kucaju u pregledač (odluka vlasnice) | — | prijava na lokalni server iz Node-a (`fetch /api/auth/prijava`), pregledaču se da samo kolačić sesije |
+| paket za pregledač 970 KB | Vite čita i SERVEROV `.env` — `NODE_ENV=development` iz njega pravi razvojnu gradnju i pri `vite build` | `envFile: false` u `vite.config.ts` (pregledaču ništa iz `.env` ne treba); sada ~257 KB + strane po potrebi |
+| posle „popravke“ paketa aplikacija na telefonu bijela: `jsxDEV is not a function` | samo `define` za `process.env.NODE_ENV` — React produkcijski, a JSX i dalje preveden za razvoj | `envFile: false` (gore); našao ga je PRVI prolaz testa ekrana — typecheck, build i API testovi su prošli |
+| ponovljen upis vraća „drugačiji“ odgovor | sačuvan odgovor je `jsonb` — Postgres preslaže ključeve | isti sadržaj, drugi redoslijed; test poredi sadržaj (`isto()`), ne tekst |
+| test pada: `Cannot convert argument to a ByteString` | `fetch` ne prima zaglavlje sa č/ć/š | vrijednosti zaglavlja samo ASCII (i u testu „pogrešnog“ vremena) |
+| testovi ekrana vise bez greške | scenario je uvozio pomoćne funkcije iz `pokreni.mjs`, a `pokreni.mjs` uvozi scenario uz top-level await — ciklus čeka sam sebe | pomoćne funkcije u zaseban modul (`testovi/ekrani/telefon.mjs`) |
+| kasna D1 (stigla sa telefona posle nove) vraća vozilo u staro stanje | status vozila se postavljao po POSLJEDNJOJ UPISANOJ, ne najnovijoj kontroli | status mijenja samo kontrola bez novije `izvrseno_at` (#85) |
+| posle slanja iz reda „Potvrdi“ na trenutak ponovo iskoči | stavka reda obrisana prije nego što se lista osvježila | „Predaja poslata“ 20 s ili do osvježavanja (`upravoPoslato`), lista se osvježava posle SVAKOG poslatog upisa |
+| `npm run typecheck` prolazi, a u stranici fali uvoz | korijenski `tsconfig.json` ima `"files": []` sa referencom — `tsc --noEmit` bez `-b` NE provjerava frontend (hvatao ga je samo `tsc -b` u `npm run build`) | `typecheck` = `tsc --noEmit -p tsconfig.app.json && … -p tsconfig.server.json` |
+| Prilozi na telefonu vire 26 px van ekrana | 40 px unutrašnje margine + dva potpisa u redu bez prelamanja, tabele bez skrola | `.prilog-list` (manja margina na telefonu), potpisi se prelamaju, tabele u `.data-table-wrap` — našao test ekrana |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |
 
 ### Gdje se zapravo testira
@@ -950,6 +995,7 @@ dopuna padne, novo izdanje ne kreće i Render ostavlja staro. Da li je deploy pr
 npm run typecheck
 npm run build
 npm test             # sopstvena čista baza + sopstveni server; izlazni kod 1 ako išta padne
+npm run test:ekrani  # telefon 375 px, pet uloga, rad bez mreže — izgrađena aplikacija kao na Renderu
 ```
 
 Pa ručno na telefonu (375 px): `/moja` za vozača i magacionera (i „Danas po planu" → „Upiši"),
@@ -977,6 +1023,14 @@ probne fotografije + otpremnica sa cijenama; #75). Prve prave otpremnice pilot k
 dobavljača, pravi telefon, loše svjetlo, drugačiji raspored kolona) će pokazati šta još ne valja —
 tada NJIH dodati u `testovi/otpremnice/` (izmijenjenih podataka) i mjeriti. Rukopis se ne čita.
 Skeniran PDF (samo slika, bez teksta) se čuva uz prijem, stavke se upisuju ručno.
+
+**Rad bez interneta nije viđen na pravom telefonu** (talas 6, #85). Test ekrana ga prolazi u Chromeu sa isključenom
+mrežom (`context.setOffline`), a keš aplikacije je provjeren fajl po fajl — ali pravi Android u podrumu i iPhone nisu
+probani. Poznato: (1) šalje se dok je aplikacija otvorena ili čim se ponovo otvori — ne u pozadini (Background Sync
+namjerno nije uveden: iPhone ga nema); (2) iPhone briše podatke sajta koji se 7 dana ne otvori, OSIM aplikacije dodate
+na početni ekran — vozaču i magacioneru zato uvijek „Dodaj na početni ekran“ (isto traži i push); (3) vozač jednom
+otvori stranu Isporuka dok ima signala, da se stavke isporuka sačuvaju. Prva proba na Renderu: telefon u režimu
+aviona → D1 → predaja → isključiti režim aviona → oba upisa u listama sa oznakom.
 
 **Push obavještenja nisu viđena na pravom telefonu.** Test dokazuje da server šalje ispravno
 potpisano i šifrovano; da li Android/iPhone stvarno prikažu — prvo probati „Pošalji probno" na

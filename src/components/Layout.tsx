@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -22,11 +22,13 @@ import {
   Bell,
   MessageSquare,
   ClipboardCheck,
-  WifiOff,
 } from "lucide-react";
 import { useAuth, NAZIV_ULOGE, type Uloga } from "../lib/auth";
 import { api } from "../lib/api";
 import { GreskaGranica } from "./GreskaGranica";
+import { Ucitavanje } from "./Zajednicko";
+import { TrakaVanMreze } from "./VanMreze";
+import { useIzlaz } from "../lib/izlaz";
 
 type StavkaMenija = { putanja: string; naziv: string; ikonica: ReactNode; uloge: Uloga[] };
 
@@ -67,6 +69,15 @@ const PROVJERA_MS = 30_000;
 
 export function Layout({ children }: { children: ReactNode }) {
   const { korisnik, odjavi } = useAuth();
+  const izlaz = useIzlaz();
+  const odjava = async () => {
+    if (izlaz.cekaju.length > 0 && !window.confirm(`Na telefonu ${izlaz.cekaju.length === 1 ? "čeka 1 upis" : `čeka ${izlaz.cekaju.length} upisa`} koji još nije poslat. Poslaće se kad se ponovo prijavite na ovom telefonu. Odjaviti se?`)) return;
+    try {
+      await odjavi();
+    } catch {
+      window.alert("Odjava traži internet — pokušajte kad bude signala.");
+    }
+  };
   const [sidebarOtvoren, setSidebarOtvoren] = useState(() => window.innerWidth > 760);
   const [korisnikMenu, setKorisnikMenu] = useState(false);
   const navigate = useNavigate();
@@ -195,7 +206,7 @@ export function Layout({ children }: { children: ReactNode }) {
                       <span>{korisnik.korisnicko_ime}</span>
                     </div>
                   </div>
-                  <button className="logout-button" onClick={() => odjavi()}>
+                  <button className="logout-button" onClick={() => void odjava()}>
                     <LogOut size={15} /> Odjava
                   </button>
                 </div>
@@ -204,13 +215,12 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
         </header>
         <div className="page-content">
-          {!naMrezi && (
-            <div className="upozorenje-traka" role="status">
-              <WifiOff size={16} />
-              <span>Nema interneta — ono što sada upišete neće se sačuvati. Sačekajte signal (ili pređite na Wi-Fi), forma ostaje popunjena.</span>
-            </div>
-          )}
-          <GreskaGranica kljuc={lokacija.pathname}>{children}</GreskaGranica>
+          {/* Bez mreže (talas 6, #85): šta se čuva na telefonu, šta čeka, šta server nije primio. */}
+          <TrakaVanMreze naMrezi={naMrezi} />
+          <GreskaGranica kljuc={lokacija.pathname}>
+            {/* Strana se učitava tek kad se otvori (talas 6) — meni ostaje dok stiže. */}
+            <Suspense fallback={<Ucitavanje />}>{children}</Suspense>
+          </GreskaGranica>
         </div>
       </main>
     </div>

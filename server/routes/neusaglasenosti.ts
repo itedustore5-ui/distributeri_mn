@@ -6,6 +6,7 @@ import { requireUloga, NA_TERENU, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { kreirajRucnuNeusaglasenost, dodajKorektivnuMjeru, zavrsiKorektivnuMjeru, verifikuj } from "../services/ncService.js";
 import { IME, IZVOR_OZNAKA, SAMO_MOJE_NC } from "../services/sqlDijelovi.js";
+import { vanMreze } from "../vanMreze.js";
 
 export const ncRuter = Router();
 ncRuter.get(
@@ -62,6 +63,7 @@ const rucnaSchema = z.object({
 ncRuter.post(
   "/neusaglasenosti",
   requireUloga("izvodjac", "bzr", "operater", "vozac"),
+  vanMreze("prijava_problema"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(rucnaSchema, request.body);
     const rezultat = await kreirajRucnuNeusaglasenost(ulaz, request.korisnik!.id);

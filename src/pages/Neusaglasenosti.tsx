@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Plus, Check } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
-import { useSlanje } from "../lib/slanje";
+import { useSlanje, noviKljuc } from "../lib/slanje";
+import { upisiIliSacuvaj } from "../lib/izlaz";
+import { SacuvanoNaTelefonu } from "../components/VanMreze";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka, VanMrezeOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth, NAZIV_ULOGE, type Uloga } from "../lib/auth";
 
@@ -20,6 +22,7 @@ type Nc = {
   mjera_za_mene: boolean;
   mjera_kod: string | null;
   created_at: string;
+  van_mreze?: boolean;
 };
 type Mjera = {
   id: string;
@@ -129,7 +132,7 @@ export function Neusaglasenosti() {
             <div key={nc.id} className={`nc-row${nc.mjera_za_mene ? " nc-za-mene" : ""}`} onClick={() => otvoriDetalj(nc.id)} style={{ cursor: "pointer" }}>
               <div className={`severity-bar ${nc.ozbiljnost === "VISOK" ? "danger" : "warning"}`} />
               <div className="nc-title">
-                <strong>{nc.broj}{nc.mjera_za_mene && <span className="nc-oznaka-mjera">Mjera za vas</span>}</strong>
+                <strong>{nc.broj}{nc.mjera_za_mene && <span className="nc-oznaka-mjera">Mjera za vas</span>}<VanMrezeOznaka da={nc.van_mreze} /></strong>
                 <h3>{nc.opis}</h3>
                 <span>
                   {datum(nc.created_at)} · {nc.izvor_oznaka ?? "Prijava"} · prijava: {nc.prijavio ?? "sistem"}
@@ -347,17 +350,26 @@ function NovaNcModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [opis, setOpis] = useState("");
   const [ozbiljnost, setOzbiljnost] = useState("SREDNJI");
   const [greska, setGreska] = useState("");
+  const [naTelefonu, setNaTelefonu] = useState(false);
+  const [kljuc] = useState(noviKljuc);
 
   const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      await api("/neusaglasenosti", { telo: { opis, ozbiljnost } });
+      // Problem se prijavljuje i bez mreže — sačuva se na telefonu i ode kad bude signala (#85).
+      const u = await upisiIliSacuvaj("/neusaglasenosti", { opis, ozbiljnost }, { kljuc, opis: `Prijava problema: ${opis.trim().slice(0, 60)}` });
+      if (!u.poslato) {
+        setNaTelefonu(true);
+        return;
+      }
       onCreated();
       onClose();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Neusaglašenost nije sačuvana.");
     }
   };
+
+  if (naTelefonu) return <SacuvanoNaTelefonu naslov="Prijavi problem" opis="Prijava problema" onClose={onClose} />;
 
   return (
     <Modal

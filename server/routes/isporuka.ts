@@ -6,6 +6,7 @@ import { requireUloga, ogranicenjeDatuma, samoMoje, provjeriProzorUpisa, type Au
 import { tijelo, str } from "../validacija.js";
 import { kreirajIsporuku, izmijeniIsporuku, potvrdiIsporuku, otkaziIsporuku, otpremnicaZaStampu } from "../services/isporukaService.js";
 import { kljucIzZaglavlja } from "../services/kljucService.js";
+import { vanMreze } from "../vanMreze.js";
 
 export const isporukaRuter = Router();
 isporukaRuter.get(
@@ -116,6 +117,7 @@ const potvrdaStavkaSchema = z.object({
 isporukaRuter.post(
   "/isporuke/:id/potvrda",
   requireUloga("vozac", "operater", "bzr", "izvodjac"),
+  vanMreze("potvrda_isporuke"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const stavke = tijelo(z.array(potvrdaStavkaSchema).min(1), request.body?.stavke);
     const { mjerniUredjajId } = tijelo(z.object({ mjerniUredjajId: z.string().uuid().nullable().optional() }), { mjerniUredjajId: request.body?.mjerniUredjajId });

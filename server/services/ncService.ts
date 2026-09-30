@@ -4,6 +4,7 @@ import { ApiGreska } from "../greske.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
 import { zatvoriZadatkeIzvora, kreirajObavjestenje, kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
+import { vrijemeVanMreze } from "../vanMreze.js";
 
 /** Prijava sa terena (ručno ili sa isporuke). Isto kao automatska NC: nedodijeljen zadatak i
  * obavještenje odgovornom licu — ranije ručna prijava nije javljala nikome, pa je magacioner
@@ -26,9 +27,9 @@ export async function kreirajRucnuNeusaglasenost(
   return transakcija(async (klijent) => {
     const broj = await sljedeciBrojNc(klijent);
     const nc = await klijent.query<{ id: string }>(
-      `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
-       values ($1, $2, 'OTVORENA', $3, $4, $5, $6) returning id`,
-      [broj, ozbiljnost, ulaz.izvorTip ?? "rucno", ulaz.izvorId ?? null, ulaz.opis, korisnikId],
+      `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id, van_mreze)
+       values ($1, $2, 'OTVORENA', $3, $4, $5, $6, $7) returning id`,
+      [broj, ozbiljnost, ulaz.izvorTip ?? "rucno", ulaz.izvorId ?? null, ulaz.opis, korisnikId, vrijemeVanMreze() !== null],
     );
     const id = nc.rows[0].id;
     await logKreiranje(klijent, { korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj, izvor: ulaz.izvorTip ?? "rucno", opis: ulaz.opis } });
@@ -321,9 +322,9 @@ export async function neusaglasenostIzZapisa(
   // Iz kog odgovora je odstupanje (R-08) — „Ima li tragova štetočina? — da", ne samo „odstupanje".
   const opis = `Odstupanje u obrascu ${ulaz.obrazacKod} (${ulaz.datum})${ulaz.odstupanja?.length ? `: ${ulaz.odstupanja.join("; ")}` : ""}`;
   const nc = await klijent.query<{ id: string }>(
-    `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
-     values ($1, 'SREDNJI', 'CEKA_VERIFIKACIJU', 'zapis', $2, $3, $4) returning id`,
-    [broj, ulaz.zapisId, opis, ulaz.korisnikId],
+    `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id, van_mreze)
+     values ($1, 'SREDNJI', 'CEKA_VERIFIKACIJU', 'zapis', $2, $3, $4, $5) returning id`,
+    [broj, ulaz.zapisId, opis, ulaz.korisnikId, vrijemeVanMreze() !== null],
   );
   const id = nc.rows[0].id;
   await klijent.query(

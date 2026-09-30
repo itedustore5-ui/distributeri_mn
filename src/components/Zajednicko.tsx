@@ -96,6 +96,16 @@ export function NaknadnoOznaka({ dana }: { dana: number | null | undefined }) {
   );
 }
 
+/** Upis napravljen na telefonu bez interneta (#85): vrijeme je vrijeme radnje, a na server je stigao kasnije. */
+export function VanMrezeOznaka({ da }: { da: boolean | null | undefined }) {
+  if (!da) return null;
+  return (
+    <span className="naknadno-oznaka van-mreze-oznaka" title="Upisano na telefonu bez interneta — vrijeme je kad je urađeno, a na server je stiglo kad se vratio signal.">
+      bez mreže
+    </span>
+  );
+}
+
 export function PrazanPrikaz({ poruka }: { poruka: string }) {
   return (
     <div className="empty-notices">

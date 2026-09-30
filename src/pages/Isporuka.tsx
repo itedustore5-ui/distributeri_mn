@@ -3,9 +3,11 @@ import { Plus, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiGreska } from "../lib/api";
 import { useSlanje, noviKljuc } from "../lib/slanje";
+import { upisiIliSacuvaj, useIzlaz, IZLAZ_POSLAT } from "../lib/izlaz";
+import { SacuvanoNaTelefonu } from "../components/VanMreze";
 import { IzborTermometra, useIzborTermometra } from "../components/Termometar";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka, VanMrezeOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
 import { useSkladista, type Skladiste } from "../lib/skladista";
@@ -39,6 +41,7 @@ type IsporukaRed = {
   skladiste_naziv: string | null;
   naknadno_dana: number;
   otvorena_odstupanja: number;
+  potvrda_van_mreze?: boolean;
 };
 type StavkaIsporuke = {
   id: string;
@@ -83,13 +86,22 @@ export function Isporuka() {
   const [stavke, setStavke] = useState<StavkaIsporuke[]>([]);
   const [modalOdstupanje, setModalOdstupanje] = useState<IsporukaRed | null>(null);
   const [modalOtkaz, setModalOtkaz] = useState<IsporukaRed | null>(null);
+  const [poruka, setPoruka] = useState("");
   const navigate = useNavigate();
   const { korisnik } = useAuth();
+  const izlaz = useIzlaz();
   // Otkazuje magacioner (svoju) i vodstvo; vozač ne — kupac koji odbije robu je potvrda sa 0 (R-15).
   const mozeOtkazati = korisnik?.uloga !== "vozac";
 
   const ucitaj = () => {
-    api<IsporukaRed[]>("/isporuke").then(setLista);
+    api<IsporukaRed[]>("/isporuke").then((l) => {
+      setLista(l);
+      // Vozač kreće na teren: detalji isporuka u pripremi se učitaju dok ima mreže, pa se predaja
+      // može upisati i u podrumu kupca (#85) — service worker čuva posljednji odgovor.
+      if (navigator.onLine) {
+        for (const i of l.filter((x) => x.status === "U_PRIPREMI").slice(0, 25)) api(`/isporuke/${i.id}`).catch(() => undefined);
+      }
+    });
     api<LotDostupan[]>("/zaliha").then(setZaliha);
   };
   useEffect(() => {
@@ -97,6 +109,9 @@ export function Isporuka() {
     api<Kupac[]>("/kupci").then(setKupci);
     api<Vozilo[]>("/vozila").then(setVozila);
     api<Vozac[]>("/vozaci").then(setVozaci);
+    // Predaja koja je čekala na telefonu je stigla — status isporuke se mijenja.
+    window.addEventListener(IZLAZ_POSLAT, ucitaj);
+    return () => window.removeEventListener(IZLAZ_POSLAT, ucitaj);
   }, []);
 
   const imeVozaca = (id: string | null) => vozaci.find((v) => v.id === id)?.ime ?? "—";
@@ -112,9 +127,18 @@ export function Isporuka() {
   const imaFiltera = filterDatum || filterVozilo || filterSkladiste;
 
   const otvoriPotvrdu = async (i: IsporukaRed) => {
-    const detalj = await api<{ stavke: StavkaIsporuke[] }>(`/isporuke/${i.id}`);
-    setStavke(detalj.stavke);
-    setModalPotvrda(i);
+    setPoruka("");
+    try {
+      const detalj = await api<{ stavke: StavkaIsporuke[] }>(`/isporuke/${i.id}`);
+      setStavke(detalj.stavke);
+      setModalPotvrda(i);
+    } catch (e) {
+      setPoruka(
+        e instanceof ApiGreska && e.status === 0
+          ? `Stavke isporuke ${i.broj} nisu sačuvane na ovom telefonu — otvorite stranu Isporuka jednom dok ima signala, pa predaja radi i bez njega.`
+          : e instanceof ApiGreska ? e.message : "Isporuka se nije otvorila.",
+      );
+    }
   };
 
   const otvoriIzmjenu = async (i: IsporukaRed) => {
@@ -163,6 +187,7 @@ export function Isporuka() {
         )}
         <span className="filter-broj">{prikazano.length} od {lista.length}</span>
       </div>
+      {poruka && <div className="upozorenje-traka" role="alert">{poruka}</div>}
       <div className="panel full-panel">
         <div className="data-table-wrap">
           <table className="data-table">
@@ -192,6 +217,7 @@ export function Isporuka() {
                   <td className="muted-text">{i.datum_isporuke}<NaknadnoOznaka dana={i.naknadno_dana} /></td>
                   <td>
                     <StatusBadge status={i.status} />
+                    <VanMrezeOznaka da={i.potvrda_van_mreze} />
                     {i.status === "OTKAZANA" && i.razlog_otkaza && <div className="muted-text" style={{ fontSize: 10 }}>{i.razlog_otkaza}</div>}
                     {i.otvorena_odstupanja > 0 && (
                       <button className="odstupanje-oznaka" onClick={() => navigate("/neusaglasenosti")} title="Otvorena odstupanja na ovoj isporuci">
@@ -201,7 +227,10 @@ export function Isporuka() {
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
-                      {i.status === "U_PRIPREMI" && (
+                      {/* Predaja upisana bez mreže čeka na telefonu — ne potvrđuje se dvaput (#85). */}
+                      {i.status === "U_PRIPREMI" && izlaz.ceka(`isporuka:${i.id}`) && <span className="ceka-mrezu">Predaja je na telefonu — čeka mrežu</span>}
+                      {i.status === "U_PRIPREMI" && !izlaz.ceka(`isporuka:${i.id}`) && izlaz.upravoPoslato(`isporuka:${i.id}`) && <span className="ceka-mrezu">Predaja poslata</span>}
+                      {i.status === "U_PRIPREMI" && !izlaz.ceka(`isporuka:${i.id}`) && !izlaz.upravoPoslato(`isporuka:${i.id}`) && (
                         <>
                           <button className="small-action" onClick={() => otvoriIzmjenu(i)}>Izmijeni</button>
                           <button className="small-action" onClick={() => otvoriPotvrdu(i)}>Potvrdi</button>
@@ -440,6 +469,8 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
   const [greska, setGreska] = useState("");
   const [brojVanGranice, setBrojVanGranice] = useState<number | null>(null);
   const [uKarantin, setUKarantin] = useState(0);
+  const [naTelefonu, setNaTelefonu] = useState(false);
+  const [kljuc] = useState(noviKljuc);
   // Kojim termometrom je izmjereno kod kupca (R-23) — kad termometar padne na provjeri, zna se šta pregledati.
   const { termometri, termometarId, setTermometarId } = useIzborTermometra();
   const imaTemperatura = stavke.some((s) => s.temp_kontrolisano);
@@ -464,8 +495,11 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
   const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      const rezultat = await api<{ status: string; vanGranice: number; uKarantin: number }>(`/isporuke/${isporuka.id}/potvrda`, {
-        telo: {
+      // Predaja u podrumu kupca, bez signala: čuva se na telefonu sa vremenom predaje (#85). Server je pri
+      // slanju ponovo provjerava (lot, rok, zaliha, D1 tog dana) — ako je odbije, javlja se odgovornom licu.
+      const u = await upisiIliSacuvaj<{ status: string; vanGranice: number; uKarantin: number }>(
+        `/isporuke/${isporuka.id}/potvrda`,
+        {
           stavke: stavke.map((s) => ({
             stavkaId: s.id,
             isporucenaKolicina: Number(vrijednosti[s.id].isporuceno),
@@ -475,7 +509,13 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
           })),
           mjerniUredjajId: termometarId || null,
         },
-      });
+        { kljuc, opis: `Predaja ${isporuka.broj} — ${isporuka.kupac_naziv}`, vezano: `isporuka:${isporuka.id}` },
+      );
+      if (!u.poslato) {
+        setNaTelefonu(true);
+        return;
+      }
+      const rezultat = u.rezultat;
       onCreated();
       if (rezultat.vanGranice > 0 || rezultat.uKarantin > 0) {
         setUKarantin(rezultat.uKarantin);
@@ -485,6 +525,8 @@ function PotvrdaModal({ isporuka, stavke, onClose, onCreated }: { isporuka: Ispo
       setGreska(e instanceof ApiGreska ? e.message : "Potvrda nije sačuvana.");
     }
   };
+
+  if (naTelefonu) return <SacuvanoNaTelefonu naslov={`Potvrda isporuke ${isporuka.broj}`} opis={`Predaja ${isporuka.broj}`} onClose={onClose} />;
 
   if (brojVanGranice !== null) {
     return (
@@ -598,19 +640,29 @@ function OdstupanjeModal({ isporuka, onClose, onSacuvano }: { isporuka: Isporuka
   const [ozbiljnost, setOzbiljnost] = useState("SREDNJI");
   const [greska, setGreska] = useState("");
   const [poslato, setPoslato] = useState<string | null>(null);
+  const [naTelefonu, setNaTelefonu] = useState(false);
+  const [kljuc] = useState(noviKljuc);
 
   const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      const r = await api<{ broj: string }>("/neusaglasenosti", {
-        telo: { opis: `${vrsta}: ${opis.trim()}`, ozbiljnost, izvorTip: "isporuka", izvorId: isporuka.id },
-      });
-      setPoslato(r.broj);
+      const u = await upisiIliSacuvaj<{ broj: string }>(
+        "/neusaglasenosti",
+        { opis: `${vrsta}: ${opis.trim()}`, ozbiljnost, izvorTip: "isporuka", izvorId: isporuka.id },
+        { kljuc, opis: `Problem na isporuci ${isporuka.broj}: ${vrsta}` },
+      );
+      if (!u.poslato) {
+        setNaTelefonu(true);
+        return;
+      }
+      setPoslato(u.rezultat.broj);
       onSacuvano();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Odstupanje nije sačuvano.");
     }
   };
+
+  if (naTelefonu) return <SacuvanoNaTelefonu naslov={`Problem na isporuci ${isporuka.broj}`} opis="Prijava problema" onClose={onClose} />;
 
   if (poslato) {
     return (

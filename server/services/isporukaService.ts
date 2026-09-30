@@ -8,7 +8,7 @@ import { NA_TERENU, ogranicenjeDatuma, type Uloga } from "../auth.js";
 import { IME } from "./sqlDijelovi.js";
 import { zabiljeziMjerenje, provjeriTermometar } from "./haccpService.js";
 import { odrediSkladiste } from "./skladisteService.js";
-import { D1_DANAS } from "./vozilaService.js";
+import { vrijemeVanMreze } from "../vanMreze.js";
 import { sljedeciBroj, danasKratko } from "./brojeviService.js";
 
 export type StavkaIsporukeUlaz = { lotId: string; planiranaKolicina: number };
@@ -332,11 +332,20 @@ export async function potvrdiIsporuku(isporukaId: string, stavke: StavkaPotvrdeU
     if (ir.vozilo_id) {
       const d1 = (
         await klijent.query<{ registarski_broj: string; ima: boolean }>(
-          `select v.registarski_broj, exists (select 1 from kontrola_vozila kv where kv.vozilo_id = v.id and ${D1_DANAS}) as ima from vozilo v where v.id = $1`,
-          [ir.vozilo_id],
+          // Dan predaje: kod predaje bez mreže (#85) to je dan sa telefona — D1 je morala biti tog dana.
+          `select v.registarski_broj, exists (
+             select 1 from kontrola_vozila kv where kv.vozilo_id = v.id
+               and (kv.izvrseno_at at time zone 'Europe/Podgorica')::date = (coalesce($2::timestamptz, now()) at time zone 'Europe/Podgorica')::date
+           ) as ima from vozilo v where v.id = $1`,
+          [ir.vozilo_id, vrijemeVanMreze()],
         )
       ).rows[0];
       if (d1 && !d1.ima) {
+        const vm = vrijemeVanMreze();
+        if (vm) {
+          const dan = vm.toLocaleDateString("sr-Latn-ME", { timeZone: "Europe/Podgorica", day: "2-digit", month: "2-digit", year: "numeric" });
+          throw new ApiGreska(409, "D1_NIJE_URADJENA", `Kontrola vozila ${d1.registarski_broj} (D1) nije urađena na dan predaje (${dan}) — predaja upisana bez mreže se zato ne prima.`);
+        }
         throw new ApiGreska(409, "D1_NIJE_URADJENA", `Danas nije urađena kontrola vozila ${d1.registarski_broj} (D1) — uradite je na strani Vozila, pa potvrdite predaju.`);
       }
     }
@@ -402,9 +411,9 @@ export async function potvrdiIsporuku(isporukaId: string, stavke: StavkaPotvrdeU
       const lotRed = (
         await klijent.query<{ status: string; broj_lota: string; rok: string | null; istekao: boolean | null }>(
           `select status, broj_lota, to_char(rok_trajanja, 'DD.MM.YYYY.') as rok,
-                  rok_trajanja < (now() at time zone 'Europe/Podgorica')::date as istekao
+                  rok_trajanja < (coalesce($2::timestamptz, now()) at time zone 'Europe/Podgorica')::date as istekao
            from lot where id = $1`,
-          [red.lot_id],
+          [red.lot_id, vrijemeVanMreze()],
         )
       ).rows[0];
       const dostupno = Number(
@@ -468,8 +477,9 @@ export async function potvrdiIsporuku(isporukaId: string, stavke: StavkaPotvrdeU
 
     const status = ukupnoIsporuceno === 0 ? "ODBIJENA" : ukupnoIsporuceno < ukupnoPlanirano ? "DJELIMICNA" : "POTVRDJENA";
     await klijent.query(
-      `update isporuka set status = $1, potvrdio_korisnik_id = $2, potvrdjeno_at = now(), updated_at = now() where id = $3`,
-      [status, korisnikId, isporukaId],
+      `update isporuka set status = $1, potvrdio_korisnik_id = $2, potvrdjeno_at = coalesce($4::timestamptz, now()),
+              potvrda_van_mreze = $4::timestamptz is not null, updated_at = now() where id = $3`,
+      [status, korisnikId, isporukaId, vrijemeVanMreze()],
     );
 
     await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "isporuka", entitetId: isporukaId, noveVrijednosti: { status, povrat: povrati.map((p) => ({ lot: p.brojLota, kolicina: p.kolicina })) } });

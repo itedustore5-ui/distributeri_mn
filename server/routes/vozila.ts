@@ -6,6 +6,7 @@ import { requireUloga, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
 import { zabiljeziKontroluVozila, provjeriGranicuVozila, D1_DANAS } from "../services/vozilaService.js";
 import { logKreiranje, logIzmjenaReda, stanjeReda } from "../services/auditService.js";
+import { vanMreze } from "../vanMreze.js";
 
 export const vozilaRuter = Router();
 vozilaRuter.get("/vozila", requireUloga("operater", "vozac", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
@@ -110,6 +111,7 @@ const kontrolaSchema = z.object({
 vozilaRuter.post(
   "/kontrole-vozila",
   requireUloga("vozac", "bzr", "izvodjac"),
+  vanMreze("kontrola_vozila"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(kontrolaSchema, request.body);
     const rezultat = await zabiljeziKontroluVozila(ulaz, request.korisnik!.id);

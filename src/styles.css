@@ -236,6 +236,7 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
 .form-grid.stavka-red { grid-template-columns: minmax(0, 1fr) auto auto; }
 .form-grid label > .zakon-oznaka { align-self: flex-start; margin-left: 0; }
 @media (max-width: 480px) { .form-grid.stavka-red { grid-template-columns: minmax(0, 1fr) auto; } .form-grid.stavka-red > label:first-child { grid-column: 1 / -1; } }
+.van-mreze-oznaka { color: #1d5b7a !important; background: #eef6fb !important; }
 .naknadno-oznaka { display: inline-flex; border-radius: 5px; padding: 1px 6px; margin-left: 6px; font-size: 9px; font-weight: 700; color: #bc7a1e; background: #fff5e4; white-space: nowrap; cursor: help; vertical-align: 1px; }
 .zakon-oznaka { display: inline-flex; align-items: center; border-radius: 5px; padding: 1px 6px; font-size: 9px; font-weight: 700; letter-spacing: .02em; color: #5d79cc; background: #eef2fb; cursor: help; margin-left: 6px; vertical-align: 1px; }
 .section-heading span.zakon-oznaka { display: inline-flex; font-size: 9px; margin-top: 0; color: #5d79cc; }
@@ -363,6 +364,22 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
 .danas-fali { color: var(--red) !important; font-weight: 600; }
 .upozorenje-traka { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 18px; border-radius: 9px; background: #fff0f0; color: #b8434a; font-size: 11px; font-weight: 600; }
 .upozorenje-traka svg { flex: 0 0 auto; }
+/* Prilog za štampu: na telefonu bez širokih margina — inače tekst i potpisi vire van ekrana (test ekrana). */
+.prilog-list { padding: 40px; }
+@media (max-width: 760px) { .prilog-list { padding: 20px 14px; } }
+.izlaz-traka { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 14px; border-radius: 9px; background: #eef6fb; color: #1d5b7a; font-size: 11px; font-weight: 600; }
+.izlaz-traka > span { flex: 1 1 auto; }
+.izlaz-traka svg { flex: 0 0 auto; }
+.izlaz-traka.odbijeno { background: #fff4e5; color: #9a5a00; }
+.izlaz-odbijeno { padding: 6px 14px; margin: -6px 0 16px; }
+.izlaz-odbijeno-red { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #edf1f3; font-size: 11px; }
+.izlaz-odbijeno-red:last-child { border-bottom: 0; }
+.van-mreze-potvrda { display: flex; gap: 12px; padding: 20px; color: #1d5b7a; }
+.van-mreze-potvrda p { margin: 6px 0 0; font-size: 12px; color: #33444d; }
+.ceka-mrezu { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: #eef6fb; color: #1d5b7a; font-size: 10px; font-weight: 700; white-space: nowrap; }
+@keyframes okretanje { to { transform: rotate(360deg); } }
+.okrece-se { animation: okretanje 1s linear infinite; }
+@media (max-width: 480px) { .izlaz-traka { flex-wrap: wrap; } .izlaz-odbijeno-red { flex-direction: column; } }
 .kontrole-kartice { display: none; min-height: auto; padding: 4px 16px; }
 @media (max-width: 760px) { .kontrole-kartice { display: block; } .kontrole-tabela { display: none; } }
 /* Štampa po filterima */

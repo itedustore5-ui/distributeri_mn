@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Plus, Thermometer, ClipboardList, AlertTriangle } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
-import { useSlanje } from "../lib/slanje";
+import { useSlanje, noviKljuc } from "../lib/slanje";
+import { upisiIliSacuvaj, IZLAZ_POSLAT } from "../lib/izlaz";
+import { SacuvanoNaTelefonu } from "../components/VanMreze";
 import { lokalniDatum } from "../lib/vrijeme";
-import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka } from "../components/Zajednicko";
+import { PageHeader, Modal, ZakonskaOznaka, NaknadnoOznaka, VanMrezeOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { IzborTermometra, useIzborTermometra } from "../components/Termometar";
 import { useAuth } from "../lib/auth";
@@ -22,6 +24,7 @@ type Mjerenje = {
   termometar: string | null;
   termometar_oznaka: string | null;
   upitno: boolean;
+  van_mreze?: boolean;
 };
 type Lot = { id: string; artikal_naziv: string; broj_lota: string; status: string; dostupno: string; karantin: string };
 type ObrazacPolje = { kljuc: string; oznaka: string; tip: "text" | "number" | "checkbox"; odstupanjeAko?: boolean; obavezno?: boolean };
@@ -38,6 +41,7 @@ type Zapis = {
   ispravlja_id: string | null;
   vazeci: boolean;
   uneo_korisnik_id: string | null;
+  van_mreze?: boolean;
 };
 
 /** Odgovori iz kojih slijedi odstupanje (R-08) — isto pravilo kao na serveru (obrasciService). */
@@ -88,6 +92,9 @@ export function Haccp() {
       .then((u) => setNeispravni(u.filter((x) => x.stanje === "NEISPRAVAN").map((x) => `${x.naziv}${x.oznaka ? ` (${x.oznaka})` : ""}`)))
       .catch(() => undefined);
     ucitaj();
+    // Mjerenje ili zapis koji je čekao na telefonu je stigao (#85).
+    window.addEventListener(IZLAZ_POSLAT, ucitaj);
+    return () => window.removeEventListener(IZLAZ_POSLAT, ucitaj);
   }, []);
 
   const upitnih = mjerenja.filter((m) => m.upitno).length;
@@ -161,7 +168,7 @@ export function Haccp() {
                   <td>{m.kontrolna_tacka_naziv}</td>
                   <td className="muted-text">{m.broj_lota ?? "—"}</td>
                   <td>{m.vrijednost}°C</td>
-                  <td className="muted-text">{new Date(m.izmjereno_at).toLocaleString("sr-Latn-ME")}</td>
+                  <td className="muted-text">{new Date(m.izmjereno_at).toLocaleString("sr-Latn-ME")}<VanMrezeOznaka da={m.van_mreze} /></td>
                   <td className="muted-text">{m.izmjerio ?? "—"}</td>
                   <td className="muted-text">
                     {m.termometar ? `${m.termometar}${m.termometar_oznaka ? ` (${m.termometar_oznaka})` : ""}` : "—"}
@@ -218,7 +225,7 @@ export function Haccp() {
                       {z.ispravlja_id && <span className="muted-text"> · ispravka</span>}
                       {!z.vazeci && <span className="muted-text"> · ispravljen</span>}
                     </td>
-                    <td className="muted-text">{z.datum}<NaknadnoOznaka dana={z.naknadno_dana} /></td>
+                    <td className="muted-text">{z.datum}<NaknadnoOznaka dana={z.naknadno_dana} /><VanMrezeOznaka da={z.van_mreze} /></td>
                     <td>{z.izvrsilac}</td>
                     <td>{z.odstupanje ? <StatusBadge status="OTVORENA" tekst="Da" /> : <span className="muted-text">Ne</span>}</td>
                     <td className="muted-text">{z.korektivna_mjera ?? "—"}</td>
@@ -245,22 +252,34 @@ function NovoMjerenjeModal({ tacke, pocetnaTacka, lotovi, skladisteId, onClose, 
   const [vrijednost, setVrijednost] = useState("");
   const [napomena, setNapomena] = useState("");
   const [rezultat, setRezultat] = useState<string | null>(null);
+  const [naTelefonu, setNaTelefonu] = useState(false);
+  const [kljuc] = useState(noviKljuc);
   const [greska, setGreska] = useState("");
   const { termometri, termometarId, setTermometarId } = useIzborTermometra();
 
   const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      const r = await api<{ rezultat: string }>("/mjerenja", {
+      const tacka = tacke.find((t) => t.id === kontrolnaTackaId);
+      // Bez mreže (hladnjača, podrum) se čuva na telefonu sa vremenom mjerenja (#85).
+      const u = await upisiIliSacuvaj<{ rezultat: string }>(
+        "/mjerenja",
         // Mjerenje lota je u magacinu lota (server to zna sam); inače u izabranom magacinu.
-        telo: { kontrolnaTackaId, lotId: lotId || undefined, vrijednost: Number(vrijednost), napomena: napomena || undefined, mjerniUredjajId: termometarId || undefined, skladisteId: lotId ? undefined : skladisteId || undefined },
-      });
-      setRezultat(r.rezultat);
+        { kontrolnaTackaId, lotId: lotId || undefined, vrijednost: Number(vrijednost), napomena: napomena || undefined, mjerniUredjajId: termometarId || undefined, skladisteId: lotId ? undefined : skladisteId || undefined },
+        { kljuc, opis: `Mjerenje ${vrijednost} °C — ${tacka?.naziv ?? "kontrolna tačka"}` },
+      );
+      if (!u.poslato) {
+        setNaTelefonu(true);
+        return;
+      }
+      setRezultat(u.rezultat.rezultat);
       onCreated();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Mjerenje nije sačuvano.");
     }
   };
+
+  if (naTelefonu) return <SacuvanoNaTelefonu naslov="Temperaturno mjerenje" opis={`Mjerenje ${vrijednost} °C`} onClose={onClose} />;
 
   if (rezultat) {
     return (
@@ -306,6 +325,8 @@ function NoviZapisModal({ obrazac, ispravlja, skladisteId, onClose, onCreated }:
   const [rucnoOdstupanje, setRucnoOdstupanje] = useState(ispravlja?.odstupanje ?? false);
   const [korektivnaMjera, setKorektivnaMjera] = useState(ispravlja?.korektivna_mjera ?? "");
   const [greska, setGreska] = useState("");
+  const [naTelefonu, setNaTelefonu] = useState(false);
+  const [kljuc] = useState(noviKljuc);
 
   const izPolja = odstupanjaIzPolja(obrazac, podaci);
   const odstupanje = rucnoOdstupanje || izPolja.length > 0;
@@ -314,15 +335,23 @@ function NoviZapisModal({ obrazac, ispravlja, skladisteId, onClose, onCreated }:
   const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      await api("/zapisi", {
-        telo: { obrazacKod: obrazac.kod, datum, podaci, odstupanje, korektivnaMjera: korektivnaMjera.trim() || undefined, ispravljaId: ispravlja?.id, skladisteId: skladisteId || undefined },
-      });
+      const u = await upisiIliSacuvaj(
+        "/zapisi",
+        { obrazacKod: obrazac.kod, datum, podaci, odstupanje, korektivnaMjera: korektivnaMjera.trim() || undefined, ispravljaId: ispravlja?.id, skladisteId: skladisteId || undefined },
+        { kljuc, opis: `${ispravlja ? "Ispravka — " : ""}${obrazac.kod} ${obrazac.naziv} (${datum})`, vezano: `obrazac:${obrazac.kod}` },
+      );
+      if (!u.poslato) {
+        setNaTelefonu(true);
+        return;
+      }
       onCreated();
       onClose();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Zapis nije sačuvan.");
     }
   };
+
+  if (naTelefonu) return <SacuvanoNaTelefonu naslov={`${obrazac.kod} — ${obrazac.naziv}`} opis={`Dnevni zapis ${obrazac.kod}`} onClose={onClose} />;
 
   return (
     <Modal

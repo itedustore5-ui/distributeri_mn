@@ -11,14 +11,15 @@
     "start": "NODE_ENV=production tsx server/index.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 5000",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.server.json",
     "migriraj": "tsx db/migriraj.ts",
     "seed:demo": "tsx db/migriraj.ts --demo",
     "prvi-korisnik": "tsx alati/prvi-korisnik.ts",
     "dnevni-pregled": "tsx alati/dnevni-pregled.ts",
     "test": "node testovi/izolovano.mjs --lokalno",
-    "test:ci": "node testovi/izolovano.mjs",
+    "test:ci": "node testovi/izolovano.mjs --sve",
     "test:e2e": "node testovi/pokreni.mjs",
+    "test:ekrani": "node testovi/izolovano.mjs --lokalno --ekrani",
     "bekap": "tsx alati/bekap.ts",
     "demo-lozinke": "tsx alati/demo-lozinke.ts",
     "iskljuci-2fa": "tsx alati/iskljuci-2fa.ts",
@@ -52,6 +53,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@types/web-push": "^3.6.4"
+    "@types/web-push": "^3.6.4",
+    "playwright-core": "^1.63.0"
   }
 }

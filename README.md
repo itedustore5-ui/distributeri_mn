@@ -187,7 +187,9 @@ src/
   lib/                 api.ts (fetch wrapper + CSRF zaglavlje), auth.tsx (AuthContext)
 public/obrasci-cg.json definicija dnevnih obrazaca (P3–P10) — nov obrazac se dodaje ovdje; čitaju je
                         i pregledač i server (koji odgovor je odstupanje: `odstupanjeAko`, obavezan tekst: `obavezno`)
-public/sw.js           service worker SAMO za push obavještenja (ništa ne kešira)
+public/sw.js           service worker: push obavještenja i rad bez interneta — čuva sve fajlove aplikacije
+                        (spisak pravi gradnja: vite.offline.ts → dist/offline-spisak.json) i posljednje GET /api odgovore
+src/lib/izlaz.ts       red upisa sa terena koji čekaju mrežu (D1, predaja, mjerenje, dnevni zapis, prijava problema)
 public/manifest.webmanifest  aplikacija na početnom ekranu telefona (ikone ikona-192/512.png)
 testovi/               E2E testovi; izolovano.mjs pravi sopstvenu test bazu (npm test)
 .github/workflows/     testovi na svaki push (GitHub Actions)
@@ -631,6 +633,20 @@ centru su dvije kartice: „Danas fali po planu · juče propušteno" i „HACCP
 Layout je responzivan (bočni meni postaje off-canvas ispod 760px, modali postaju bottom-sheet
 ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp`, `/isporuka`,
 `/vozila`, `/moja`) su testirane prvenstveno za telefon — magacioner i vozač rade sa telefona.
+Svaku stranu svake uloge na 375 px provjerava `npm run test:ekrani` (vidi Testiranje).
+
+Paket za pregledač: početno ~257 KB, a svaka strana se učitava tek kad se otvori (`React.lazy`).
+
+### Rad bez interneta (vozač, magacioner)
+
+U podrumu kupca ili u hladnjači nema signala. Tada se **D1, predaja isporuke, mjerenje, dnevni zapis i
+prijava problema** čuvaju na telefonu („Sačuvano na telefonu — šalje se samo čim bude signala“), na vrhu
+strane piše koliko upisa čeka, a čim se signal vrati odu sami — redom kojim su urađeni i sa vremenom kad
+su urađeni (u listama nose oznaku „bez mreže“). Isti upis se nikad ne upiše dvaput. Predaja se provjerava
+po danu predaje (D1 tog dana, rok tog dana). Ako server upis tada ne primi (npr. lot je u međuvremenu
+povučen), upis ne nestaje: odgovorno lice dobija obavještenje, a radnik ga vidi na telefonu.
+Aplikacija se otvara i bez signala (sačuvana je na telefonu), sa posljednjim podacima koje je telefon vidio.
+Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Isporuka dok ima signala.
 
 ---
 
@@ -639,8 +655,15 @@ ispod 480px, tabele dobijaju horizontalno skrolovanje). Terenske strane (`/haccp
 ```bash
 npm run typecheck
 npm run build
-npm test             # 558 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 589 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm run test:ekrani  # 32 provjere ekrana: telefon 375 px, pet uloga, rad bez mreže
 ```
+
+**`npm run test:ekrani`** izgradi aplikaciju kao za Render, pokrene server u produkcijskom režimu (sa
+service workerom) na istoj takvoj čistoj bazi, i kroz pravi Chrome bez prozora (`playwright-core` —
+pregledač se ne preuzima, koristi se instaliran Chrome; `PW_KANAL=msedge` za Edge) u veličini telefona
+prođe svaku stranu svake uloge (otvara se, ne viri van ekrana, bez greške u konzoli), D1 i predaju,
+mjerenje, obrazac i prijem, i vozača bez signala. Lozinka se ne kuca u pregledač — prijava ide kroz API.
 
 **`npm test`** ne dira ni demo bazu na Renderu ni vaše PostgreSQL servise: iz PostgreSQL-a
 instaliranog na računaru (`C:/Program Files/PostgreSQL`, ili `PG_BIN=`) pravi svoj klaster u
@@ -679,6 +702,10 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `talas1` | predaja zadržanog lota, isteklog lota i više nego što je na zalihi se odbija, zaliha nikad u minusu; povrat u karantin i odluka o njemu; tuđa isporuka i stari prijem po adresi; isti ključ zahtjeva = jedan upis; potvrda sa svim stavkama; tuđi pogrešni pokušaji prijave ne zaključavaju druge |
 | `bezbjednost_baze` | RLS na svim tabelama, pogledi po pravima pitaoca, javne uloge Supabase-a (`anon`, `authenticated`) ne čitaju i ne pišu ni sa vraćenim pravom, nova tabela bez prava za njih, aplikacija i dalje vidi sve |
 | `monitoring_magacini` | plan po magacinu: ono što je izmjerio jedan magacioner važi za sve u tom magacinu, mjerenje u magacinu A ne pokriva B, vidi se ko je uradio, mjerenje i zapis (i ispravka) pamte magacin |
+| `talas6` | rad bez interneta: isti upis dvaput → jedan zapis i isti odgovor, neuspio upis ne zauzima ključ, upis u obradi → pokušaj kasnije; vrijeme sa telefona i oznaka „bez mreže“ (mjerenje, D1, zapis, problem, predaja); budućnost i starije od 36 h odbijeno; predaja po danu predaje (D1 i rok tog dana); kasna jučerašnja D1 ne mijenja današnji status vozila; odbijen upis stiže do odgovornog lica |
+| `ekrani/1_uloge` | svaka strana svake od pet uloga na telefonu: otvara se, bez vodoravnog skrola, bez greške; meni nudi samo strane uloge; četiri priloga za štampu |
+| `ekrani/2_teren` | vozač D1 pa predaja, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema, direktor kartica → lista — sve kroz ekran |
+| `ekrani/3_bez_mreze` | vozač bez signala: aplikacija sačuvana na telefonu, D1 i predaja čekaju (i posle ponovnog otvaranja), signal → odu same, redom, sa oznakom |
 | `talas5` | slika od 56 MP (mali fajl) odbijena prije obrade; izvoz bez Excel formula i sa vremenom po Podgorici; stari heš lozinke radi i pojača se; zdravlje javlja neprimijenjenu dopunu; dnevnik grešaka (pregledač, konsultant čita, 400 ne ide u dnevnik); potvrda u dva koraka — uključivanje, QR, rezervni kodovi, ponovljen kod ne važi, 5 pogrešnih = novi izazov, isključivanje, tajna nije u auditu ni bekapu, obavezna 2FA na drugom serveru |
 | `talas4` | bekap iz aplikacije bez heševa lozinki, sesija i ključeva, sa svim tabelama; stari bekapi očišćeni; zdravlje javlja i bazu; neispravan JSON, identifikator, veza i šema → 400/409 sa porukom; bezbjednosna zaglavlja |
 | `talas3` | isporuka ne uzima rezervisanu robu, izmjena u okviru svoje rezervacije, otkaz (samo iz pripreme, uz razlog, ne vozač) oslobađa robu, ispravka kupca sa auditom; rok obavezan, serija jednom po prijemu, drugi rok iste serije → upozorenje; povlačenje cijele serije; otpremnica sa PIB-om i adresom isporuke; jedinstven PIB |

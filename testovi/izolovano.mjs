@@ -5,6 +5,9 @@
 //                             samo za localhost. Vaši postojeći PostgreSQL servisi se ne diraju.
 // npm test -- povlacenje    — samo testovi čiji naziv fajla sadrži "povlacenje"
 // npm run test:ci           — isto, ali baza je TEST_DATABASE_URL (GitHub Actions daje praznu bazu)
+// npm run test:ekrani       — testovi ekrana na telefonu (talas 6): aplikacija se izgradi kao za Render,
+//                             server u produkcijskom režimu (service worker, paket po stranama), Chrome
+//                             bez prozora u veličini telefona (testovi/ekrani/). `--sve` = API pa ekrani.
 //
 // Svaki put: čista baza → sve migracije + demo podaci → server na portu 5055 (samo /api) →
 // svi testovi → server i baza se gase. Izlazni kod 1 ako išta padne.
@@ -16,6 +19,8 @@ import pg from "pg";
 
 const korijen = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const lokalno = process.argv.includes("--lokalno");
+const samoEkrani = process.argv.includes("--ekrani");
+const iEkrani = samoEkrani || process.argv.includes("--sve");
 const filter = process.argv.slice(2).find((a) => !a.startsWith("--"));
 const PORT_APP = 5055;
 const PORT_BAZE = 54329;
@@ -129,13 +134,33 @@ try {
   const migracije = nodeProces([...TSX, "db/migriraj.ts", "--demo"], { DATABASE_URL: baza.url }, ["ignore", "ignore", "inherit"]);
   if ((await zavrsen(migracije)) !== 0) throw new Error("Migracije nisu prošle na test bazi.");
 
-  korak(`test server na portu ${PORT_APP}`);
-  server = nodeProces([...TSX, "server/index.ts"], { DATABASE_URL: baza.url, PORT: String(PORT_APP), SAMO_API: "1", NODE_ENV: "development" }, ["ignore", "ignore", "inherit"]);
-  await sacekajServer(server);
+  if (!samoEkrani) {
+    korak(`test server na portu ${PORT_APP}`);
+    server = nodeProces([...TSX, "server/index.ts"], { DATABASE_URL: baza.url, PORT: String(PORT_APP), SAMO_API: "1", NODE_ENV: "development" }, ["ignore", "ignore", "inherit"]);
+    await sacekajServer(server);
 
-  korak("testovi");
-  const testovi = nodeProces(["testovi/pokreni.mjs", ...(filter ? [filter] : [])], { DATABASE_URL: baza.url, APP_URL: `http://localhost:${PORT_APP}` });
-  kod = await zavrsen(testovi);
+    korak("testovi");
+    const testovi = nodeProces(["testovi/pokreni.mjs", ...(filter && !iEkrani ? [filter] : [])], { DATABASE_URL: baza.url, APP_URL: `http://localhost:${PORT_APP}` });
+    kod = await zavrsen(testovi);
+    server.kill();
+    await zavrsen(server);
+    server = null;
+  }
+
+  if (iEkrani) {
+    // Kao na Renderu: izgrađena aplikacija (service worker, spisak za rad bez mreže, paket po stranama)
+    // i server u produkcijskom režimu. Dopune su već primijenjene gore.
+    korak("gradnja aplikacije (vite build)");
+    const gradnja = nodeProces([path.join(korijen, "node_modules/vite/bin/vite.js"), "build", "--logLevel", "warn"], {}, ["ignore", "ignore", "inherit"]);
+    if ((await zavrsen(gradnja)) !== 0) throw new Error("Gradnja aplikacije nije uspjela.");
+    korak(`server kao na Renderu (produkcija) na portu ${PORT_APP}`);
+    server = nodeProces([...TSX, "server/index.ts"], { DATABASE_URL: baza.url, PORT: String(PORT_APP), NODE_ENV: "production", MIGRACIJE_PRI_STARTU: "0" }, ["ignore", "ignore", "inherit"]);
+    await sacekajServer(server);
+    korak("testovi ekrana (telefon 375 px)");
+    const ekrani = nodeProces(["testovi/ekrani/pokreni.mjs", ...(filter ? [filter] : [])], { DATABASE_URL: baza.url, APP_URL: `http://localhost:${PORT_APP}` });
+    const kodEkrana = await zavrsen(ekrani);
+    kod = samoEkrani ? kodEkrana : Math.max(kod, kodEkrana);
+  }
 } catch (e) {
   console.error(`\n✗ ${e.message}`);
   kod = 2;

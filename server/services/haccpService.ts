@@ -5,6 +5,7 @@ import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
 import { javiIsporukeSaLotom } from "./lotBlokadaService.js";
 import { skladisteUnosa } from "./skladisteService.js";
+import { vrijemeVanMreze } from "../vanMreze.js";
 
 export type RezultatMjerenja = "PASS" | "FAIL" | "WARNING";
 
@@ -105,9 +106,10 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
     const skladisteId =
       ulaz.skladisteId !== undefined ? ulaz.skladisteId : await skladisteUnosa(klijent, { lotId: ulaz.lotId, korisnikId: ulaz.izmjerioKorisnikId });
     const mjerenje = await klijent.query<{ id: string }>(
-      `insert into mjerenje_temperature (kontrolna_tacka_id, pravilo_kontrole_id, lot_id, vozilo_id, vrijednost, izmjereno_at, izmjerio_korisnik_id, rezultat, napomena, mjerni_uredjaj_id, skladiste_id)
-       values ($1, $2, $3, $4, $5, now(), $6, $7, $8, $9, $10) returning id`,
-      [ulaz.kontrolnaTackaId, ulaz.praviloKontroleId, ulaz.lotId ?? null, ulaz.vozilId ?? null, ulaz.vrijednost, ulaz.izmjerioKorisnikId, rezultat, napomena ?? null, ulaz.mjerniUredjajId ?? null, skladisteId],
+      // Bez mreže (#85): izmjereno je u vrijeme sa telefona, uz oznaku — i na KKT 3 pri predaji.
+      `insert into mjerenje_temperature (kontrolna_tacka_id, pravilo_kontrole_id, lot_id, vozilo_id, vrijednost, izmjereno_at, izmjerio_korisnik_id, rezultat, napomena, mjerni_uredjaj_id, skladiste_id, van_mreze)
+       values ($1, $2, $3, $4, $5, coalesce($11::timestamptz, now()), $6, $7, $8, $9, $10, $11::timestamptz is not null) returning id`,
+      [ulaz.kontrolnaTackaId, ulaz.praviloKontroleId, ulaz.lotId ?? null, ulaz.vozilId ?? null, ulaz.vrijednost, ulaz.izmjerioKorisnikId, rezultat, napomena ?? null, ulaz.mjerniUredjajId ?? null, skladisteId, vrijemeVanMreze()],
     );
     const mjerenjeId = mjerenje.rows[0].id;
     if (nepotvrdjena && ocjena === "FAIL") {
@@ -131,9 +133,9 @@ export async function zabiljeziMjerenje(pravilo: Pick<PraviloKontrole, "min_vrij
     if (rezultat === "FAIL") {
       const broj = await sljedeciBrojNc(klijent);
       const nc = await klijent.query<{ id: string }>(
-        `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
-         values ($1, 'VISOK', 'OTVORENA', 'mjerenje_temperature', $2, $3, $4) returning id`,
-        [broj, mjerenjeId, `Mjerenje van opsega: ${ulaz.vrijednost}°C.${ulaz.napomena ? ` ${ulaz.napomena}.` : ""}`, ulaz.izmjerioKorisnikId],
+        `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id, van_mreze)
+         values ($1, 'VISOK', 'OTVORENA', 'mjerenje_temperature', $2, $3, $4, $5) returning id`,
+        [broj, mjerenjeId, `Mjerenje van opsega: ${ulaz.vrijednost}°C.${ulaz.napomena ? ` ${ulaz.napomena}.` : ""}`, ulaz.izmjerioKorisnikId, vrijemeVanMreze() !== null],
       );
       neusaglasenostId = nc.rows[0].id;
 

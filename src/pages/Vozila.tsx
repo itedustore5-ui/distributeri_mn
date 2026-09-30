@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Plus, Truck, ClipboardList } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
-import { useSlanje } from "../lib/slanje";
-import { PageHeader, Modal } from "../components/Zajednicko";
+import { useSlanje, noviKljuc } from "../lib/slanje";
+import { upisiIliSacuvaj, useIzlaz, IZLAZ_POSLAT } from "../lib/izlaz";
+import { SacuvanoNaTelefonu } from "../components/VanMreze";
+import { PageHeader, Modal, VanMrezeOznaka } from "../components/Zajednicko";
 import { StatusBadge } from "../components/StatusBadge";
 import { useAuth } from "../lib/auth";
 import { lokalniDatum } from "../lib/vrijeme";
@@ -20,6 +22,7 @@ type Vozilo = {
 };
 type Kontrola = {
   id: string;
+  van_mreze?: boolean;
   vozilo_id: string;
   registarski_broj: string;
   izvrsio: string | null;
@@ -53,12 +56,16 @@ export function Vozila() {
   const [filterRezultat, setFilterRezultat] = useState("");
   const [samoMoje, setSamoMoje] = useState(false);
 
+  const izlaz = useIzlaz();
   const ucitaj = () => {
     api<Vozilo[]>("/vozila").then(setVozila);
     api<Kontrola[]>("/kontrole-vozila").then(setKontrole);
   };
   useEffect(() => {
     ucitaj();
+    // D1 koja je čekala na telefonu je stigla — status vozila se mijenja.
+    window.addEventListener(IZLAZ_POSLAT, ucitaj);
+    return () => window.removeEventListener(IZLAZ_POSLAT, ucitaj);
   }, []);
 
   const danas = lokalniDatum();
@@ -107,6 +114,7 @@ export function Vozila() {
                 <strong className={v.status === "NIJE_SPREMNO" ? "kontrola-nema" : v.d1_danas === "PROSAO" ? "kontrola-danas" : "kontrola-stara"}>
                   {v.status === "NIJE_SPREMNO" ? "Nije spremno — nova D1 mora proći" : v.d1_danas === "PROSAO" ? "Spremno danas" : "Čeka D1 za danas"}
                 </strong>
+                {izlaz.ceka(`vozilo:${v.id}`) && <span className="ceka-mrezu" style={{ marginTop: 4 }}>D1 je na telefonu — čeka mrežu</span>}
               </div>
               <div>
                 <span>Posljednja kontrola</span>
@@ -173,7 +181,7 @@ export function Vozila() {
             <div key={k.id} className="danas-red">
               <div>
                 <strong>{k.registarski_broj} <StatusBadge status={k.ukupan_status} /></strong>
-                <span>{datumIVrijeme(k.izvrseno_at)} · {k.izvrsio ?? "—"}{k.temperatura !== null ? ` · ${Number(k.temperatura)} °C` : ""}</span>
+                <span>{datumIVrijeme(k.izvrseno_at)} · {k.izvrsio ?? "—"}{k.temperatura !== null ? ` · ${Number(k.temperatura)} °C` : ""}<VanMrezeOznaka da={k.van_mreze} /></span>
                 {pali.length > 0 && <span className="danas-fali">Nije u redu: {pali.join(", ")}</span>}
                 {k.napomena && <span>{k.napomena}</span>}
               </div>
@@ -200,7 +208,7 @@ export function Vozila() {
               {prikazano.map((k) => (
                 <tr key={k.id}>
                   <td>{k.registarski_broj}</td>
-                  <td className="muted-text">{datumIVrijeme(k.izvrseno_at)}</td>
+                  <td className="muted-text">{datumIVrijeme(k.izvrseno_at)}<VanMrezeOznaka da={k.van_mreze} /></td>
                   <td>{k.cistoca ? "Da" : "Ne"}</td>
                   <td>{k.oprema_ok ? "Da" : "Ne"}</td>
                   <td>{k.vrata_ok ? "Da" : "Ne"}</td>
@@ -252,6 +260,8 @@ function NovaKontrolaModal({ vozilo, onClose, onCreated }: { vozilo: Vozilo; onC
   const [napomena, setNapomena] = useState("");
   const [greska, setGreska] = useState("");
   const [ishod, setIshod] = useState<{ ukupanStatus: string; nijeURedu: string[] } | null>(null);
+  const [naTelefonu, setNaTelefonu] = useState(false);
+  const [kljuc] = useState(noviKljuc);
 
   const min = vozilo.temp_min === null ? null : Number(vozilo.temp_min);
   const max = vozilo.temp_max === null ? null : Number(vozilo.temp_max);
@@ -262,9 +272,17 @@ function NovaKontrolaModal({ vozilo, onClose, onCreated }: { vozilo: Vozilo; onC
   const { radim, salji } = useSlanje();
   const posalji = async () => {
     try {
-      const r = await api<{ ukupanStatus: string; nijeURedu: string[] }>("/kontrole-vozila", {
-        telo: { vozilId: vozilo.id, cistoca, opremaOk, vrataOk, temperatura: t, napomena: napomena || undefined },
-      });
+      // Bez mreže se čuva na telefonu i šalje kad bude signala (#85) — sa vremenom kontrole.
+      const u = await upisiIliSacuvaj<{ ukupanStatus: string; nijeURedu: string[] }>(
+        "/kontrole-vozila",
+        { vozilId: vozilo.id, cistoca, opremaOk, vrataOk, temperatura: t, napomena: napomena || undefined },
+        { kljuc, opis: `D1 — ${vozilo.registarski_broj}`, vezano: `vozilo:${vozilo.id}` },
+      );
+      if (!u.poslato) {
+        setNaTelefonu(true);
+        return;
+      }
+      const r = u.rezultat;
       onCreated();
       if (r.ukupanStatus === "PROSAO") onClose();
       else setIshod(r);
@@ -272,6 +290,8 @@ function NovaKontrolaModal({ vozilo, onClose, onCreated }: { vozilo: Vozilo; onC
       setGreska(e instanceof ApiGreska ? e.message : "Kontrola nije sačuvana.");
     }
   };
+
+  if (naTelefonu) return <SacuvanoNaTelefonu naslov={`Kontrola vozila — ${vozilo.registarski_broj}`} opis="Kontrola vozila (D1)" onClose={onClose} />;
 
   if (ishod) {
     return (

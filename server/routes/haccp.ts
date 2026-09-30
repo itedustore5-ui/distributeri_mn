@@ -9,6 +9,7 @@ import { logKreiranje } from "../services/auditService.js";
 import { neusaglasenostIzZapisa } from "../services/ncService.js";
 import { nadjiObrazac, ocijeniPodatke } from "../services/obrasciService.js";
 import { skladisteUnosa } from "../services/skladisteService.js";
+import { vanMreze, vrijemeVanMreze } from "../vanMreze.js";
 
 export const haccpRuter = Router();
 haccpRuter.get("/kontrolne-tacke", requireUloga("operater", "bzr", "izvodjac"), asyncRuta(async (_request, response) => {
@@ -110,6 +111,7 @@ const novoMjerenjeSchema = z.object({
 haccpRuter.post(
   "/mjerenja",
   requireUloga("operater", "bzr", "izvodjac"),
+  vanMreze("mjerenje"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(novoMjerenjeSchema, request.body);
     // Lot se ocjenjuje po granici SVOG artikla, ne po posljednjem pravilu tačke (R-09).
@@ -174,6 +176,7 @@ const noviZapisSchema = z.object({
 haccpRuter.post(
   "/zapisi",
   requireUloga("operater", "bzr", "izvodjac"),
+  vanMreze("zapis"),
   asyncRuta(async (request: AuthZahtjev, response) => {
     const ulaz = tijelo(noviZapisSchema, request.body);
     const korisnik = request.korisnik!;
@@ -233,9 +236,9 @@ haccpRuter.post(
       try {
         id = (
           await klijent.query<{ id: string }>(
-            `insert into zapis (obrazac_kod, datum, podaci, odstupanje, korektivna_mjera, izvrsilac, uneo_korisnik_id, ispravlja_id, skladiste_id)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
-            [obrazac.kod, datum, JSON.stringify(podaci), odstupanje, odstupanje ? ulaz.korektivnaMjera!.trim() : ulaz.korektivnaMjera?.trim() || null, izvrsilac, korisnik.id, ulaz.ispravljaId ?? null, skladisteId],
+            `insert into zapis (obrazac_kod, datum, podaci, odstupanje, korektivna_mjera, izvrsilac, uneo_korisnik_id, ispravlja_id, skladiste_id, van_mreze)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+            [obrazac.kod, datum, JSON.stringify(podaci), odstupanje, odstupanje ? ulaz.korektivnaMjera!.trim() : ulaz.korektivnaMjera?.trim() || null, izvrsilac, korisnik.id, ulaz.ispravljaId ?? null, skladisteId, vrijemeVanMreze() !== null],
           )
         ).rows[0].id;
       } catch (e) {

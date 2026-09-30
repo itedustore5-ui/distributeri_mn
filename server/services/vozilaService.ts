@@ -4,6 +4,7 @@ import { ApiGreska } from "../greske.js";
 import { logKreiranje, logPromjenaStatusa } from "./auditService.js";
 import { kreirajZadatak, obavijestiUlogu } from "./zadaciService.js";
 import { sljedeciBrojNc } from "./brojeviService.js";
+import { vrijemeVanMreze } from "../vanMreze.js";
 
 export type NovaKontrolaVozilaUlaz = {
   vozilId: string;
@@ -58,14 +59,23 @@ export async function zabiljeziKontroluVozila(ulaz: NovaKontrolaVozilaUlaz, kori
     const ukupanStatus = prosao ? "PROSAO" : "NIJE_PROSAO";
 
     const kontrola = await klijent.query<{ id: string }>(
-      `insert into kontrola_vozila (vozilo_id, izvrsio_korisnik_id, cistoca, temperatura, oprema_ok, vrata_ok, ukupan_status, napomena, granica_min, granica_max, temperatura_ok)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
-      [ulaz.vozilId, korisnikId, ulaz.cistoca, temperatura, ulaz.opremaOk, ulaz.vrataOk, ukupanStatus, ulaz.napomena?.trim() || null, min, max, temperaturaOk],
+      // Bez mreže (#85): vrijeme kontrole je vrijeme sa telefona, uz oznaku; inače vrijeme servera.
+      `insert into kontrola_vozila (vozilo_id, izvrsio_korisnik_id, cistoca, temperatura, oprema_ok, vrata_ok, ukupan_status, napomena, granica_min, granica_max, temperatura_ok, izvrseno_at, van_mreze)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, coalesce($12::timestamptz, now()), $12::timestamptz is not null) returning id`,
+      [ulaz.vozilId, korisnikId, ulaz.cistoca, temperatura, ulaz.opremaOk, ulaz.vrataOk, ukupanStatus, ulaz.napomena?.trim() || null, min, max, temperaturaOk, vrijemeVanMreze()],
     );
     const kontrolaId = kontrola.rows[0].id;
 
-    const noviStatusVozila = prosao ? "SPREMNO" : "NIJE_SPREMNO";
-    await klijent.query(`update vozilo set status = $1 where id = $2`, [noviStatusVozila, ulaz.vozilId]);
+    // Status vozila mijenja samo NAJNOVIJA kontrola: D1 koja je čekala na telefonu (#85) i stigla posle
+    // novije ne vraća vozilo u staro stanje (npr. jučerašnja „prošla“ preko današnje pale).
+    const najnovija = (
+      await klijent.query<{ da: boolean }>(
+        `select not exists (select 1 from kontrola_vozila where vozilo_id = $1 and id <> $2 and izvrseno_at > (select izvrseno_at from kontrola_vozila where id = $2)) as da`,
+        [ulaz.vozilId, kontrolaId],
+      )
+    ).rows[0].da;
+    const noviStatusVozila = najnovija ? (prosao ? "SPREMNO" : "NIJE_SPREMNO") : v.status;
+    if (najnovija) await klijent.query(`update vozilo set status = $1 where id = $2`, [noviStatusVozila, ulaz.vozilId]);
 
     await logKreiranje(klijent, {
       korisnikId,
@@ -93,9 +103,9 @@ async function neusaglasenostVozila(
   // Hladni lanac je visoka ozbiljnost — roba u tom vozilu bi se kvarila na putu.
   const ozbiljnost = u.temperaturno ? "VISOK" : "SREDNJI";
   const nc = await klijent.query<{ id: string }>(
-    `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id)
-     values ($1, $2, 'OTVORENA', 'kontrola_vozila', $3, $4, $5) returning id`,
-    [broj, ozbiljnost, u.kontrolaId, opis, u.korisnikId],
+    `insert into neusaglasenost (broj, ozbiljnost, status, izvor_tip, izvor_id, opis, prijavio_korisnik_id, van_mreze)
+     values ($1, $2, 'OTVORENA', 'kontrola_vozila', $3, $4, $5, $6) returning id`,
+    [broj, ozbiljnost, u.kontrolaId, opis, u.korisnikId, vrijemeVanMreze() !== null],
   );
   const id = nc.rows[0].id;
   await logKreiranje(klijent, { korisnikId: u.korisnikId, entitetTip: "neusaglasenost", entitetId: id, noveVrijednosti: { broj, izvor: "kontrola_vozila", kontrolaId: u.kontrolaId } });

@@ -16,7 +16,12 @@ type Opcije = {
   telo?: unknown;
   /** Ključ zahtjeva (noviKljuc) — server isti ključ ne upisuje dvaput. */
   kljuc?: string;
+  /** Samo za upis koji je čekao na telefonu bez mreže (#85): kad je stvarno urađen. */
+  uradjenoAt?: string;
 };
+
+/** Service worker (public/sw.js) je bez mreže vratio posljednje sačuvane podatke — Layout to kaže. */
+export const PODACI_SA_TELEFONA = "pilot-podaci-sa-telefona";
 
 // Isti upis (metoda + adresa + tijelo) koji je već u toku ne šalje se ponovo — drugi klik dobija
 // odgovor prvog (nalaz R-10). Čitanja (GET) se ne diraju.
@@ -40,6 +45,7 @@ async function posalji<T>(putanja: string, metoda: string, opcije: Opcije): Prom
   const zaglavlja: Record<string, string> = { "x-zahtjev-app": "1" };
   if (opcije.telo !== undefined) zaglavlja["Content-Type"] = "application/json";
   if (opcije.kljuc) zaglavlja["x-kljuc-zahtjeva"] = opcije.kljuc;
+  if (opcije.uradjenoAt) zaglavlja["x-uradjeno-at"] = opcije.uradjenoAt;
 
   // Rok (talas 5): na slabom signalu zahtjev inače visi bez kraja, a dugme ostaje zaključano.
   const prekid = new AbortController();
@@ -63,6 +69,8 @@ async function posalji<T>(putanja: string, metoda: string, opcije: Opcije): Prom
   }
 
   if (odgovor.status === 204) return undefined as T;
+  const sacuvano = odgovor.headers.get("x-pilot-sacuvano");
+  if (sacuvano) window.dispatchEvent(new CustomEvent(PODACI_SA_TELEFONA, { detail: sacuvano }));
 
   const tekst = await odgovor.text();
   let podaci: { error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null = null;

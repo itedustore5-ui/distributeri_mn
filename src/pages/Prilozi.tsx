@@ -65,7 +65,7 @@ export function Prilozi() {
         </button>
       </div>
 
-      <div className="panel" style={{ padding: 40, maxWidth: prilog === "haccp" ? 1040 : 720, margin: "0 auto" }}>
+      <div className="panel prilog-list" style={{ maxWidth: prilog === "haccp" ? 1040 : 720, margin: "0 auto" }}>
         {prilog === "resenje" && <ResenjeOImenovanju firma={firma} />}
         {prilog === "prilog13" && <Prilog13 plan={plan} firma={firma} />}
         {prilog === "prilog14" && <Prilog14 evidencija={evidencija} firma={firma} />}
@@ -102,7 +102,7 @@ function ResenjeOImenovanju({ firma }: { firma: Firma | null }) {
         <li>Odgovorno lice sprovodi postupke sledljivosti (čl. 27), povlačenja nebezbjedne hrane i obavještavanja nadležnog organa (čl. 28), i uspostavljanja, primjene i kontinuiranog održavanja HACCP postupaka (čl. 36) Zakona o bezbjednosti hrane.</li>
         <li>Ovo rješenje stupa na snagu danom donošenja.</li>
       </ol>
-      <div style={{ marginTop: 60, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+      <div style={{ marginTop: 60, display: "flex", justifyContent: "space-between", fontSize: 12, gap: 20, flexWrap: "wrap" }}>
         <div>Mjesto i datum: ______________________</div>
         <div>Direktor: ______________________</div>
       </div>
@@ -114,7 +114,7 @@ function Prilog13({ plan, firma }: { plan: PlanStavka[]; firma: Firma | null }) 
   return (
     <div>
       <Zaglavlje firma={firma} naslov="Prilog 13 — Godišnji plan obuke" />
-      <table className="data-table">
+      <div className="data-table-wrap"><table className="data-table">
         <thead>
           <tr>
             <th>Zaposleni</th>
@@ -135,7 +135,7 @@ function Prilog13({ plan, firma }: { plan: PlanStavka[]; firma: Firma | null }) 
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -144,7 +144,7 @@ function Prilog14({ evidencija, firma }: { evidencija: Evidencija[]; firma: Firm
   return (
     <div>
       <Zaglavlje firma={firma} naslov="Prilog 14 — Evidencija osposobljavanja" />
-      <table className="data-table">
+      <div className="data-table-wrap"><table className="data-table">
         <thead>
           <tr>
             <th>Zaposleni</th>
@@ -163,7 +163,7 @@ function Prilog14({ evidencija, firma }: { evidencija: Evidencija[]; firma: Firm
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -203,7 +203,7 @@ function HaccpPlanStampa({ plan, firma }: { plan: HaccpPlanPodaci | null; firma:
       </p>
 
       <h3 style={{ fontSize: 13, margin: "18px 0 8px" }}>1. Kritične kontrolne tačke</h3>
-      <table className="data-table">
+      <div className="data-table-wrap"><table className="data-table">
         <thead>
           <tr><th>KKT</th><th>Opasnost</th><th>Kritična granica</th><th>Monitoring — šta, koliko često, ko</th><th>Korektivna mjera</th><th>Verifikacija</th><th>Zapis</th></tr>
         </thead>
@@ -225,13 +225,13 @@ function HaccpPlanStampa({ plan, firma }: { plan: HaccpPlanPodaci | null; firma:
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       {plan.kontrolneTacke.some((t) => t.granicePoArtiklu.some((g) => !g.granica_potvrdio)) && (
         <p style={{ fontSize: 10, marginTop: 4 }}>* Granica još nije potvrđena od strane firme — do potvrde se odstupanje samo bilježi kao upozorenje.</p>
       )}
 
       <h3 style={{ fontSize: 13, margin: "18px 0 8px" }}>2. Dobra higijenska praksa — monitoring</h3>
-      <table className="data-table">
+      <div className="data-table-wrap"><table className="data-table">
         <thead><tr><th>Šta</th><th>Koliko često</th><th>Ko</th><th>Zapis</th></tr></thead>
         <tbody>
           {plan.ostaliMonitoring.length === 0 && <tr><td colSpan={4} style={celija}>{PRAZNO}</td></tr>}
@@ -244,10 +244,10 @@ function HaccpPlanStampa({ plan, firma }: { plan: HaccpPlanPodaci | null; firma:
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
 
       <h3 style={{ fontSize: 13, margin: "18px 0 8px" }}>3. Mjerni uređaji</h3>
-      <table className="data-table">
+      <div className="data-table-wrap"><table className="data-table">
         <thead><tr><th>Termometar</th><th>Interna provjera</th><th>Posljednja</th><th>Sljedeća</th><th>Kalibracija važi do</th><th>Stanje</th></tr></thead>
         <tbody>
           {plan.uredjaji.length === 0 && <tr><td colSpan={6} style={celija}>{PRAZNO}</td></tr>}
@@ -262,10 +262,10 @@ function HaccpPlanStampa({ plan, firma }: { plan: HaccpPlanPodaci | null; firma:
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
 
       <h3 style={{ fontSize: 13, margin: "18px 0 8px" }}>4. Verifikacija sistema</h3>
-      <table className="data-table">
+      <div className="data-table-wrap"><table className="data-table">
         <thead><tr><th>Šta</th><th>Posljednja</th><th>Zaključak</th><th>Sljedeća do</th><th>Stanje</th></tr></thead>
         <tbody>
           {plan.verifikacija.map((v) => (
@@ -278,7 +278,7 @@ function HaccpPlanStampa({ plan, firma }: { plan: HaccpPlanPodaci | null; firma:
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
 
       <p style={{ fontSize: 10, marginTop: 14, color: "#556774" }}>
         Obrasci dnevnih zapisa i kontrole vozila su radni obrasci firme, ne zvanični obrasci. Plan se revidira najmanje jednom godišnje i
