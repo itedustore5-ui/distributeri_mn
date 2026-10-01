@@ -4,7 +4,7 @@ import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, NA_TERENU, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
-import { kreirajRucnuNeusaglasenost, dodajKorektivnuMjeru, zavrsiKorektivnuMjeru, verifikuj } from "../services/ncService.js";
+import { kreirajRucnuNeusaglasenost, dodajKorektivnuMjeru, zavrsiKorektivnuMjeru, verifikuj, stanjeProvjere } from "../services/ncService.js";
 import { IME, IZVOR_OZNAKA, SAMO_MOJE_NC } from "../services/sqlDijelovi.js";
 import { vanMreze } from "../vanMreze.js";
 
@@ -48,7 +48,8 @@ ncRuter.get(
       `select v.*, ${IME("v.verifikovao_korisnik_id")} as verifikovao from verifikacija v where v.neusaglasenost_id = $1 order by v.verifikovano_at`,
       [request.params.id],
     );
-    response.json({ ...nc.rows[0], korektivneMjere: mjere.rows, verifikacije: verifikacije.rows });
+    const provjera = naTerenu ? null : await stanjeProvjere(String(request.params.id), request.korisnik!.id, request.korisnik!.uloga);
+    response.json({ ...nc.rows[0], korektivneMjere: mjere.rows, verifikacije: verifikacije.rows, provjera });
   }),
 );
 

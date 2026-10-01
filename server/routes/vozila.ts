@@ -14,7 +14,10 @@ vozilaRuter.get("/vozila", requireUloga("operater", "vozac", "bzr", "izvodjac"),
     (
       await upit(
         `select v.*,
-                (select kv.ukupan_status from kontrola_vozila kv where kv.vozilo_id = v.id and ${D1_DANAS} order by kv.izvrseno_at desc limit 1) as d1_danas
+                (select kv.ukupan_status from kontrola_vozila kv where kv.vozilo_id = v.id and ${D1_DANAS} order by kv.izvrseno_at desc limit 1) as d1_danas,
+                -- D1 je prije utovara: vozilo koje danas ne vozi nije „čeka D1“ (01.10.2026).
+                exists (select 1 from isporuka i where i.vozilo_id = v.id and i.status::text <> 'OTKAZANA'
+                        and i.datum_isporuke = (now() at time zone 'Europe/Podgorica')::date) as vozi_danas
          from vozilo v where v.aktivan order by v.registarski_broj`,
       )
     ).rows,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, Check } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Check, ArrowRight } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { useSlanje, noviKljuc } from "../lib/slanje";
 import { upisiIliSacuvaj } from "../lib/izlaz";
@@ -36,7 +37,10 @@ type Mjera = {
   zavrseno_at: string | null;
 };
 type Verifikacija = { id: string; rezultat: string; napomena: string | null; verifikovao: string | null; verifikovano_at: string; izuzetak_cetiri_oka: boolean };
-type NcDetalj = Nc & { zatvorio: string | null; zatvoreno_at: string | null; korektivneMjere: Mjera[]; verifikacije: Verifikacija[] };
+/** Šta server zna prije provjere (ncService.stanjeProvjere) — da se ne saznaje iz greške. */
+type StanjeProvjere = { fali: string | null; faliGdje: string | null; svojaMjera: boolean; izuzetakMoguc: boolean; drugoLice: string | null };
+type NcDetalj = Nc & { zatvorio: string | null; zatvoreno_at: string | null; korektivneMjere: Mjera[]; verifikacije: Verifikacija[]; provjera?: StanjeProvjere | null };
+const GDJE: Record<string, string> = { "/haccp": "Novo mjerenje (HACCP / DHP)", "/vozila": "Kontrola vozila (D1)", "/haccp-plan": "Termometri (HACCP plan)" };
 type Izvrsilac = { id: string; ime: string; uloga: Uloga };
 
 const KORACI = ["Prijavljeno", "Mjera određena", "Mjera urađena", "Provjereno i zatvoreno"];
@@ -172,6 +176,10 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
   const [opisMjere, setOpisMjere] = useState("");
   const [kome, setKome] = useState("");
   const [rok, setRok] = useState("");
+  // Mala firma: odgovorno lice često samo uradi mjeru — upiše je odmah kao urađenu (jedan korak umjesto dva).
+  const [vecUradjeno, setVecUradjeno] = useState(false);
+  const [staJeUradjeno, setStaJeUradjeno] = useState("");
+  const navigate = useNavigate();
   const [uradjeno, setUradjeno] = useState<Record<string, string>>({});
   const [napomena, setNapomena] = useState("");
   const [greska, setGreska] = useState("");
@@ -183,6 +191,12 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
   // Četiri oka u maloj firmi (H7): server kaže da li je izuzetak moguć; tek tada se nudi.
   const [izuzetakMoguc, setIzuzetakMoguc] = useState(false);
   const [izuzetak, setIzuzetak] = useState(false);
+  const p = detalj.provjera;
+  useEffect(() => {
+    if (p?.izuzetakMoguc) setIzuzetakMoguc(true);
+  }, [p?.izuzetakMoguc]);
+  // Mjeru je uradio onaj ko gleda, a postoji drugo odgovorno lice — provjerava ono (četiri oka).
+  const cekaDrugog = !!p?.svojaMjera && !p.izuzetakMoguc;
   const radnja = async (fn: () => Promise<unknown>, poruka: string) => {
     setGreska("");
     try {
@@ -288,26 +302,56 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
               </select>
             </label>
             <label>Rok<input type="date" min={lokalniDatum()} value={rok} onChange={(e) => setRok(e.target.value)} /></label>
+            <label className="potvrda-red" style={{ gridColumn: "1 / -1" }}>
+              <input type="checkbox" checked={vecUradjeno} onChange={(e) => setVecUradjeno(e.target.checked)} /> Mjera je već urađena — upisujem i šta je urađeno
+            </label>
+            {vecUradjeno && (
+              <label style={{ gridColumn: "1 / -1" }}>
+                Šta je urađeno
+                <textarea rows={2} value={staJeUradjeno} onChange={(e) => setStaJeUradjeno(e.target.value)} placeholder="npr. komora očišćena i dezinfikovana, roba premještena u komoru 1" />
+              </label>
+            )}
             <button
               className="secondary-button"
               style={{ gridColumn: "1 / -1" }}
-              disabled={opisMjere.trim().length < 3}
+              disabled={opisMjere.trim().length < 3 || (vecUradjeno && staJeUradjeno.trim().length < 3)}
               onClick={() =>
                 radnja(async () => {
-                  await api(`/neusaglasenosti/${detalj.id}/korektivna-mjera`, { telo: { opis: opisMjere, dodijeljenoKorisnikId: kome || undefined, rok: rok || undefined } });
+                  const m = await api<{ id: string }>(`/neusaglasenosti/${detalj.id}/korektivna-mjera`, {
+                    telo: { opis: opisMjere, dodijeljenoKorisnikId: kome || undefined, rok: rok || undefined },
+                  });
+                  if (vecUradjeno) await api(`/korektivne-mjere/${m.id}/zavrsi`, { telo: { rezultat: staJeUradjeno } });
                   setOpisMjere("");
                   setKome("");
                   setRok("");
+                  setVecUradjeno(false);
+                  setStaJeUradjeno("");
                 }, "Mjera nije sačuvana.")
               }
             >
-              Dodaj mjeru
+              {vecUradjeno ? "Upiši mjeru kao urađenu" : "Dodaj mjeru"}
             </button>
           </div>
         )}
 
         {vodiSistem && detalj.status === "CEKA_VERIFIKACIJU" && (
           <div className="nc-provjera">
+            {p?.fali && (
+              <div className="upozorenje-traka" style={{ marginBottom: 10, flexWrap: "wrap" }}>
+                <span style={{ flex: "1 1 220px" }}>{p.fali}</span>
+                {p.faliGdje && (
+                  <button className="small-action" onClick={() => navigate(p.faliGdje!)}>
+                    {GDJE[p.faliGdje] ?? "Otvori"} <ArrowRight size={12} />
+                  </button>
+                )}
+              </div>
+            )}
+            {cekaDrugog && (
+              <div className="auth-security-note" style={{ marginBottom: 10 }}>
+                Mjeru ste uradili vi — provjerava je {p?.drugoLice ? <b>{p.drugoLice}</b> : "drugo odgovorno lice"} (pravilo četiri oka). Ono je vidi
+                pod „Čekaju moju provjeru“.
+              </div>
+            )}
             <input placeholder="Napomena o provjeri (šta ste pogledali)" value={napomena} onChange={(e) => setNapomena(e.target.value)} />
             {izuzetakMoguc && (
               <label style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "flex-start", fontSize: 11, margin: "8px 0", cursor: "pointer" }}>
@@ -319,10 +363,15 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
               </label>
             )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="primary-button" disabled={izuzetak && napomena.trim().length < 10} onClick={() => provjeri("POTVRDJENO")}>
+              <button
+                className="primary-button"
+                disabled={cekaDrugog || !!p?.fali || (izuzetakMoguc && (!izuzetak || napomena.trim().length < 10))}
+                title={p?.fali ? "Prvo ponovna kontrola — vidi iznad" : izuzetakMoguc && !izuzetak ? "Označite kvačicu iznad i upišite šta ste pregledali" : undefined}
+                onClick={() => provjeri("POTVRDJENO")}
+              >
                 Provjereno — zatvori
               </button>
-              <button className="secondary-button" disabled={izuzetak && napomena.trim().length < 10} onClick={() => provjeri("ODBIJENO")}>
+              <button className="secondary-button" disabled={cekaDrugog || (izuzetakMoguc && (!izuzetak || napomena.trim().length < 10))} onClick={() => provjeri("ODBIJENO")}>
                 Nije riješeno — vrati
               </button>
             </div>

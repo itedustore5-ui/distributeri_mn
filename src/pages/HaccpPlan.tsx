@@ -142,6 +142,15 @@ export function HaccpPlan() {
         }
       />
       {greska && <div className="auth-error" style={{ marginBottom: 12 }}>{greska}</div>}
+      {mijenja && (
+        <div className="izlaz-traka" style={{ background: "#f3f6f9", color: "#33444d" }}>
+          <span>
+            <b>Obuka zaposlenih</b> je dio HACCP sistema (Uredba 91/2026, Dio 13): plan obuke i pitanja za provjeru znanja vode se na strani Ljudi.
+          </span>
+          <button className="small-action" onClick={() => navigate("/ljudi", { state: { tab: "plan" } })}>Plan obuke</button>
+          <button className="small-action" onClick={() => navigate("/ljudi", { state: { tab: "provjera", pod: "pitanja" } })}>Pitanja za provjeru</button>
+        </div>
+      )}
       <div className="filter-tabs" style={{ marginBottom: 16, flexWrap: "wrap" }}>
         {KARTICE.map((k) => (
           <button key={k.kod} className={kartica === k.kod ? "selected" : ""} onClick={() => setKartica(k.kod)}>{k.naziv}</button>

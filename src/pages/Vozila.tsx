@@ -19,6 +19,8 @@ type Vozilo = {
   temp_max: string | null;
   /** Ishod današnje kontrole (D1) — null ako danas nije rađena. */
   d1_danas: string | null;
+  /** Vozilo ima današnju isporuku — tek tada se D1 traži (prije utovara). */
+  vozi_danas?: boolean;
 };
 type Kontrola = {
   id: string;
@@ -98,7 +100,7 @@ export function Vozila() {
       />
       <div className="vehicle-grid">
         {vozila.map((v) => (
-          <div key={v.id} className={`vehicle-card ${v.status === "NIJE_SPREMNO" ? "danger" : v.d1_danas === "PROSAO" ? "success" : "warning"}`}>
+          <div key={v.id} className={`vehicle-card ${v.status === "NIJE_SPREMNO" ? "danger" : v.d1_danas === "PROSAO" ? "success" : v.vozi_danas === false ? "" : "warning"}`}>
             <div className="vehicle-top">
               <div className="vehicle-symbol"><Truck size={16} /></div>
             </div>
@@ -111,8 +113,14 @@ export function Vozila() {
             <div className="vehicle-meta">
               <div>
                 <span>Status</span>
-                <strong className={v.status === "NIJE_SPREMNO" ? "kontrola-nema" : v.d1_danas === "PROSAO" ? "kontrola-danas" : "kontrola-stara"}>
-                  {v.status === "NIJE_SPREMNO" ? "Nije spremno — nova D1 mora proći" : v.d1_danas === "PROSAO" ? "Spremno danas" : "Čeka D1 za danas"}
+                <strong className={v.status === "NIJE_SPREMNO" ? "kontrola-nema" : v.d1_danas === "PROSAO" ? "kontrola-danas" : v.vozi_danas === false ? "muted-text" : "kontrola-stara"}>
+                  {v.status === "NIJE_SPREMNO"
+                    ? "Nije spremno — nova D1 mora proći"
+                    : v.d1_danas === "PROSAO"
+                      ? "Spremno danas"
+                      : v.vozi_danas === false
+                        ? "Danas ne vozi — D1 nije potrebna"
+                        : "Danas vozi — čeka D1 prije utovara"}
                 </strong>
                 {izlaz.ceka(`vozilo:${v.id}`) && <span className="ceka-mrezu" style={{ marginTop: 4 }}>D1 je na telefonu — čeka mrežu</span>}
               </div>

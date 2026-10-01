@@ -35,7 +35,38 @@ type Stavka = {
   rok_trajanja: string | null;
   temperatura_prijema: string | null;
   po_otpremnici: PoOtpremnici | null;
+  temp_kontrolisano?: boolean;
+  temp_rezultat?: string | null;
+  temp_izmjereno?: string | null;
+  temp_min?: string | null;
+  temp_max?: string | null;
+  temp_termometar?: string | null;
 };
+
+/** Temperatura pri prijemu (KKT 1) uz stavku — sa granicom i ocjenom, da odgovorno lice odlučuje znajući šta je izmjereno. */
+function TemperaturaPrijema({ s }: { s: Stavka }) {
+  const t = s.temp_izmjereno ?? s.temperatura_prijema;
+  if (t === null || t === undefined || t === "") {
+    return <span className="muted-text">{s.temp_kontrolisano ? "nije izmjereno" : "bez režima"}</span>;
+  }
+  const g = (v: string | null | undefined) => (v === null || v === undefined ? null : Number(v).toLocaleString("sr-Latn-ME"));
+  const granica = g(s.temp_min) !== null || g(s.temp_max) !== null ? `${g(s.temp_min) ?? "—"} do ${g(s.temp_max) ?? "—"} °C` : null;
+  const boja = s.temp_rezultat === "FAIL" ? "#c34e55" : s.temp_rezultat === "WARNING" ? "#bc7a1e" : "#1e7f55";
+  const ocjena = s.temp_rezultat === "FAIL" ? "van granice" : s.temp_rezultat === "WARNING" ? "van pretpostavljene granice" : s.temp_rezultat === "PASS" ? "u granici" : null;
+  return (
+    <span>
+      <b style={{ color: ocjena ? boja : undefined }}>{Number(t).toLocaleString("sr-Latn-ME")} °C</b>
+      {ocjena && <span style={{ color: boja, fontSize: 10, fontWeight: 600 }}> · {ocjena}</span>}
+      {(granica || s.temp_termometar) && (
+        <div className="muted-text" style={{ fontSize: 10 }}>
+          {granica ? `granica ${granica}` : ""}
+          {granica && s.temp_termometar ? " · " : ""}
+          {s.temp_termometar ? `termometar: ${s.temp_termometar}` : ""}
+        </div>
+      )}
+    </span>
+  );
+}
 type Dokument = { id: string; vrsta: "pdf" | "slika"; naziv_fajla: string | null };
 type Detalj = { stavke: Stavka[]; dokumenti: Dokument[] };
 
@@ -165,6 +196,7 @@ export function Prijem() {
                               <th>Lot <ZakonskaOznaka clan="27" /></th>
                               <th>Rok</th>
                               <th>Količina</th>
+                              <th>Temperatura <ZakonskaOznaka clan="36" /></th>
                               <th>Status</th>
                               <th>Radnje</th>
                             </tr>
@@ -192,6 +224,7 @@ export function Prijem() {
                                     </div>
                                   )}
                                 </td>
+                                <td><TemperaturaPrijema s={s} /></td>
                                 <td><StatusBadge status={s.lot_status} /></td>
                                 <td>
                                   {s.lot_status === "PRIMLJEN" ? (

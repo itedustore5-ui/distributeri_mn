@@ -782,6 +782,16 @@ export function NoviPrijemModal({
           </section>
 
           {/* ── 3. Temperatura ────────────────────────────────────────────────────────────── */}
+          {grupe.length === 0 && redovi.some((r) => r.artikalId) && (
+            <section className="prijem-korak">
+              <h3><span className="korak-broj">3</span> Temperatura robe <ZakonskaOznaka clan="36" /></h3>
+              <p className="prijem-uputstvo">
+                Ova roba nema temperaturni režim (npr. keks, konzerve, piće) — temperatura se pri prijemu ne mjeri. Ako artikal treba
+                da se čuva hladno, odgovorno lice mu u Šifarnicima uključi „temperaturni režim“ i granicu — od tada se ovdje traži
+                temperatura.
+              </p>
+            </section>
+          )}
           {grupe.length > 0 && (
             <section className="prijem-korak">
               <h3><span className="korak-broj">3</span> Temperatura robe <ZakonskaOznaka clan="36" /></h3>
@@ -847,7 +857,7 @@ export function NoviPrijemModal({
           {/* ── 4. Potvrda ────────────────────────────────────────────────────────────────── */}
           {odOtpremnice && (
             <section className="prijem-korak">
-              <h3><span className="korak-broj">{grupe.length > 0 ? 4 : 3}</span> Potvrda</h3>
+              <h3><span className="korak-broj">{grupe.length > 0 || redovi.some((r) => r.artikalId) ? 4 : 3}</span> Potvrda</h3>
               <label id="p-uporedjeno" className="prijem-kvacica" style={{ margin: "0 20px 12px", ...(crveno("p-uporedjeno") ? { color: "#b53030" } : {}) }}>
                 <input type="checkbox" checked={uporedjeno} onChange={(e) => setUporedjeno(e.target.checked)} />
                 Uporedio/la sam svaku stavku sa robom i etiketom — artikal, lot, rok i količina su tačni.

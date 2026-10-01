@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { asyncRuta } from "../greske.js";
 import { requireUloga } from "../auth.js";
-import { IZVORI_IZVOZA, izvezi, izveziSve, nizUCsv, pregled, spisakIzvora } from "../services/izvozService.js";
+import { IZVORI_IZVOZA, izvezi, izveziSve, nizUCsv, pregled, spisakIzvora, type FilterIzvoza } from "../services/izvozService.js";
 import { str } from "../validacija.js";
 
 export const izvozRuter = Router();
@@ -23,6 +23,17 @@ function nazivZaZaglavlje(naziv: string, ekstenzija: string) {
   return `attachment; filename="${ascii}.${ekstenzija}"; filename*=UTF-8''${encodeURIComponent(`${osnova}.${ekstenzija}`)}`;
 }
 
+/** `?od=2026-09-01&do=2026-09-30&f_status=PRIHVACEN` → filter izvoza (provjerava ga izvozService). */
+function filterIzUpita(upit: Record<string, unknown>): FilterIzvoza {
+  const tekst = (v: unknown) => (typeof v === "string" && v.length <= 200 ? v : undefined);
+  const polja: Record<string, string> = {};
+  for (const [k, v] of Object.entries(upit)) {
+    const vr = tekst(v);
+    if (k.startsWith("f_") && vr) polja[k.slice(2)] = vr;
+  }
+  return { od: tekst(upit.od), do: tekst(upit.do), polja };
+}
+
 izvozRuter.get(
   "/izvoz/izvori",
   requireUloga("bzr", "izvodjac"),
@@ -35,7 +46,7 @@ izvozRuter.get(
   "/izvoz/:kod/pregled",
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request, response) => {
-    response.json(await pregled(str(request.params.kod)));
+    response.json(await pregled(str(request.params.kod), filterIzUpita(request.query)));
   }),
 );
 
@@ -43,7 +54,7 @@ izvozRuter.get(
   "/izvoz/:kod.csv",
   requireUloga("bzr", "izvodjac"),
   asyncRuta(async (request, response) => {
-    const { naziv, csv } = await izvezi(str(request.params.kod));
+    const { naziv, csv } = await izvezi(str(request.params.kod), filterIzUpita(request.query));
     response.setHeader("Content-Type", "text/csv; charset=utf-8");
     response.setHeader("Content-Disposition", nazivZaZaglavlje(naziv, "csv"));
     response.send(csv);

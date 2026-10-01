@@ -485,6 +485,24 @@ kupaca, bez dugmadi za upis. Lista i broj na kartici se računaju istim uslovom 
 
 Izvještaj se prvo otvori na ekranu (najnovijih 500 redova, čitljiva zaglavlja, statusi kao u
 aplikaciji, bez internih ID-jeva, pretraga), pa se štampa ili preuzme CSV sa svim kolonama.
+**Filter po vremenu** (danas, 7 dana, ovaj ili prošli mjesec, godina, sve, ili od–do — po datumu
+radnje, npr. datumu prijema) i **po kategorijama** koje izvještaj ima (status, magacin, obrazac,
+rezultat…) radi na serveru: isti filter važi za pregled, štampu i CSV, i ispiše se u zaglavlju
+štampe. Period ostaje izabran kad se pređe na drugi izvještaj.
+
+### Audit trag — filteri
+
+Period, **ko** (zaposleni), **radnja** (upis, izmjena, promjena statusa, odluka, prijava), **nad
+čim** (prijem, lot, isporuka, neusaglašenost…) i tekst u vrijednostima (npr. broj lota). Kod
+izmjene se vidi „bilo → sada“. Štampa sa filterima u zaglavlju.
+
+### Obuka zaposlenih — gdje se upisuje
+
+- **Godišnji plan obuke** (Prilog 13): Ljudi → „Godišnji plan obuke“ → **„Nova stavka plana“** — za
+  jednog zaposlenog ili odjednom za sve koji rukuju hranom, tema sa spiska ili svoja. Održana obuka:
+  „Označi urađeno“. Štampa: Prilozi → Prilog 13.
+- **Pitanja za provjeru znanja**: Ljudi → „Provjera znanja“ → **„Pitanja firme“** → „Novo pitanje“.
+- Do oba se stiže i sa strane **HACCP plan** (traka „Obuka zaposlenih“ na vrhu).
 
 ### Provjera znanja — pitanja firme i rezultati
 
@@ -504,8 +522,9 @@ Ljudi → Provjera znanja:
   završilo, koliko položilo, prosjek. Ispod: ko je radio, tačno X/Y, skor u %, položeno ili ne —
   sa štampom.
 - **Pitanja firme** — unosi ih odgovorno lice, o procedurama svoje firme; vidi koliko je ljudi
-  odgovorilo i koliko tačno. Pitanje na koje se već odgovaralo ne mijenja se (rezultati bi
-  pokazivali odgovore na pitanje koje više ne postoji) — isključi se i unese novo.
+  odgovorilo i koliko tačno. „Izmijeni“ na pitanju na koje se već odgovaralo čuva **novu verziju**:
+  staro se isključi i ostaje u rezultatima (da pokazuju odgovore na pitanje koje je stvarno
+  postavljeno), a od tada važi novo.
 - **Pitanja konsultanta** ostaju skrivena i odgovornom licu (invarijanta #14).
 
 ### Poruke
@@ -655,8 +674,8 @@ Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Is
 ```bash
 npm run typecheck
 npm run build
-npm test             # 589 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
-npm run test:ekrani  # 32 provjere ekrana: telefon 375 px, pet uloga, rad bez mreže
+npm test             # 611 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm run test:ekrani  # 38 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže
 ```
 
 **`npm run test:ekrani`** izgradi aplikaciju kao za Render, pokrene server u produkcijskom režimu (sa
@@ -702,6 +721,7 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `talas1` | predaja zadržanog lota, isteklog lota i više nego što je na zalihi se odbija, zaliha nikad u minusu; povrat u karantin i odluka o njemu; tuđa isporuka i stari prijem po adresi; isti ključ zahtjeva = jedan upis; potvrda sa svim stavkama; tuđi pogrešni pokušaji prijave ne zaključavaju druge |
 | `bezbjednost_baze` | RLS na svim tabelama, pogledi po pravima pitaoca, javne uloge Supabase-a (`anon`, `authenticated`) ne čitaju i ne pišu ni sa vraćenim pravom, nova tabela bez prava za njih, aplikacija i dalje vidi sve |
 | `monitoring_magacini` | plan po magacinu: ono što je izmjerio jedan magacioner važi za sve u tom magacinu, mjerenje u magacinu A ne pokriva B, vidi se ko je uradio, mjerenje i zapis (i ispravka) pamte magacin |
+| `dorada` | D1 samo za vozilo koje danas vozi (crveno se skida posle kontrole); vozač dobija obavještenje kad mu isporuka ode ili se izmijeni; temperatura uz stavku prijema; neusaglašenost unaprijed kaže šta fali i ko provjerava; primljene poruke po vremenu; filteri izvještaja (pregled = CSV) i audita; nova verzija pitanja firme |
 | `talas6` | rad bez interneta: isti upis dvaput → jedan zapis i isti odgovor, neuspio upis ne zauzima ključ, upis u obradi → pokušaj kasnije; vrijeme sa telefona i oznaka „bez mreže“ (mjerenje, D1, zapis, problem, predaja); budućnost i starije od 36 h odbijeno; predaja po danu predaje (D1 i rok tog dana); kasna jučerašnja D1 ne mijenja današnji status vozila; odbijen upis stiže do odgovornog lica |
 | `ekrani/1_uloge` | svaka strana svake od pet uloga na telefonu: otvara se, bez vodoravnog skrola, bez greške; meni nudi samo strane uloge; četiri priloga za štampu |
 | `ekrani/2_teren` | vozač D1 pa predaja, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema, direktor kartica → lista — sve kroz ekran |

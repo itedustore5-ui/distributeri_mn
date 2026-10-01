@@ -149,11 +149,26 @@ const zbir = (m: Map<string, number>, od: string, doDan: string) => {
   return n;
 };
 
+/** D1 je kontrola PRIJE UTOVARA: dnevna obaveza važi samo za dan u kom vozilo vozi (ima isporuku koja
+ * nije otkazana). Vozilo koje stoji ne traži D1 — inače je vozaču stajalo crveno „nije urađeno“ za kamion
+ * koji tog dana ne vozi, i poslije njegove kontrole (odluka 01.10.2026). Za vozača: samo njegove isporuke. */
+const dnevnaD1 = (s: StavkaPlana) => s.vrsta === "kontrola_vozila" && !!s.vozilo_id && (s.ucestalost === "DNEVNO" || s.ucestalost === "RADNIM_DANIMA");
+
+async function daniVoznje(voziloId: string, od: string, doDan: string, korisnikId?: string | null): Promise<Set<string>> {
+  const r = await upit<{ dan: string }>(
+    `select distinct to_char(i.datum_isporuke, 'YYYY-MM-DD') as dan from isporuka i
+     where i.vozilo_id = $1 and i.datum_isporuke between $2 and $3 and i.status::text <> 'OTKAZANA'
+       and ($4::uuid is null or i.vozac_korisnik_id = $4 or (i.vozac_korisnik_id is null and i.uneo_korisnik_id = $4))`,
+    [voziloId, od, doDan, korisnikId ?? null],
+  );
+  return new Set(r.rows.map((x) => x.dan));
+}
+
 export type StanjeStavke = StavkaPlana & { od: string; do: string; rok: string; uradjeno: number; fali: number; uradili?: Uradio[] };
 
 /** Šta u tekućem periodu (danas / ova sedmica / ovaj mjesec) još nije urađeno, i šta je juče
  * propušteno. Terenska uloga dobija samo svoje stavke (i one bez zadate uloge). */
-export async function stanjeDanas(filter: { uloga?: string; skladisteId?: string | null } = {}) {
+export async function stanjeDanas(filter: { uloga?: string; skladisteId?: string | null; korisnikId?: string | null } = {}) {
   const danas = danasCG();
   const juce = dodajDane(danas, -1);
   const stavke = (await stavkePlana()).filter(
@@ -170,13 +185,16 @@ export async function stanjeDanas(filter: { uloga?: string; skladisteId?: string
     const pJuce = period(s.ucestalost, juce)!;
     const od = pJuce.od < p.od ? pJuce.od : p.od;
     const brojevi = await poDanima(s, od, danas);
-    if (p.obavezno) {
+    const voznja = dnevnaD1(s) ? await daniVoznje(s.vozilo_id!, od, danas, filter.korisnikId) : null;
+    const obaveznoDanas = voznja ? voznja.has(danas) : p.obavezno;
+    const obaveznoJuce = voznja ? voznja.has(juce) : pJuce.obavezno;
+    if (obaveznoDanas) {
       const uradjeno = zbir(brojevi, p.od, danas);
       const uradili = uradjeno > 0 ? await koJeUradio(s, p.od, danas) : [];
       danasStanje.push({ ...s, od: p.od, do: p.do, rok: p.rok, uradjeno, fali: Math.max(0, s.puta - uradjeno), uradili });
     }
     // "Juče propušteno" samo za dnevne stavke — sedmica i mjesec se ocjenjuju kad se završe.
-    if ((s.ucestalost === "DNEVNO" || s.ucestalost === "RADNIM_DANIMA") && pJuce.obavezno && s.vazi_od <= juce) {
+    if ((s.ucestalost === "DNEVNO" || s.ucestalost === "RADNIM_DANIMA") && obaveznoJuce && s.vazi_od <= juce) {
       const uradjeno = zbir(brojevi, juce, juce);
       if (uradjeno < s.puta) juceP.push({ ...s, od: juce, do: juce, rok: "juče", uradjeno, fali: s.puta - uradjeno });
     }
@@ -197,12 +215,14 @@ export async function pregledRupa(dana: number) {
       continue;
     }
     const brojevi = await poDanima(s, od, juce);
+    const voznja = dnevnaD1(s) ? await daniVoznje(s.vozilo_id!, od, juce) : null;
     // Završeni periodi u rasponu: kraj perioda je prije danas.
     const periodi: { od: string; do: string }[] = [];
     let dan = od;
     while (dan <= juce) {
       const p = period(s.ucestalost, dan)!;
-      if (p.obavezno && p.do <= juce) periodi.push({ od: p.od < od ? od : p.od, do: p.do });
+      const obavezno = voznja ? voznja.has(dan) : p.obavezno;
+      if (obavezno && p.do <= juce) periodi.push({ od: p.od < od ? od : p.od, do: p.do });
       dan = dodajDane(p.do, 1);
     }
     const propusteno = periodi

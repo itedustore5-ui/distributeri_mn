@@ -24,7 +24,8 @@ haccpPlanRuter.get(
     let filter = {};
     if (NA_TERENU.includes(uloga)) {
       const k = await upit<{ skladiste_id: string | null }>(`select skladiste_id from korisnik where id = $1`, [id]);
-      filter = { uloga, skladisteId: k.rows[0]?.skladiste_id ?? null };
+      // Vozaču D1 samo za vozila sa NJEGOVIH današnjih isporuka (monitoringService.daniVoznje).
+      filter = { uloga, skladisteId: k.rows[0]?.skladiste_id ?? null, korisnikId: uloga === "vozac" ? id : null };
     }
     response.json(await stanjeDanas(filter));
   }),

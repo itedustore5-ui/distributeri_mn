@@ -1,8 +1,8 @@
-import { pool, upit } from "../db.js";
+import { pool, upit, transakcija } from "../db.js";
 import { ApiGreska } from "../greske.js";
 import { provjeriOgranicenjeLogina, zabiljeziNeuspjeliPokusaj, ocistiNeuspjelePokusaje } from "../auth.js";
 import { provjeriLozinku } from "../lozinke.js";
-import { logSigurnosniDogadjaj } from "./auditService.js";
+import { logSigurnosniDogadjaj, logKreiranje } from "./auditService.js";
 
 // Provjera znanja: termini, ulazak prijavljenog zaposlenog SVOJOM šifrom (invarijanta #32), odgovori koji se ne mogu naduvati,
 // banka pitanja konsultanta (samo njegova — #14) i pitanja firme. Ruta samo provjeri ulaz i ulogu.
@@ -245,6 +245,22 @@ export async function izmijeniPitanjeFirme(id: string, ulaz: NovoPitanje) {
     ulaz.tacanIndeks,
     id,
   ]);
+}
+
+/** Pitanje na koje se već odgovaralo mijenja se kao NOVA VERZIJA: novo pitanje + staro isključeno, u
+ * jednoj transakciji (#35), sa auditom. Rezultati ostaju vezani za staro pitanje (01.10.2026). */
+export async function novaVerzijaPitanjaFirme(id: string, ulaz: NovoPitanje, korisnikId: string) {
+  await pitanjeFirme(id);
+  if (ulaz.tacanIndeks >= ulaz.ponudjeniOdgovori.length) throw new ApiGreska(400, "TACAN_ODGOVOR", "Označite koji je odgovor tačan.");
+  return transakcija(async (klijent) => {
+    const novo = await klijent.query<{ id: string }>(
+      `insert into pitanje (tema, tekst, ponudjeni_odgovori, tacan_indeks, izvor, created_by) values ($1, $2, $3, $4, 'firma', $5) returning id`,
+      [ulaz.tema, ulaz.tekst, JSON.stringify(ulaz.ponudjeniOdgovori), ulaz.tacanIndeks, korisnikId],
+    );
+    await klijent.query(`update pitanje set aktivno = false where id = $1`, [id]);
+    await logKreiranje(klijent, { korisnikId, entitetTip: "pitanje", entitetId: novo.rows[0].id, noveVrijednosti: { tema: ulaz.tema, tekst: ulaz.tekst, zamjenjuje: id } });
+    return novo.rows[0].id;
+  });
 }
 
 /** Ko je radio, koliko je tačno i je li prošao — po terminu. Bez imena kad termin ne čuva imena. */

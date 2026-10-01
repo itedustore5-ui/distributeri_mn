@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Plus, KeyRound, Printer } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
@@ -55,7 +55,9 @@ export function Ljudi() {
   // Isto pravilo kao smijeDodijelitiUlogu na serveru — dugme se ne nudi tamo gdje bi server odbio.
   const smijeDirnutiNalog = (uloga: string) =>
     korisnik?.uloga === "izvodjac" ? uloga !== "izvodjac" : korisnik?.uloga === "bzr" && (uloga === "operater" || uloga === "vozac");
-  const [tab, setTab] = useState<(typeof TABOVI)[number]["kod"]>("zaposleni");
+  // Ulaz sa drugih strana (HACCP plan → „Plan obuke“ / „Pitanja za provjeru znanja“) otvara pravu karticu.
+  const ulaz = useLocation().state as { tab?: (typeof TABOVI)[number]["kod"]; pod?: "rezultati" | "pitanja" } | null;
+  const [tab, setTab] = useState<(typeof TABOVI)[number]["kod"]>(ulaz?.tab ?? "zaposleni");
   const skladista = useSkladista();
   const postaviMaticno = (nalogId: string, skladisteId: string) =>
     api(`/nalozi/${nalogId}/skladiste`, { method: "PATCH", telo: { skladisteId: skladisteId || null } }).then(ucitaj);
@@ -172,6 +174,14 @@ export function Ljudi() {
       )}
 
       {tab === "plan" && (
+        <p className="muted-text" style={{ fontSize: 11, margin: "0 0 12px", maxWidth: 760 }}>
+          <b>Godišnji plan obuke</b> (Vodič UBH, Prilog 13): ko, koju temu i do kada. Novu obuku upisujete dugmetom <b>„Nova stavka plana“</b> (na vrhu
+          strane) — za jednog zaposlenog ili odjednom za sve koji rukuju hranom. Kad je obuka održana: <b>„Označi urađeno“</b>. Štampa:{" "}
+          <b>Prilozi → Prilog 13</b>. Znanje poslije obuke provjeravate na kartici <b>Provjera znanja</b> (pitanja firme unosite vi). Obuka i nadzor
+          zaposlenih su obaveza iz Uredbe o higijeni hrane 91/2026, Dio 13.
+        </p>
+      )}
+      {tab === "plan" && (
         <div className="panel full-panel">
           <div className="data-table-wrap">
             <table className="data-table">
@@ -185,6 +195,9 @@ export function Ljudi() {
                 </tr>
               </thead>
               <tbody>
+                {plan.length === 0 && (
+                  <tr><td colSpan={5} className="muted-text" style={{ padding: 20 }}>Plan obuke je prazan — dugme „Nova stavka plana“ na vrhu strane.</td></tr>
+                )}
                 {plan.map((p) => (
                   <tr key={p.id}>
                     <td>{p.lice_ime}</td>
@@ -208,7 +221,7 @@ export function Ljudi() {
         </div>
       )}
 
-      {tab === "provjera" && <ProvjeraZnanjaKartica verzija={verzijaZnanja} onOsvjezi={ucitaj} />}
+      {tab === "provjera" && <ProvjeraZnanjaKartica verzija={verzijaZnanja} onOsvjezi={ucitaj} pocetno={ulaz?.pod} />}
 
       {tab === "nalozi" && (
         <>
@@ -383,35 +396,83 @@ function IzmjenaLiceModal({ lice, onClose, onSacuvano }: { lice: Lice; onClose: 
   );
 }
 
+// Teme koje distributer najčešće planira — predlog, ne obaveza (upisuje se i bilo šta drugo).
+const TEME_OBUKE = [
+  "Dobra higijenska praksa — osnovno",
+  "HACCP — kritične kontrolne tačke i granice",
+  "Prijem robe: lot, rok i temperatura",
+  "Skladištenje i hladni lanac",
+  "Transport i kontrola vozila (D1)",
+  "Sledljivost i povlačenje robe",
+  "Lična higijena i zdravstveno stanje",
+  "Čišćenje i dezinfekcija",
+];
+const SVI_HRANA = "__svi_hrana";
+const SVI = "__svi";
+
 function NoviPlanModal({ lica, onClose, onCreated }: { lica: Lice[]; onClose: () => void; onCreated: () => void }) {
-  const [liceId, setLiceId] = useState(lica[0]?.id ?? "");
+  const aktivna = lica.filter((l) => l.aktivan);
+  const saHranom = aktivna.filter((l) => l.rukuje_hranom);
+  const [kome, setKome] = useState(saHranom.length > 0 ? SVI_HRANA : aktivna[0]?.id ?? "");
   const [tema, setTema] = useState("");
   const [datum, setDatum] = useState("");
   const [greska, setGreska] = useState("");
+  const [radim, setRadim] = useState(false);
+  const izabrani = kome === SVI_HRANA ? saHranom : kome === SVI ? aktivna : aktivna.filter((l) => l.id === kome);
 
   const posalji = async () => {
+    setRadim(true);
+    setGreska("");
+    let upisano = 0;
     try {
-      await api("/plan-obuke", { telo: { liceId, tema, planiraniDatum: datum } });
+      for (const l of izabrani) {
+        await api("/plan-obuke", { telo: { liceId: l.id, tema, planiraniDatum: datum } });
+        upisano += 1;
+      }
       onCreated();
       onClose();
     } catch (e) {
-      setGreska(e instanceof ApiGreska ? e.message : "Stavka plana nije sačuvana.");
+      onCreated();
+      setGreska(`${upisano > 0 ? `Upisano za ${upisano} od ${izabrani.length}. ` : ""}${e instanceof ApiGreska ? e.message : "Stavka plana nije sačuvana."}`);
+    } finally {
+      setRadim(false);
     }
   };
 
   return (
-    <Modal naslov="Nova stavka plana obuke" podnaslov="Prilog 13" onClose={onClose} greska={greska} footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!liceId || !tema || !datum}>Sačuvaj</button></>}>
+    <Modal
+      naslov="Nova stavka plana obuke"
+      podnaslov="Prilog 13"
+      onClose={onClose}
+      greska={greska}
+      footer={
+        <>
+          <button className="secondary-button" onClick={onClose}>Otkaži</button>
+          <button className="primary-button" onClick={posalji} disabled={radim || izabrani.length === 0 || !tema.trim() || !datum}>
+            Sačuvaj{izabrani.length > 1 ? ` (${izabrani.length} zaposlenih)` : ""}
+          </button>
+        </>
+      }
+    >
       <div className="form-grid">
         <label>
-          Zaposleni
-          <select value={liceId} onChange={(e) => setLiceId(e.target.value)}>
-            {lica.map((l) => (
+          Za koga
+          <select value={kome} onChange={(e) => setKome(e.target.value)}>
+            {saHranom.length > 0 && <option value={SVI_HRANA}>Svi koji rukuju hranom ({saHranom.length})</option>}
+            <option value={SVI}>Svi zaposleni ({aktivna.length})</option>
+            {aktivna.map((l) => (
               <option key={l.id} value={l.id}>{l.ime}</option>
             ))}
           </select>
         </label>
         <label>Planirani datum<input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} /></label>
-        <label style={{ gridColumn: "1 / -1" }}>Tema<input value={tema} onChange={(e) => setTema(e.target.value)} /></label>
+        <label style={{ gridColumn: "1 / -1" }}>
+          Tema
+          <input list="teme-obuke" value={tema} onChange={(e) => setTema(e.target.value)} placeholder="izaberite sa spiska ili upišite" />
+          <datalist id="teme-obuke">
+            {TEME_OBUKE.map((t) => <option key={t} value={t} />)}
+          </datalist>
+        </label>
       </div>
     </Modal>
   );

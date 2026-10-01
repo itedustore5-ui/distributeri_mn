@@ -25,6 +25,61 @@ export const IZVORI_IZVOZA = [
   { kod: "audit", naziv: "Audit log", izvor: "audit_log" },
 ] as const;
 
+// ─── Filteri izvještaja (01.10.2026: „svaki izvještaj treba filter po vremenu i po drugim linijama“) ──
+// Isti filter važi za pregled na ekranu, štampu i CSV — ono što se vidi je ono što se preuzme.
+// Kolona za vrijeme: prva koja postoji u izvoru, ovim redom (dan radnje prije trenutka upisa).
+const DATUMSKE = ["datum", "datum_prijema", "datum_isporuke", "planirani_datum", "izmjereno_at", "izvrseno_at", "pokrenuto_at", "verifikovano_at", "created_at"];
+// Kolone po kojima se bira sa spiska (status, magacin, obrazac…) — samo one koje izvor stvarno ima.
+const KATEGORIJSKE = [
+  "status", "ukupan_status", "lot_status", "rezultat", "ozbiljnost", "obrazac_kod", "skladiste_naziv", "magacin",
+  "dobavljac", "dobavljac_naziv", "kupac", "kupac_naziv", "registarski_broj", "izvrsilac", "akcija", "entitet_tip",
+  "tip", "vrsta", "izvor_tip", "radno_mjesto", "artikal", "artikal_naziv", "tema",
+];
+// Izvori bez smislenog datuma (spisak zaposlenih) — filter po vremenu se ne nudi.
+const BEZ_DATUMA = new Set(["lica"]);
+const PG_DATE = 1082;
+const PG_TIMESTAMP = 1114;
+const PG_TIMESTAMPTZ = 1184;
+const DAN = /^\d{4}-\d{2}-\d{2}$/;
+
+export type FilterIzvoza = { od?: string; do?: string; polja?: Record<string, string> };
+
+const ime = (kolona: string) => `"${kolona.replace(/"/g, '""')}"`;
+
+/** Kolone izvora i koja je za vrijeme / kategorije. */
+async function opisIzvora(kod: string, izvor: string) {
+  const prazno = await pool.query(`select * from ${izvor} limit 0`);
+  const kolone = prazno.fields.map((f) => f.name);
+  const tip = new Map(prazno.fields.map((f) => [f.name, f.dataTypeID]));
+  const datumKolona = BEZ_DATUMA.has(kod) ? null : DATUMSKE.find((k) => kolone.includes(k) && [PG_DATE, PG_TIMESTAMP, PG_TIMESTAMPTZ].includes(tip.get(k) ?? 0)) ?? null;
+  return { kolone, tip, datumKolona, kategorije: KATEGORIJSKE.filter((k) => kolone.includes(k)) };
+}
+
+/** WHERE za filter: dan po Podgorici (#11) za trenutke, kategorije kao tekst — sve kroz parametre. */
+function uslovFiltera(opis: Awaited<ReturnType<typeof opisIzvora>>, filter: FilterIzvoza) {
+  const uslovi: string[] = [];
+  const parametri: unknown[] = [];
+  if (opis.datumKolona && (filter.od || filter.do)) {
+    const k = ime(opis.datumKolona);
+    const t = opis.tip.get(opis.datumKolona);
+    const dan = t === PG_TIMESTAMPTZ ? `(${k} at time zone 'Europe/Podgorica')::date` : `${k}::date`;
+    if (filter.od && DAN.test(filter.od)) {
+      parametri.push(filter.od);
+      uslovi.push(`${dan} >= $${parametri.length}::date`);
+    }
+    if (filter.do && DAN.test(filter.do)) {
+      parametri.push(filter.do);
+      uslovi.push(`${dan} <= $${parametri.length}::date`);
+    }
+  }
+  for (const [kolona, vrijednost] of Object.entries(filter.polja ?? {})) {
+    if (!opis.kategorije.includes(kolona) || !vrijednost) continue;
+    parametri.push(vrijednost);
+    uslovi.push(`${ime(kolona)}::text = $${parametri.length}`);
+  }
+  return { where: uslovi.length ? `where ${uslovi.join(" and ")}` : "", parametri };
+}
+
 /** Trenutak po podgoričkom vremenu, „2026-09-28 14:05:09“ — inspektor čita lokalni sat, ne UTC (#11). */
 const PODGORICA = new Intl.DateTimeFormat("sv-SE", {
   timeZone: "Europe/Podgorica", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
@@ -51,7 +106,7 @@ export function nizUCsv(redovi: Record<string, unknown>[], sveKolone?: string[])
   return `﻿${zaglavlje}\n${tijelo}`;
 }
 
-export async function izvezi(kod: string): Promise<{ naziv: string; csv: string }> {
+export async function izvezi(kod: string, filter: FilterIzvoza = {}): Promise<{ naziv: string; csv: string }> {
   const stavka = IZVORI_IZVOZA.find((i) => i.kod === kod);
   if (!stavka) throw new ApiGreska(404, "IZVOZ_NEPOZNAT", "Traženi izvor izvoza ne postoji.");
   const postoji = await tabelaPostoji(stavka.izvor);
@@ -60,7 +115,9 @@ export async function izvezi(kod: string): Promise<{ naziv: string; csv: string 
       izvor: stavka.izvor,
     });
   }
-  const rezultat = await pool.query(`select * from ${stavka.izvor} order by 1`);
+  const opis = await opisIzvora(stavka.kod, stavka.izvor);
+  const { where, parametri } = uslovFiltera(opis, filter);
+  const rezultat = await pool.query(`select * from ${stavka.izvor} ${where} order by 1`, parametri);
   return { naziv: stavka.naziv, csv: nizUCsv(rezultat.rows, rezultat.fields.map((f) => f.name)) };
 }
 
@@ -83,20 +140,26 @@ export async function izveziSve(): Promise<{ podaci: Record<string, Record<strin
 
 /** Pregled prije preuzimanja ili štampe: najnovijih `limit` redova, sa ukupnim brojem. Isti izvor
  * i ista provjera kao CSV — ono što se vidi na ekranu je ono što se preuzme. */
-export async function pregled(kod: string, limit = 500) {
+export async function pregled(kod: string, filter: FilterIzvoza = {}, limit = 500) {
   const stavka = IZVORI_IZVOZA.find((i) => i.kod === kod);
   if (!stavka) throw new ApiGreska(404, "IZVOZ_NEPOZNAT", "Traženi izvor izvoza ne postoji.");
   if (!(await tabelaPostoji(stavka.izvor))) {
     throw new ApiGreska(409, "IZVOR_NEDOSTAJE", `Izvor "${stavka.naziv}" trenutno nije dostupan u bazi. Pokrenite migracije (npm run migriraj) pa pokušajte ponovo.`);
   }
-  const prazno = await pool.query(`select * from ${stavka.izvor} limit 0`);
-  const kolone = prazno.fields.map((f) => f.name);
-  const poredak = kolone.includes("created_at") ? "created_at desc" : "1";
-  const [redovi, ukupno] = await Promise.all([
-    pool.query(`select * from ${stavka.izvor} order by ${poredak} limit $1`, [limit]),
-    pool.query<{ n: number }>(`select count(*)::int as n from ${stavka.izvor}`),
+  const opis = await opisIzvora(stavka.kod, stavka.izvor);
+  const kolone = opis.kolone;
+  const poredak = opis.datumKolona ? `${ime(opis.datumKolona)} desc` : kolone.includes("created_at") ? "created_at desc" : "1";
+  const { where, parametri } = uslovFiltera(opis, filter);
+  const [redovi, ukupno, ...vrijednosti] = await Promise.all([
+    pool.query(`select * from ${stavka.izvor} ${where} order by ${poredak} limit $${parametri.length + 1}`, [...parametri, limit]),
+    pool.query<{ n: number }>(`select count(*)::int as n from ${stavka.izvor} ${where}`, parametri),
+    // Vrijednosti za spiskove filtera — iz cijelog izvora, da se izbor ne „izgubi“ kad se suzi vrijeme.
+    ...opis.kategorije.map((k) => pool.query<{ v: string }>(`select distinct ${ime(k)}::text as v from ${stavka.izvor} where ${ime(k)} is not null order by 1 limit 60`)),
   ]);
-  return { naziv: stavka.naziv, kolone, redovi: redovi.rows, ukupno: ukupno.rows[0].n };
+  const filteri = Object.fromEntries(
+    opis.kategorije.map((k, i) => [k, vrijednosti[i].rows.map((r) => r.v)] as const).filter(([, v]) => v.length > 1 && v.length < 60),
+  );
+  return { naziv: stavka.naziv, kolone, redovi: redovi.rows, ukupno: ukupno.rows[0].n, datumKolona: opis.datumKolona, filteri };
 }
 
 /** Spisak izvora sa oznakom koji nedostaje u bazi (invarijanta #30) — da ekran to kaže unaprijed. */

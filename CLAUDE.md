@@ -5,7 +5,7 @@ Ovdje je sve što se ne vidi iz koda: mapa aplikacije, zašto je nešto tako, š
 dirati, šta je poznato da ne valja, i na čemu se već izgubilo vrijeme.
 
 Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — upiši ovdje.
-Posljednji pregled koda i usklađivanje ovog fajla: **30.09.2026.** (talas 6; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
+Posljednji pregled koda i usklađivanje ovog fajla: **01.10.2026.** (dorada posle probe vlasnice; talas 6 30.09.; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
 opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje u ovom kodu nema.)
 
 ---
@@ -216,7 +216,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Vozila — D1 | `/vozila` | `vozila.ts` | `vozilaService` (ocjena temperature po granici vozila, `D1_DANAS`) | `vozilo` (režim od–do), `kontrola_vozila` (+ granica i ocjena temperature) |
 | Isporuka — KKT 3 | `/isporuka`; otpremnica za štampu `/isporuka/:id/otpremnica` (`OtpremnicaStampa.tsx`) | `isporuka.ts` | `isporukaService` (rezervacija, otkaz, `otpremnicaZaStampu`) + `lotBlokadaService` („Ne predajte lot“, manjak rezervacije), `kljucService` | `isporuka` (+ otkaz), `isporuka_stavka`, `kljuc_zahtjeva`, `v_zaliha_dostupna` (+ rezervisano, slobodno) |
 | Sledljivost, povlačenje | `/sledljivost` | `sledljivost.ts`, `povlacenje.ts` | `sledljivostService`, `povlacenjeService` | `povlacenje`, `povlacenje_kontakt`, `v_sledljivost_*` |
-| Zadaci, obavještenja, poruke (šalju SVI — #67) | `/moja`, `/tabla`, `/poruke` | `zadaci.ts`, `poruke.ts` | `zadaciService`, `porukeService` | `zadatak`, `obavjestenje`, `poruka` |
+| Zadaci, obavještenja, poruke (šalju SVI — #67; na `/poruke` primljene i poslate zajedno, po vremenu — `/poruke/primljene`) | `/moja`, `/tabla`, `/poruke` | `zadaci.ts`, `poruke.ts` | `zadaciService`, `porukeService` | `zadatak`, `obavjestenje`, `poruka` |
 | Obavještenja na telefon (push) | `/moja` → „Obavještenja na telefon"; `public/sw.js`, `public/manifest.webmanifest` | `push.ts` | `pushService` | `push_pretplata`, `web_push_kljuc`, `obavjestenje.push_poslato_at` |
 | Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | `tablaService` (+ `monitoringService`, `haccpPlanService` za kartice „Danas fali po planu", „HACCP rokovi") | čita sve (aktivnost = unija domenskih tabela) |
 | HACCP plan: plan monitoringa, kontrolne tačke, termometri, verifikacija sistema | `/haccp-plan`; štampa `/prilozi` → HACCP plan; „Danas po planu" na `/moja` | `haccpPlan.ts` | `monitoringService` (šta danas fali), `haccpPlanService` (termometri, verifikacija, podaci za štampu), `pravilaService` (granica artikla → pravilo) | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`, `kontrolna_tacka` (opasnost, mjera, verifikacija) |
@@ -328,7 +328,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) — API testovi pa ekrani (`--sve`) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-22 testa, 589 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+23 testa, 611 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -356,7 +356,9 @@ slobodna roba, otkaz i izmjena kupca, rok obavezan i serija jednom po prijemu, d
 serije, otpremnica, jedinstven PIB — `talas3`), i mali talas 4 (bekap bez tajni, zdravlje sa bazom, 400/409 umjesto 500, zaglavlja —
 `talas4`), i talas 6 (isti upis dvaput → jedan zapis, neuspio upis ne zauzima ključ, ključ u obradi → 409 `U_TOKU`, vrijeme
 sa telefona i oznaka „bez mreže“, budućnost i starije od 36 h odbijeno, D1 i rok po DANU PREDAJE, kasna jučerašnja D1 ne mijenja
-današnji status vozila, odbijen upis javljen odgovornom licu — `talas6`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
+današnji status vozila, odbijen upis javljen odgovornom licu — `talas6`), i dorada posle probe vlasnice (D1 samo za vozilo koje
+danas vozi, vozač kad mu isporuka ode ili se izmijeni, temperatura uz stavku prijema, NC unaprijed kaže šta fali i ko provjerava,
+primljene poruke po vremenu, filteri izvještaja (pregled = CSV) i audita, nova verzija pitanja firme — `dorada`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
 fiksnim ID-jevima) i brišu sve što naprave. Nov tok u aplikaciji = nov test.
 
 Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
@@ -369,13 +371,14 @@ vraća status vozila i briše svoje kontrole. Test koji mjeri pravi svoj isprava
 na termometre demo baze. Rok je obavezan pri prijemu — testovi ga šalju (`rokZaDana()`); demo lot za isporuku se bira
 po SLOBODNOJ robi (`slobodno()` — isporuke u pripremi na demo bazi drže dio zalihe).
 
-**Testovi ekrana** (`testovi/ekrani/`, talas 6, 32 provjere): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
+**Testovi ekrana** (`testovi/ekrani/`, talas 6 i dorada, 38 provjera): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
 koristi instaliran Chrome; `PW_KANAL=msedge` za Edge; na GitHub-u je Chrome već na računaru) u veličini telefona, prijava
 kroz API pa samo kolačić u pregledač (lozinka se ne kuca u pregledač). `1_uloge` — svaka strana svake od pet uloga: otvara
 se, ne viri van ekrana (vodoravni skrol), nema greške u konzoli; meni na telefonu nudi samo strane uloge; sva četiri priloga
 za štampu. `2_teren` — vozač D1 pa predaja kroz ekran, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema,
 direktor kartica → lista. `3_bez_mreze` — vozač bez signala: sve strane sačuvane na telefonu, D1 i predaja „Sačuvano na
-telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. Scenario pravi svoje podatke
+telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. `4_dorada` — filteri izvještaja i
+audita, poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. Scenario pravi svoje podatke
 (`priprema.mjs`) i briše ih. Pomoćne funkcije su u `telefon.mjs`, NE u `pokreni.mjs` (vidi „Naučeno“ — ciklus uvoza).
 
 ---
@@ -763,6 +766,23 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     podataka i zapamćen korisnik (`pilot-korisnik-van-mreze`) brišu se pri prijavi i odjavi — zajednički telefon.
     Odjava traži mrežu (sesiju gasi server). Nov upis koji treba da radi bez mreže: `vanMreze("…")` na ruti,
     `vrijemeVanMreze()` u servisu, `upisiIliSacuvaj` u formi, `SacuvanoNaTelefonu` na ekranu, provjera u `talas6`.
+86. **D1 je obaveza DANA VOŽNJE, ne kalendara** (proba vlasnice 01.10.2026 — vozaču je stajalo crveno „kontrola
+    nije urađena“ za sva vozila iz evidencije, i posle kontrole svog). Dnevna stavka plana za D1 (`DNEVNO` /
+    `RADNIM_DANIMA`) važi samo za dan kad vozilo ima isporuku koja nije otkazana (`monitoringService.daniVoznje`) —
+    i za „danas fali“, i za „juče propušteno“, i za pregled rupa. Vozač vidi D1 samo za vozila sa SVOJIH današnjih
+    isporuka (`korisnikId` u filteru `/monitoring/danas`); Moja strana („Vozilo i kontrola“) isto. `/vozila` vraća
+    `vozi_danas`: vozilo koje danas ne vozi piše „Danas ne vozi — D1 nije potrebna“, ne „čeka D1“. Predaja i dalje
+    traži D1 tog dana (#55) — to se ne mijenja.
+87. **Vozač zna i kad mu isporuka ODE ili se promijeni** (`javiVozacuIzmjenu`): prebačena drugom vozaču ili bez
+    vozača → stari vozač dobija „Isporuka … više nije vaša — ne utovarujte“; isti vozač, a promijenjen datum, vozilo,
+    kupac ili roba → „Isporuka … je izmijenjena“ sa onim što je promijenjeno. Ko je sam izmijenio — ne obavještava se.
+88. **Izvještaji i audit se filtriraju na SERVERU, isti filter za pregled, štampu i CSV** (`izvozService.uslovFiltera`).
+    Vrijeme: prva kolona iz `DATUMSKE` koja postoji u izvoru (dan radnje prije trenutka upisa), dan po Podgorici (#11);
+    „Zaposleni“ bez vremena (`BEZ_DATUMA`). Kategorije (status, magacin, obrazac, akcija…): samo kolone sa spiska
+    `KATEGORIJSKE` koje izvor stvarno ima — naziv kolone nikad iz zahtjeva u SQL; vrijednost uvijek kao parametar;
+    spisak vrijednosti dolazi sa servera (`filteri`). Audit: period, ko, radnja, nad čim, tekst u vrijednostima
+    (`/audit/filteri`), najviše 500 redova. Ekran: `FilterVremena` (danas, 7 dana, ovaj/prošli mjesec, godina, sve, od–do);
+    filteri idu i u zaglavlje štampe.
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -949,6 +969,10 @@ repozitorijuma. Ovdje samo stanje.
 | testovi ekrana vise bez greške | scenario je uvozio pomoćne funkcije iz `pokreni.mjs`, a `pokreni.mjs` uvozi scenario uz top-level await — ciklus čeka sam sebe | pomoćne funkcije u zaseban modul (`testovi/ekrani/telefon.mjs`) |
 | kasna D1 (stigla sa telefona posle nove) vraća vozilo u staro stanje | status vozila se postavljao po POSLJEDNJOJ UPISANOJ, ne najnovijoj kontroli | status mijenja samo kontrola bez novije `izvrseno_at` (#85) |
 | posle slanja iz reda „Potvrdi“ na trenutak ponovo iskoči | stavka reda obrisana prije nego što se lista osvježila | „Predaja poslata“ 20 s ili do osvježavanja (`upravoPoslato`), lista se osvježava posle SVAKOG poslatog upisa |
+| vozaču stoji crveno „kontrola nije urađena“ i posle kontrole | plan je tražio D1 za SVAKO vozilo svakog radnog dana, a Moja strana je bez današnje isporuke pokazivala sva vozila | D1 samo za dan vožnje, vozaču samo vozila sa njegovih isporuka (#86) |
+| odgovorno lice odlučuje „Prihvati / Hold“, a ne vidi izmjerenu temperaturu | detalj prijema nije vraćao mjerenje KKT 1 | stavka nosi izmjereno, granicu (iz pravila), ocjenu i termometar; forma prijema i za robu bez režima kaže zašto nema temperature |
+| neusaglašenost „teško se zatvara“ kad je proba sama | izuzetak „bez četiri oka“ se nudio tek POSLIJE greške, a „fali ponovna kontrola“ bez puta do nje | `stanjeProvjere` u detalju: šta fali + dugme do mjesta gdje se radi, izuzetak odmah; mjera se može upisati kao već urađena (jedan korak) |
+| „gdje se upisuje plan obuke / pitanja?“ | sve je bilo na Ljudi → kartice, bez putokaza | objašnjenje na kartici, ulaz sa HACCP plana (`state: { tab, pod }`), plan za sve koji rukuju hranom odjednom, korišćeno pitanje se mijenja kao nova verzija |
 | `npm run typecheck` prolazi, a u stranici fali uvoz | korijenski `tsconfig.json` ima `"files": []` sa referencom — `tsc --noEmit` bez `-b` NE provjerava frontend (hvatao ga je samo `tsc -b` u `npm run build`) | `typecheck` = `tsc --noEmit -p tsconfig.app.json && … -p tsconfig.server.json` |
 | Prilozi na telefonu vire 26 px van ekrana | 40 px unutrašnje margine + dva potpisa u redu bez prelamanja, tabele bez skrola | `.prilog-list` (manja margina na telefonu), potpisi se prelamaju, tabele u `.data-table-wrap` — našao test ekrana |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |
@@ -1023,6 +1047,11 @@ probne fotografije + otpremnica sa cijenama; #75). Prve prave otpremnice pilot k
 dobavljača, pravi telefon, loše svjetlo, drugačiji raspored kolona) će pokazati šta još ne valja —
 tada NJIH dodati u `testovi/otpremnice/` (izmijenjenih podataka) i mjeriti. Rukopis se ne čita.
 Skeniran PDF (samo slika, bez teksta) se čuva uz prijem, stavke se upisuju ručno.
+
+**Dorada 01.10.2026 (osam stavki iz probe vlasnice) u ekranu nije proklikana ručno** — server je pokriven testom `dorada`,
+ekrani prolaze `npm run test:ekrani` (sve strane svih uloga na 375 px). Na Renderu pogledati: Izvještaji (traka perioda +
+spiskovi), Audit (filteri), Prijem → otvori prijem (kolona Temperatura), Neusaglašenost iz mjerenja (žuta traka „fali“ +
+dugme), Poruke (Sve / Primljene / Poslate), vozač bez današnje isporuke (nema crvenog), Ljudi → Godišnji plan obuke.
 
 **Rad bez interneta nije viđen na pravom telefonu** (talas 6, #85). Test ekrana ga prolazi u Chromeu sa isključenom
 mrežom (`context.setOffline`), a keš aplikacije je provjeren fajl po fajl — ali pravi Android u podrumu i iPhone nisu

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import { FilterVremena, opisPerioda, type Period } from "../components/FilterVremena";
 import { Download, AlertCircle, Printer, FileText, Search } from "lucide-react";
 import { api, preuzmiFajl, ApiGreska } from "../lib/api";
 import { PageHeader, StampaZaglavlje } from "../components/Zajednicko";
 import { NAZIVI as NAZIVI_STATUSA } from "../components/StatusBadge";
 
 type Izvor = { kod: string; naziv: string; nedostaje?: boolean };
-type Pregled = { naziv: string; kolone: string[]; redovi: Record<string, unknown>[]; ukupno: number };
+type Pregled = { naziv: string; kolone: string[]; redovi: Record<string, unknown>[]; ukupno: number; datumKolona: string | null; filteri: Record<string, string[]> };
 
 // Čitljiva zaglavlja za kolone koje se najčešće vide; ostale: "broj_dokumenta" → "Broj dokumenta".
 const ZAGLAVLJA: Record<string, string> = {
@@ -60,19 +61,29 @@ export function Izvjestaji() {
   const [pretraga, setPretraga] = useState("");
   const [greska, setGreska] = useState("");
   const [preuzimam, setPreuzimam] = useState<string | null>(null);
+  // Filter po vremenu ostaje kad se pređe na drugi izvještaj (isti period za cio inspekcijski pregled);
+  // filteri po kategoriji (status, magacin…) važe za izabrani izvještaj.
+  const [period, setPeriod] = useState<Period>({ od: "", do: "" });
+  const [polja, setPolja] = useState<Record<string, string>>({});
 
   useEffect(() => {
     api<Izvor[]>("/izvoz/izvori").then(setIzvori);
   }, []);
 
-  const otvori = async (i: Izvor) => {
-    setIzabran(i);
-    setPregled(null);
-    setPretraga("");
+  const upitFiltera = (p: Period, f: Record<string, string>) => {
+    const q = new URLSearchParams();
+    if (p.od) q.set("od", p.od);
+    if (p.do) q.set("do", p.do);
+    for (const [k, v] of Object.entries(f)) if (v) q.set(`f_${k}`, v);
+    const s = q.toString();
+    return s ? `?${s}` : "";
+  };
+
+  const ucitajPregled = async (i: Izvor, p: Period, f: Record<string, string>) => {
     setGreska("");
     setUcitavam(true);
     try {
-      setPregled(await api<Pregled>(`/izvoz/${i.kod}/pregled`));
+      setPregled(await api<Pregled>(`/izvoz/${i.kod}/pregled${upitFiltera(p, f)}`));
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Pregled nije učitan.");
     } finally {
@@ -80,12 +91,29 @@ export function Izvjestaji() {
     }
   };
 
+  const otvori = async (i: Izvor) => {
+    setIzabran(i);
+    setPregled(null);
+    setPretraga("");
+    setPolja({});
+    await ucitajPregled(i, period, {});
+  };
+  const promijeniPeriod = (p: Period) => {
+    setPeriod(p);
+    if (izabran) void ucitajPregled(izabran, p, polja);
+  };
+  const promijeniPolje = (k: string, v: string) => {
+    const f = { ...polja, [k]: v };
+    setPolja(f);
+    if (izabran) void ucitajPregled(izabran, period, f);
+  };
+
   const preuzmiCsv = async () => {
     if (!izabran) return;
     setGreska("");
     setPreuzimam(izabran.kod);
     try {
-      await preuzmiFajl(`/izvoz/${izabran.kod}.csv`, `${izabran.naziv}.csv`);
+      await preuzmiFajl(`/izvoz/${izabran.kod}.csv${upitFiltera(pregled?.datumKolona ? period : { od: "", do: "" }, polja)}`, `${izabran.naziv}.csv`);
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Preuzimanje nije uspjelo.");
     } finally {
@@ -149,8 +177,30 @@ export function Izvjestaji() {
           {!izabran && <div className="panel izvjestaj-prazno">Izaberite izvještaj lijevo — prvo se vidi na ekranu, pa se štampa ili preuzima.</div>}
           {izabran && (
             <>
-              <StampaZaglavlje naslov={izabran.naziv} filteri={[tekst ? `pretraga: „${pretraga.trim()}"` : ""]} brojRedova={redovi.length} />
+              <StampaZaglavlje
+                naslov={izabran.naziv}
+                filteri={[
+                  pregled?.datumKolona ? opisPerioda(period) : "",
+                  ...Object.entries(polja).filter(([, v]) => v).map(([k, v]) => `${naslovKolone(k)}: ${prikazi(v, k)}`),
+                  tekst ? `pretraga: „${pretraga.trim()}"` : "",
+                ]}
+                brojRedova={redovi.length}
+              />
+              {pregled?.datumKolona ? (
+                <FilterVremena period={period} onChange={promijeniPeriod} oznaka={`Period · po koloni „${naslovKolone(pregled.datumKolona)}“`} />
+              ) : (
+                pregled && <p className="muted-text no-print" style={{ fontSize: 11, margin: "0 0 10px" }}>Ovaj izvještaj nema datum — prikazuje se cio spisak.</p>
+              )}
               <div className="filter-bar">
+                {Object.entries(pregled?.filteri ?? {}).map(([k, vrijednosti]) => (
+                  <label key={k}>
+                    {naslovKolone(k)}
+                    <select value={polja[k] ?? ""} onChange={(e) => promijeniPolje(k, e.target.value)}>
+                      <option value="">Sve</option>
+                      {vrijednosti.map((v) => <option key={v} value={v}>{prikazi(v, k)}</option>)}
+                    </select>
+                  </label>
+                ))}
                 <label className="filter-pretraga">
                   Pretraga u pregledu
                   <span>
@@ -159,10 +209,10 @@ export function Izvjestaji() {
                   </span>
                 </label>
                 <span className="filter-broj">
-                  {ucitavam ? "Učitavanje..." : pregled && `${redovi.length} prikazano · u bazi ukupno ${pregled.ukupno}${pregled.ukupno > pregled.redovi.length ? ` (pregled: najnovijih ${pregled.redovi.length})` : ""}`}
+                  {ucitavam ? "Učitavanje..." : pregled && `${redovi.length} prikazano · za izabrani filter ${pregled.ukupno}${pregled.ukupno > pregled.redovi.length ? ` (pregled: najnovijih ${pregled.redovi.length}; CSV sadrži sve)` : ""}`}
                 </span>
                 <button className="secondary-button" onClick={preuzmiCsv} disabled={!pregled || preuzimam === izabran.kod}>
-                  <Download size={15} /> CSV (sve kolone)
+                  <Download size={15} /> CSV (filter, sve kolone)
                 </button>
                 <button className="primary-button" onClick={() => window.print()} disabled={!pregled || redovi.length === 0}>
                   <Printer size={15} /> Štampaj pregled

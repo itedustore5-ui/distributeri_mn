@@ -199,6 +199,50 @@ async function stoFaliZaZatvaranje(klijent: PoolClient, nc: { izvor_tip: string;
   return null;
 }
 
+export type StanjeProvjere = {
+  /** Šta mora postojati prije zatvaranja (ponovna kontrola, R-22) — null kad ništa ne fali. */
+  fali: string | null;
+  /** Gdje se to radi u aplikaciji. */
+  faliGdje: "/haccp" | "/vozila" | "/haccp-plan" | null;
+  /** Mjeru je uradio onaj ko gleda — četiri oka (#15a). */
+  svojaMjera: boolean;
+  /** …a u firmi nema drugog odgovornog lica: smije sam, uz obrazloženje (#41). */
+  izuzetakMoguc: boolean;
+  /** Ko drugi može provjeriti. */
+  drugoLice: string | null;
+};
+
+/** Isto što provjerava `verifikuj`, ali UNAPRIJED — ekran kaže šta fali i ko provjerava prije nego
+ * što se pritisne „Provjereno — zatvori“ (ranije se to saznavalo tek iz greške; proba 01.10.2026). */
+export async function stanjeProvjere(neusaglasenostId: string, korisnikId: string, uloga: string): Promise<StanjeProvjere | null> {
+  return transakcija(async (klijent) => {
+    const nc = (
+      await klijent.query<{ status: string; izvor_tip: string; izvor_id: string | null; created_at: string }>(
+        `select status, izvor_tip, izvor_id, created_at from neusaglasenost where id = $1`,
+        [neusaglasenostId],
+      )
+    ).rows[0];
+    if (!nc || nc.status !== "CEKA_VERIFIKACIJU") return null;
+    const zavrsio = (
+      await klijent.query<{ zavrsio_korisnik_id: string | null }>(
+        `select zavrsio_korisnik_id from korektivna_mjera where neusaglasenost_id = $1 and status = 'ZAVRSENA' order by zavrseno_at desc limit 1`,
+        [neusaglasenostId],
+      )
+    ).rows[0]?.zavrsio_korisnik_id;
+    const fali = await stoFaliZaZatvaranje(klijent, nc);
+    const faliGdje = !fali ? null : fali.includes("(D1)") ? "/vozila" : nc.izvor_tip === "mjerni_uredjaj" ? "/haccp-plan" : "/haccp";
+    const svojaMjera = zavrsio === korisnikId;
+    const drugi = (
+      await klijent.query<{ ime: string }>(
+        `select coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id
+         where k.uloga = 'bzr' and k.aktivan and k.id <> $1 order by 1 limit 1`,
+        [korisnikId],
+      )
+    ).rows[0];
+    return { fali, faliGdje, svojaMjera, izuzetakMoguc: svojaMjera && uloga === "bzr" && !drugi, drugoLice: drugi?.ime ?? null };
+  });
+}
+
 export async function verifikuj(
   neusaglasenostId: string,
   ulaz: { korektivnaMjeraId?: string | null; rezultat: "POTVRDJENO" | "ODBIJENO"; napomena?: string; izuzetak?: boolean },

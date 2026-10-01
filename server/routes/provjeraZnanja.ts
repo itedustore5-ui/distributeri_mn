@@ -157,6 +157,15 @@ provjeraZnanjaRuter.patch(
   }),
 );
 
+provjeraZnanjaRuter.post(
+  "/pitanja-firme/:id/nova-verzija",
+  requireUloga("bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const id = z.string().uuid().parse(request.params.id);
+    response.status(201).json({ id: await znanje.novaVerzijaPitanjaFirme(id, tijelo(pitanjeFirmeSchema, request.body), request.korisnik!.id) });
+  }),
+);
+
 provjeraZnanjaRuter.get(
   "/provjera-znanja/rezultati",
   requireUloga("bzr", "izvodjac"),

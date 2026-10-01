@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Send, MessageSquare } from "lucide-react";
+import { Send, MessageSquare, Reply } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { NAZIV_ULOGE, useAuth, type Uloga } from "../lib/auth";
 import { PageHeader } from "../components/Zajednicko";
+import { OBAVJESTENJA_PROMIJENJENA, OBAVJESTENJA_STIGLA } from "../components/Layout";
 
 type Primalac = { id: string; ime: string; uloga: Uloga };
 type Poslata = {
@@ -17,6 +18,21 @@ type Poslata = {
   posiljalac: string;
   created_at: string;
 };
+type Primljena = {
+  id: string;
+  naslov: string;
+  tekst: string | null;
+  vazno: boolean;
+  created_at: string;
+  posiljalac: string;
+  posiljalac_uloga: Uloga;
+  posiljalac_korisnik_id: string;
+  obavjestenje_id: string;
+  procitano_at: string | null;
+};
+/** Jedan spisak primljenih i poslatih — po vremenu, najnovije gore (01.10.2026). */
+type Stavka = ({ smjer: "primljena" } & Primljena) | ({ smjer: "poslata" } & Poslata);
+type Prikaz = "sve" | "primljene" | "poslate";
 type Citalac = { ime: string; uloga: Uloga; procitano_at: string | null };
 type Nacin = "svi" | "uloge" | "pojedinacno";
 
@@ -39,6 +55,8 @@ export function Poruke() {
   const odgovor = (useLocation().state as { odgovor?: { korisnikId: string; naslov: string } } | null)?.odgovor;
   const [primaoci, setPrimaoci] = useState<Primalac[]>([]);
   const [poslate, setPoslate] = useState<Poslata[]>([]);
+  const [primljene, setPrimljene] = useState<Primljena[]>([]);
+  const [prikaz, setPrikaz] = useState<Prikaz>("sve");
   const [otvorena, setOtvorena] = useState<string | null>(null);
   const [citaoci, setCitaoci] = useState<Record<string, Citalac[]>>({});
 
@@ -54,10 +72,35 @@ export function Poruke() {
   const [saljem, setSaljem] = useState(false);
 
   const ucitajPoslate = () => api<Poslata[]>("/poruke").then(setPoslate);
+  const ucitajPrimljene = () => api<Primljena[]>("/poruke/primljene").then(setPrimljene);
   useEffect(() => {
     api<Primalac[]>("/poruke/primaoci").then(setPrimaoci);
     ucitajPoslate();
+    ucitajPrimljene();
+    // Nova poruka stiže dok je strana otvorena — Layout to javi (zvonce provjerava na 30 s).
+    window.addEventListener(OBAVJESTENJA_STIGLA, ucitajPrimljene);
+    return () => window.removeEventListener(OBAVJESTENJA_STIGLA, ucitajPrimljene);
   }, []);
+
+  const svePoruke: Stavka[] = [
+    ...(prikaz === "poslate" ? [] : primljene.map((p) => ({ ...p, smjer: "primljena" as const }))),
+    ...(prikaz === "primljene" ? [] : poslate.map((p) => ({ ...p, smjer: "poslata" as const }))),
+  ].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const neprocitanih = primljene.filter((p) => !p.procitano_at).length;
+
+  const procitaj = async (p: Primljena) => {
+    if (p.procitano_at) return;
+    await api(`/obavjestenja/${p.obavjestenje_id}/procitano`, { method: "PATCH" }).catch(() => undefined);
+    window.dispatchEvent(new Event(OBAVJESTENJA_PROMIJENJENA));
+    ucitajPrimljene();
+  };
+  const odgovori = (p: Primljena) => {
+    void procitaj(p);
+    setNacin("pojedinacno");
+    setKorisnici(new Set([p.posiljalac_korisnik_id]));
+    setNaslov((p.naslov.startsWith("Odg:") ? p.naslov : `Odg: ${p.naslov}`).slice(0, 200));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const grupe = GRUPE.map((g) => ({ ...g, broj: primaoci.filter((p) => p.uloga === g.uloga).length })).filter((g) => g.broj > 0);
   const brojPrimalaca =
@@ -159,38 +202,69 @@ export function Poruke() {
         </div>
 
         <div className="panel" style={{ minHeight: "auto" }}>
-          <div className="panel-header">
-            <h2><MessageSquare size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />Poslate poruke</h2>
+          <div className="panel-header" style={{ flexWrap: "wrap", gap: 8 }}>
+            <h2><MessageSquare size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />Poruke</h2>
+            <div className="filter-tabs" style={{ margin: 0 }}>
+              <button className={prikaz === "sve" ? "selected" : ""} onClick={() => setPrikaz("sve")}>Sve</button>
+              <button className={prikaz === "primljene" ? "selected" : ""} onClick={() => setPrikaz("primljene")}>
+                Primljene{neprocitanih > 0 && <b> {neprocitanih}</b>}
+              </button>
+              <button className={prikaz === "poslate" ? "selected" : ""} onClick={() => setPrikaz("poslate")}>Poslate</button>
+            </div>
           </div>
           <div style={{ padding: "0 20px 14px" }}>
-            {poslate.length === 0 && <p className="muted-text" style={{ fontSize: 11, padding: "6px 0" }}>Još nije poslata nijedna poruka.</p>}
-            {poslate.map((p) => (
-              <div key={p.id} className="poruka-red">
-                <strong>
-                  {p.naslov}
-                  {p.vazno && <span className="vazno-oznaka">Važno</span>}
-                </strong>
-                {p.tekst && <p>{p.tekst}</p>}
-                <div className="poruka-meta">
-                  <span>{p.posiljalac} · {vrijeme(p.created_at)}</span>
-                  <span>Kome: {p.primaoci_opis}</span>
-                  <button className="link-button" onClick={() => prikaziCitaoce(p.id)}>
-                    <span className={`poruka-procitano${p.procitalo === p.broj_primalaca ? " sve" : ""}`}>
-                      Pročitalo {p.procitalo} od {p.broj_primalaca}
-                    </span>
-                  </button>
-                </div>
-                {otvorena === p.id && (
-                  <div className="poruka-meta" style={{ flexDirection: "column", alignItems: "flex-start", gap: 3, marginTop: 4 }}>
-                    {(citaoci[p.id] ?? []).map((c) => (
-                      <span key={c.ime + c.uloga}>
-                        {c.ime} ({NAZIV_ULOGE[c.uloga]}) — {c.procitano_at ? `pročitano ${vrijeme(c.procitano_at)}` : <b style={{ color: "#c34e55" }}>nije pročitano</b>}
-                      </span>
-                    ))}
+            {svePoruke.length === 0 && <p className="muted-text" style={{ fontSize: 11, padding: "6px 0" }}>Još nema poruka.</p>}
+            {svePoruke.map((p) =>
+              p.smjer === "primljena" ? (
+                <div
+                  key={`r-${p.obavjestenje_id}`}
+                  className={`poruka-red primljena${p.procitano_at ? "" : " neprocitana"}`}
+                  onClick={() => void procitaj(p)}
+                  role={p.procitano_at ? undefined : "button"}
+                >
+                  <strong>
+                    {!p.procitano_at && <span className="poruka-nova" aria-label="nepročitano" />}
+                    {p.naslov}
+                    {p.vazno && <span className="vazno-oznaka">Važno</span>}
+                  </strong>
+                  {p.tekst && <p>{p.tekst}</p>}
+                  <div className="poruka-meta">
+                    <span>Od: {p.posiljalac} ({NAZIV_ULOGE[p.posiljalac_uloga] ?? p.posiljalac_uloga}) · {vrijeme(p.created_at)}</span>
+                    {p.posiljalac_korisnik_id !== korisnik?.id && (
+                      <button className="link-button" onClick={(e) => { e.stopPropagation(); odgovori(p); }}>
+                        <Reply size={12} /> Odgovori
+                      </button>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              ) : (
+                <div key={`s-${p.id}`} className="poruka-red">
+                  <strong>
+                    {p.naslov}
+                    {p.vazno && <span className="vazno-oznaka">Važno</span>}
+                  </strong>
+                  {p.tekst && <p>{p.tekst}</p>}
+                  <div className="poruka-meta">
+                    <span>{p.posiljalac} · {vrijeme(p.created_at)}</span>
+                    <span>Kome: {p.primaoci_opis}</span>
+                    <button className="link-button" onClick={() => prikaziCitaoce(p.id)}>
+                      <span className={`poruka-procitano${p.procitalo === p.broj_primalaca ? " sve" : ""}`}>
+                        Pročitalo {p.procitalo} od {p.broj_primalaca}
+                      </span>
+                    </button>
+                  </div>
+                  {otvorena === p.id && (
+                    <div className="poruka-meta" style={{ flexDirection: "column", alignItems: "flex-start", gap: 3, marginTop: 4 }}>
+                      {(citaoci[p.id] ?? []).map((c) => (
+                        <span key={c.ime + c.uloga}>
+                          {c.ime} ({NAZIV_ULOGE[c.uloga]}) — {c.procitano_at ? `pročitano ${vrijeme(c.procitano_at)}` : <b style={{ color: "#c34e55" }}>nije pročitano</b>}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ),
+            )}
           </div>
         </div>
       </div>

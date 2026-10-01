@@ -10,6 +10,7 @@ import { lokalniDatum } from "../lib/vrijeme";
 import { ProvjeraZnanjaUlaz } from "../components/ProvjeraZnanjaUlaz";
 import { PushObavjestenja } from "../components/PushObavjestenja";
 import { DvaKoraka } from "../components/DvaKoraka";
+import { useIzlaz, IZLAZ_POSLAT } from "../lib/izlaz";
 
 type Lice = { id: string; ime: string; sifra: string; sanitarna_knjizica_rok: string | null; knjizica_status: string | null; rukuje_hranom: boolean };
 
@@ -150,19 +151,30 @@ function VozacDanas() {
   const [vozila, setVozila] = useState<VoziloStanje[]>([]);
   const [kontrole, setKontrole] = useState<KontrolaVozila[]>([]);
   const danas = lokalniDatum();
+  const izlaz = useIzlaz();
 
   useEffect(() => {
-    api<IsporukaVozaca[]>("/isporuke").then(setIsporuke);
-    api<VoziloStanje[]>("/vozila").then(setVozila);
-    api<KontrolaVozila[]>("/kontrole-vozila").then(setKontrole);
+    const ucitaj = () => {
+      api<IsporukaVozaca[]>("/isporuke").then(setIsporuke);
+      api<VoziloStanje[]>("/vozila").then(setVozila);
+      api<KontrolaVozila[]>("/kontrole-vozila").then(setKontrole);
+    };
+    ucitaj();
+    // D1 koja je čekala na telefonu je stigla — crveno se skida samo.
+    window.addEventListener(IZLAZ_POSLAT, ucitaj);
+    return () => window.removeEventListener(IZLAZ_POSLAT, ucitaj);
   }, []);
 
   const zaIsporuku = (isporuke ?? []).filter((i) => i.status === "U_PRIPREMI").sort((a, b) => a.datum_isporuke.localeCompare(b.datum_isporuke));
   const danasIsporuceno = (isporuke ?? []).filter((i) => i.status !== "U_PRIPREMI" && i.datum_isporuke === danas).length;
-  // Vozila sa mojih isporuka; bez isporuka — sva vozila, da se kontrola može uraditi unaprijed.
-  const idVozila = new Set(zaIsporuku.map((i) => i.vozilo_id).filter(Boolean));
-  const mojaVozila = idVozila.size > 0 ? vozila.filter((v) => idVozila.has(v.id)) : vozila;
+  // D1 je prije utovara (01.10.2026): traži se samo za vozilo kojim DANAS vozim. Vozilo bez današnje
+  // isporuke nije crveno — ranije su stajala crvena sva vozila iz evidencije i poslije kontrole svog.
+  const idVozila = new Set(
+    (isporuke ?? []).filter((i) => i.datum_isporuke === danas && i.status !== "OTKAZANA").map((i) => i.vozilo_id).filter(Boolean),
+  );
   const kontrolaDanas = (voziloId: string) => kontrole.find((k) => k.vozilo_id === voziloId && k.datum === danas);
+  // Vozilo na kom sam danas već uradio kontrolu ostaje na spisku (zeleno), i kad nema isporuke.
+  const mojaVozila = vozila.filter((v) => idVozila.has(v.id) || kontrolaDanas(v.id));
   const opisDatuma = (datum: string) => (datum === danas ? "danas" : datum);
 
   return (
@@ -179,9 +191,14 @@ function VozacDanas() {
             <h2><Truck size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />Vozilo i kontrola (D1)</h2>
           </div>
           <div className="danas-lista">
-            {mojaVozila.length === 0 && <p className="muted-text" style={{ fontSize: 11 }}>Nema vozila u evidenciji.</p>}
+            {isporuke !== null && mojaVozila.length === 0 && (
+              <p className="muted-text" style={{ fontSize: 11 }}>
+                Danas nemate isporuka — kontrola vozila danas nije potrebna. Kad vam dodijele isporuku za danas, vozilo se pojavi ovdje.
+              </p>
+            )}
             {mojaVozila.map((v) => {
               const k = kontrolaDanas(v.id);
+              const naTelefonu = izlaz.ceka(`vozilo:${v.id}`);
               return (
                 <div key={v.id} className="danas-red">
                   <div>
@@ -191,11 +208,13 @@ function VozacDanas() {
                         Kontrola danas u {new Date(k.izvrseno_at).toLocaleTimeString("sr-Latn-ME", { hour: "2-digit", minute: "2-digit" })} —{" "}
                         {k.ukupan_status === "PROSAO" ? "prošao" : "nije prošao"}
                       </span>
+                    ) : naTelefonu ? (
+                      <span className="ceka-mrezu">Kontrola je na telefonu — čeka mrežu</span>
                     ) : (
-                      <span className="danas-fali">Kontrola danas nije urađena</span>
+                      <span className="danas-fali">Prije utovara: kontrola danas nije urađena</span>
                     )}
                   </div>
-                  {!k && (
+                  {!k && !naTelefonu && (
                     <button className="small-action" onClick={() => navigate("/vozila")}>Uradi kontrolu</button>
                   )}
                 </div>

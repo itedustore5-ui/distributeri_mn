@@ -45,6 +45,14 @@ porukeRuter.get(
 );
 
 porukeRuter.get(
+  "/poruke/primljene",
+  sviPrijavljeni(),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    response.json(await poruke.primljenePoruke(request.korisnik!.id));
+  }),
+);
+
+porukeRuter.get(
   "/poruke/:id/primaoci",
   sviPrijavljeni(),
   asyncRuta(async (request: AuthZahtjev, response) => {

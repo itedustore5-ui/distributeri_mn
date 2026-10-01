@@ -48,9 +48,9 @@ const datum = (iso: string) => new Date(iso).toLocaleDateString("sr-Latn-ME");
 
 /** Ljudi → Provjera znanja: termini sa prolaznošću, ko je radio i koji skor, i pitanja firme koja
  * unosi odgovorno lice. Konsultantova banka joj ostaje skrivena (invarijanta #14). */
-export function ProvjeraZnanjaKartica({ verzija, onOsvjezi }: { verzija: number; onOsvjezi: () => void }) {
+export function ProvjeraZnanjaKartica({ verzija, onOsvjezi, pocetno }: { verzija: number; onOsvjezi: () => void; pocetno?: "rezultati" | "pitanja" }) {
   const navigate = useNavigate();
-  const [pod, setPod] = useState<"rezultati" | "pitanja">("rezultati");
+  const [pod, setPod] = useState<"rezultati" | "pitanja">(pocetno ?? "rezultati");
   const [sesije, setSesije] = useState<Sesija[]>([]);
   const [rezultati, setRezultati] = useState<Rezultat[]>([]);
   const [pitanja, setPitanja] = useState<PitanjeFirme[]>([]);
@@ -220,7 +220,9 @@ export function ProvjeraZnanjaKartica({ verzija, onOsvjezi }: { verzija: number;
                     <td>{p.aktivno ? <StatusBadge status="VAZI" tekst="U upotrebi" /> : <StatusBadge status="ISTEKLA" tekst="Isključeno" />}</td>
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
-                        {p.broj_odgovora === 0 && <button className="small-action" onClick={() => setModalPitanje(p)}>Izmijeni</button>}
+                        <button className="small-action" onClick={() => setModalPitanje(p)} title={p.broj_odgovora > 0 ? "Već je korišćeno — čuva se nova verzija, stara ostaje u rezultatima" : undefined}>
+                          Izmijeni
+                        </button>
                         <button
                           className="small-action"
                           onClick={() =>
@@ -266,7 +268,10 @@ function PitanjeModal({ pitanje, onClose, onSacuvano }: { pitanje?: PitanjeFirme
     const cisti = odgovori.map((o, i) => ({ o: o.trim(), i })).filter((x) => x.o);
     const telo = { tema, tekst, ponudjeniOdgovori: cisti.map((x) => x.o), tacanIndeks: cisti.findIndex((x) => x.i === tacan) };
     try {
-      if (pitanje) await api(`/pitanja-firme/${pitanje.id}`, { method: "PATCH", telo });
+      // Pitanje na koje se već odgovaralo se ne prepravlja (rezultati bi pokazivali tuđe pitanje) —
+      // čuva se kao NOVA VERZIJA, a staro se isključi i ostaje u rezultatima.
+      if (pitanje && pitanje.broj_odgovora > 0) await api(`/pitanja-firme/${pitanje.id}/nova-verzija`, { telo });
+      else if (pitanje) await api(`/pitanja-firme/${pitanje.id}`, { method: "PATCH", telo });
       else await api("/pitanja-firme", { telo });
       onSacuvano();
       onClose();
@@ -277,8 +282,12 @@ function PitanjeModal({ pitanje, onClose, onSacuvano }: { pitanje?: PitanjeFirme
 
   return (
     <Modal
-      naslov={pitanje ? "Izmjena pitanja" : "Novo pitanje firme"}
-      podnaslov="Označite tačan odgovor kružićem"
+      naslov={pitanje ? (pitanje.broj_odgovora > 0 ? "Nova verzija pitanja" : "Izmjena pitanja") : "Novo pitanje firme"}
+      podnaslov={
+        pitanje && pitanje.broj_odgovora > 0
+          ? `Na ovo pitanje je odgovaralo ${pitanje.broj_odgovora} — staro ostaje u rezultatima (isključeno), od sada važi ova verzija.`
+          : "Označite tačan odgovor kružićem"
+      }
       onClose={onClose}
       greska={greska}
       footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={posalji} disabled={!validno}>Sačuvaj</button></>}

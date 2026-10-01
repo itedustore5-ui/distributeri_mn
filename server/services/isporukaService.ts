@@ -32,6 +32,53 @@ export type NovaIsporukaUlaz = {
   stavke: StavkaIsporukeUlaz[];
 };
 
+/** Vozač saznaje i kad mu isporuka ODE (prebačena drugom vozaču ili bez vozača) i kad se promijeni
+ * dok je njegova (datum, vozilo, kupac, roba) — ranije je dobijao samo „Nova isporuka za vas“, pa je
+ * spremao robu za isporuku koja više nije njegova (01.10.2026). Ko je sam izmijenio — ne obavještava se. */
+async function javiVozacuIzmjenu(
+  klijent: PoolClient,
+  isporukaId: string,
+  u: { prethodniVozac: string | null; noviVozac: string | null; korisnikId: string; prije: Record<string, unknown>; poslije: Record<string, unknown> },
+) {
+  const i = (
+    await klijent.query<{ broj: string; kupac: string; datum: string; vozilo: string | null }>(
+      `select i.broj, k.naziv as kupac, to_char(i.datum_isporuke, 'DD.MM.YYYY.') as datum, v.registarski_broj as vozilo
+       from isporuka i join kupac k on k.id = i.kupac_id left join vozilo v on v.id = i.vozilo_id where i.id = $1`,
+      [isporukaId],
+    )
+  ).rows[0];
+  if (!i) return;
+  if (u.prethodniVozac && u.prethodniVozac !== u.noviVozac && u.prethodniVozac !== u.korisnikId) {
+    const kome = u.noviVozac
+      ? (await klijent.query<{ ime: string }>(`select coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id where k.id = $1`, [u.noviVozac])).rows[0]?.ime
+      : null;
+    await kreirajObavjestenje(klijent, {
+      korisnikId: u.prethodniVozac,
+      naslov: `Isporuka ${i.broj} više nije vaša`,
+      poruka: `${i.kupac} · ${i.datum}: ${kome ? `prebačena je vozaču ${kome}` : "vozač je skinut sa isporuke"}. Ne utovarujte robu za ovu isporuku.`,
+      ozbiljnost: "SREDNJI",
+      izvorTip: "isporuka",
+      izvorId: isporukaId,
+    });
+  }
+  if (u.noviVozac && u.noviVozac === u.prethodniVozac && u.noviVozac !== u.korisnikId) {
+    const promjene: string[] = [];
+    if (String(u.prije.datum_isporuke) !== String(u.poslije.datum_isporuke)) promjene.push(`datum je sada ${i.datum}`);
+    if (u.prije.vozilo_id !== u.poslije.vozilo_id) promjene.push(i.vozilo ? `vozilo je sada ${i.vozilo}` : "vozilo je skinuto");
+    if (u.prije.kupac_id !== u.poslije.kupac_id) promjene.push(`kupac je sada ${i.kupac}`);
+    if (JSON.stringify(u.prije.stavke) !== JSON.stringify(u.poslije.stavke)) promjene.push("promijenjena je roba ili količina");
+    if (promjene.length === 0) return;
+    await kreirajObavjestenje(klijent, {
+      korisnikId: u.noviVozac,
+      naslov: `Isporuka ${i.broj} je izmijenjena`,
+      poruka: `${i.kupac}: ${promjene.join(", ")}. Pogledajte isporuku prije utovara.`,
+      ozbiljnost: "SREDNJI",
+      izvorTip: "isporuka",
+      izvorId: isporukaId,
+    });
+  }
+}
+
 /** Vozač saznaje za isporuku iz aplikacije, ne iz poziva — i ima trag kad mu je dodijeljena.
  * Ne obavještava se ko je sam sebi upisao isporuku. */
 async function obavijestiVozaca(klijent: PoolClient, isporukaId: string, vozacId: string | null | undefined, korisnikId: string) {
@@ -240,10 +287,12 @@ export async function izmijeniIsporuku(isporukaId: string, ulaz: IzmjenaIsporuke
       [ulaz.vozilId ?? null, ulaz.vozacKorisnikId ?? null, ulaz.datumIsporuke, skladisteId, isporukaId, ulaz.kupacId ?? null],
     );
 
-    await logIzmjenaReda(klijent, { korisnikId, entitetTip: "isporuka", entitetId: isporukaId, prije, poslije: await stanjeIsporuke() });
+    const poslije = await stanjeIsporuke();
+    await logIzmjenaReda(klijent, { korisnikId, entitetTip: "isporuka", entitetId: isporukaId, prije, poslije });
     if (ulaz.vozacKorisnikId && ulaz.vozacKorisnikId !== prethodniVozac) {
       await obavijestiVozaca(klijent, isporukaId, ulaz.vozacKorisnikId, korisnikId);
     }
+    await javiVozacuIzmjenu(klijent, isporukaId, { prethodniVozac, noviVozac: ulaz.vozacKorisnikId ?? null, korisnikId, prije, poslije });
   });
 }
 

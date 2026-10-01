@@ -78,7 +78,8 @@ export async function pokreni({ provjeri }) {
     // ── Signal se vratio ───────────────────────────────────────────────────────────────────
     const t0 = new Date();
     await t.mreza(true);
-    await t.strana.locator(".izlaz-traka", { hasText: "čekaju mrežu" }).waitFor({ state: "detached", timeout: 30_000 });
+    // „2 upisa čekaju“ → „1 upis čeka“ → ništa: čeka se da ne čeka NIJEDAN (jednina i množina).
+    await t.strana.locator(".izlaz-traka", { hasText: /čeka(ju)? mrežu/ }).waitFor({ state: "detached", timeout: 30_000 });
     const d1Red = (await pool.query(`select izvrseno_at, van_mreze, created_at from kontrola_vozila where vozilo_id = $1`, [trag.vozilo])).rows;
     const isp = (await pool.query(`select status, potvrdjeno_at, potvrda_van_mreze from isporuka where id = $1`, [teren.isporukaId])).rows[0];
     provjeri("Signal se vratio: D1 stigla sama, sa oznakom „bez mreže“ i vremenom kad je urađena", d1Red.length === 1 && d1Red[0].van_mreze && new Date(d1Red[0].izvrseno_at) < t0, JSON.stringify(d1Red));

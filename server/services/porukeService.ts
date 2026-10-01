@@ -91,6 +91,22 @@ export async function poslatePoruke(korisnik: { id: string; uloga: Uloga }) {
   return r.rows;
 }
 
+/** Poruke koje je korisnik PRIMIO (svaka je njegovo obavještenje) — da na strani Poruke stoje zajedno
+ * sa poslatim, po vremenu, a ne samo izmiješane sa ostalim obavještenjima (01.10.2026). */
+export async function primljenePoruke(korisnikId: string) {
+  const r = await upit(
+    `select p.id, p.naslov, p.tekst, p.vazno, p.created_at, p.posiljalac_korisnik_id,
+            coalesce(l.ime, k.korisnicko_ime) as posiljalac, k.uloga as posiljalac_uloga,
+            o.id as obavjestenje_id, o.procitano_at
+     from obavjestenje o join poruka p on p.id = o.izvor_id
+     join korisnik k on k.id = p.posiljalac_korisnik_id left join lice l on l.id = k.lice_id
+     where o.korisnik_id = $1 and o.izvor_tip = 'poruka'
+     order by p.created_at desc limit 100`,
+    [korisnikId],
+  );
+  return r.rows;
+}
+
 /** Ko je pročitao — samo pošiljalac, a za poruke vodstva i ostalo vodstvo. */
 export async function primaociPoruke(porukaId: string, korisnik: { id: string; uloga: Uloga }) {
   const p = (

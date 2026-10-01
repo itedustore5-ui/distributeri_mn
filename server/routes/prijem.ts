@@ -44,8 +44,19 @@ prijemRuter.get(
     );
     if (!prijem.rows[0]) throw new ApiGreska(404, "PRIJEM_NE_POSTOJI", "Prijem nije pronađen.");
     const stavke = await upit(
-      `select ps.*, l.broj_lota, l.status as lot_status, l.rok_trajanja, a.naziv as artikal_naziv
+      // Temperatura KKT 1 uz stavku: ocjena i granica po kojoj je ocijenjena (iz pravila — #39) i termometar.
+      // Odgovorno lice odlučuje o lotu — mora vidjeti šta je izmjereno (ranije se nije vidjelo, 01.10.2026).
+      `select ps.*, l.broj_lota, l.status as lot_status, l.rok_trajanja, a.naziv as artikal_naziv, a.temp_kontrolisano,
+              m.rezultat as temp_rezultat, m.vrijednost as temp_izmjereno, pk.min_vrijednost as temp_min, pk.max_vrijednost as temp_max,
+              u.naziv as temp_termometar
        from prijem_stavka ps join lot l on l.id = ps.lot_id join artikal a on a.id = ps.artikal_id
+       left join lateral (
+         select x.rezultat, x.vrijednost, x.pravilo_kontrole_id, x.mjerni_uredjaj_id from mjerenje_temperature x
+         join kontrolna_tacka kt on kt.id = x.kontrolna_tacka_id
+         where x.lot_id = l.id and kt.sifra = 'KKT1' order by x.izmjereno_at limit 1
+       ) m on true
+       left join pravilo_kontrole pk on pk.id = m.pravilo_kontrole_id
+       left join mjerni_uredjaj u on u.id = m.mjerni_uredjaj_id
        where ps.prijem_id = $1 order by a.naziv`,
       [request.params.id],
     );
