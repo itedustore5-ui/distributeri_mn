@@ -675,7 +675,7 @@ Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Is
 npm run typecheck
 npm run build
 npm test             # 611 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
-npm run test:ekrani  # 38 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže
+npm run test:ekrani  # 46 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže
 ```
 
 **`npm run test:ekrani`** izgradi aplikaciju kao za Render, pokrene server u produkcijskom režimu (sa
@@ -725,6 +725,7 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `talas6` | rad bez interneta: isti upis dvaput → jedan zapis i isti odgovor, neuspio upis ne zauzima ključ, upis u obradi → pokušaj kasnije; vrijeme sa telefona i oznaka „bez mreže“ (mjerenje, D1, zapis, problem, predaja); budućnost i starije od 36 h odbijeno; predaja po danu predaje (D1 i rok tog dana); kasna jučerašnja D1 ne mijenja današnji status vozila; odbijen upis stiže do odgovornog lica |
 | `ekrani/1_uloge` | svaka strana svake od pet uloga na telefonu: otvara se, bez vodoravnog skrola, bez greške; meni nudi samo strane uloge; četiri priloga za štampu |
 | `ekrani/2_teren` | vozač D1 pa predaja, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema, direktor kartica → lista — sve kroz ekran |
+| `ekrani/5_isporuka_nc` | magacioner čiji je matični magacin prazan: forma sama nudi magacin sa robom, „Sačuvaj“ kaže šta fali; Ana sama zatvara neusaglašenost (kvačica, napomena) |
 | `ekrani/3_bez_mreze` | vozač bez signala: aplikacija sačuvana na telefonu, D1 i predaja čekaju (i posle ponovnog otvaranja), signal → odu same, redom, sa oznakom |
 | `talas5` | slika od 56 MP (mali fajl) odbijena prije obrade; izvoz bez Excel formula i sa vremenom po Podgorici; stari heš lozinke radi i pojača se; zdravlje javlja neprimijenjenu dopunu; dnevnik grešaka (pregledač, konsultant čita, 400 ne ide u dnevnik); potvrda u dva koraka — uključivanje, QR, rezervni kodovi, ponovljen kod ne važi, 5 pogrešnih = novi izazov, isključivanje, tajna nije u auditu ni bekapu, obavezna 2FA na drugom serveru |
 | `talas4` | bekap iz aplikacije bez heševa lozinki, sesija i ključeva, sa svim tabelama; stari bekapi očišćeni; zdravlje javlja i bazu; neispravan JSON, identifikator, veza i šema → 400/409 sa porukom; bezbjednosna zaglavlja |

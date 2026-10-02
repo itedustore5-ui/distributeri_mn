@@ -324,7 +324,16 @@ function IsporukaFormaModal({
   );
   const [vozacId, setVozacId] = useState(postojeca ? (postojeca.vozac_korisnik_id ?? "") : korisnik?.uloga === "vozac" ? korisnik.id : "");
   const [datum, setDatum] = useState(postojeca?.datum_isporuke ?? lokalniDatum());
-  const [skladisteId, setSkladisteId] = useState(postojeca?.skladiste_id ?? podrazumijevanoSkladiste);
+  // Magacin sa slobodnom robom koja nije istekla. Matični magacin naloga bez robe nije dobar početak:
+  // magacioneru sa praznim matičnim magacinom forma je nudila samo „nema robe“ i sivo „Sačuvaj“ (02.10.2026).
+  const imaRobe = (id: string) =>
+    zaliha.some((z) => (!z.skladiste_id || z.skladiste_id === id) && Number(z.slobodno) > 0 && !(z.rok_trajanja && z.rok_trajanja.slice(0, 10) < lokalniDatum()));
+  const [skladisteId, setSkladisteId] = useState(
+    postojeca?.skladiste_id ??
+      (skladista.length === 0 || imaRobe(podrazumijevanoSkladiste) ? podrazumijevanoSkladiste : skladista.find((s) => imaRobe(s.id))?.id ?? podrazumijevanoSkladiste),
+  );
+  const izabranoNemaRobe = skladista.length > 0 && !!skladisteId && !imaRobe(skladisteId);
+  const sRobom = skladista.filter((s) => s.id !== skladisteId && imaRobe(s.id));
   // Roba se isporučuje iz magacina u kom stoji — nude se samo lotovi izabranog skladišta.
   const lotoviSkladista = zaliha.filter((z) => !skladisteId || !z.skladiste_id || z.skladiste_id === skladisteId);
   const [redovi, setRedovi] = useState<NovaStavkaRed[]>(
@@ -373,7 +382,29 @@ function IsporukaFormaModal({
     }
   };
 
-  const validno = (izmjena || kupacId) && datum && redovi.length > 0 && redovi.every((r) => r.lotId && Number(r.kolicina) > 0);
+  // „Sačuvaj“ nije sivo bez objašnjenja (#74): klik kad nešto fali kaže ŠTA fali, uz dugme.
+  const fali = (() => {
+    const f: string[] = [];
+    if (!izmjena && !kupacId) f.push("kupac");
+    if (!datum) f.push("datum isporuke");
+    if (redovi.length === 0) f.push("bar jedan artikal");
+    redovi.forEach((r, i) => {
+      const n = redovi.length > 1 ? `stavka ${i + 1}: ` : "";
+      const lot = zaliha.find((z) => z.lot_id === r.lotId);
+      if (!r.lotId) f.push(`${n}artikal / lot${izabranoNemaRobe ? " (u izabranom magacinu nema robe — promijenite magacin)" : ""}`);
+      else if (!(Number(r.kolicina) > 0)) f.push(`${n}količina`);
+      else if (lot && Number(r.kolicina) > slobodno(lot)) f.push(`${n}količina je veća od slobodne (${slobodno(lot)})`);
+    });
+    return f;
+  })();
+  const sacuvaj = () => {
+    if (fali.length > 0) {
+      setGreska(`Za čuvanje još fali: ${fali.join(", ")}.`);
+      return;
+    }
+    setGreska("");
+    void salji(posalji);
+  };
 
   return (
     <Modal
@@ -381,7 +412,7 @@ function IsporukaFormaModal({
       podnaslov="Jedan kupac, više artikala u istoj isporuci"
       onClose={onClose}
       greska={greska}
-      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={() => salji(posalji)} disabled={radim || !validno}>Sačuvaj</button></>}
+      footer={<><button className="secondary-button" onClick={onClose}>Otkaži</button><button className="primary-button" onClick={sacuvaj} disabled={radim}>Sačuvaj</button></>}
     >
       <div className="form-grid">
         <label>
@@ -394,8 +425,24 @@ function IsporukaFormaModal({
           <label>
             Iz magacina
             <select value={skladisteId} onChange={(e) => promijeniSkladiste(e.target.value)}>
-              {skladista.map((sk) => <option key={sk.id} value={sk.id}>{sk.naziv}</option>)}
+              {skladista.map((sk) => <option key={sk.id} value={sk.id}>{sk.naziv}{imaRobe(sk.id) ? "" : " — nema slobodne robe"}</option>)}
             </select>
+            {izabranoNemaRobe && (
+              <small className="danas-fali" style={{ fontWeight: 600 }}>
+                U ovom magacinu nema slobodne robe.
+                {sRobom.length > 0 && (
+                  <>
+                    {" "}Roba je u:{" "}
+                    {sRobom.map((s, i) => (
+                      <span key={s.id}>
+                        {i > 0 && ", "}
+                        <button type="button" className="link-button" style={{ padding: 0, fontSize: "inherit" }} onClick={() => promijeniSkladiste(s.id)}>{s.naziv}</button>
+                      </span>
+                    ))}
+                  </>
+                )}
+              </small>
+            )}
           </label>
         )}
         <label>

@@ -371,14 +371,15 @@ vraća status vozila i briše svoje kontrole. Test koji mjeri pravi svoj isprava
 na termometre demo baze. Rok je obavezan pri prijemu — testovi ga šalju (`rokZaDana()`); demo lot za isporuku se bira
 po SLOBODNOJ robi (`slobodno()` — isporuke u pripremi na demo bazi drže dio zalihe).
 
-**Testovi ekrana** (`testovi/ekrani/`, talas 6 i dorada, 38 provjera): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
+**Testovi ekrana** (`testovi/ekrani/`, talas 6 i dorada, 46 provjera): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
 koristi instaliran Chrome; `PW_KANAL=msedge` za Edge; na GitHub-u je Chrome već na računaru) u veličini telefona, prijava
 kroz API pa samo kolačić u pregledač (lozinka se ne kuca u pregledač). `1_uloge` — svaka strana svake od pet uloga: otvara
 se, ne viri van ekrana (vodoravni skrol), nema greške u konzoli; meni na telefonu nudi samo strane uloge; sva četiri priloga
 za štampu. `2_teren` — vozač D1 pa predaja kroz ekran, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema,
 direktor kartica → lista. `3_bez_mreze` — vozač bez signala: sve strane sačuvane na telefonu, D1 i predaja „Sačuvano na
 telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. `4_dorada` — filteri izvještaja i
-audita, poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. Scenario pravi svoje podatke
+audita, poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. `5_isporuka_nc` — magacioner čiji je matični magacin
+prazan sprema isporuku; Ana sama zatvara neusaglašenost (kvačica „bez četiri oka“). Scenario pravi svoje podatke
 (`priprema.mjs`) i briše ih. Pomoćne funkcije su u `telefon.mjs`, NE u `pokreni.mjs` (vidi „Naučeno“ — ciklus uvoza).
 
 ---
@@ -973,6 +974,8 @@ repozitorijuma. Ovdje samo stanje.
 | odgovorno lice odlučuje „Prihvati / Hold“, a ne vidi izmjerenu temperaturu | detalj prijema nije vraćao mjerenje KKT 1 | stavka nosi izmjereno, granicu (iz pravila), ocjenu i termometar; forma prijema i za robu bez režima kaže zašto nema temperature |
 | neusaglašenost „teško se zatvara“ kad je proba sama | izuzetak „bez četiri oka“ se nudio tek POSLIJE greške, a „fali ponovna kontrola“ bez puta do nje | `stanjeProvjere` u detalju: šta fali + dugme do mjesta gdje se radi, izuzetak odmah; mjera se može upisati kao već urađena (jedan korak) |
 | „gdje se upisuje plan obuke / pitanja?“ | sve je bilo na Ljudi → kartice, bez putokaza | objašnjenje na kartici, ulaz sa HACCP plana (`state: { tab, pod }`), plan za sve koji rukuju hranom odjednom, korišćeno pitanje se mijenja kao nova verzija |
+| „kod vozača nova isporuka se čuva, kod magacionera ne“ (02.10.2026) | magacioneru je matični magacin bio bez robe („Magacin Bar“ na demo bazi); forma je nudila samo njega — lot „nema robe“ i SIVO „Sačuvaj“ bez riječi. Vozač nema matični magacin, pa je dobijao Glavni | forma bira magacin u kom ima slobodne robe, uz magacin piše „nema slobodne robe — roba je u: …“ (klik prebacuje); „Sačuvaj“ nikad sivo — kaže šta fali (#74). Test ekrana `5_isporuka_nc` |
+| „neusaglašenost neće da se zatvori“ (02.10.2026) | posle dorade 01.10. dugme „Provjereno — zatvori“ je bilo SIVO dok se ne označi kvačica izuzetka — kršenje #74 koje je dorada sama uvela; greška je stajala na VRHU prozora, a ispod mjere je i dalje stajala forma „Nova korektivna mjera“ | dugme uvijek aktivno, klik kaže šta fali; greška uz dugmad (skrol do nje); dok mjera čeka provjeru — nema forme za novu mjeru; tekst na vrhu kaže tačno šta da se uradi |
 | `npm run typecheck` prolazi, a u stranici fali uvoz | korijenski `tsconfig.json` ima `"files": []` sa referencom — `tsc --noEmit` bez `-b` NE provjerava frontend (hvatao ga je samo `tsc -b` u `npm run build`) | `typecheck` = `tsc --noEmit -p tsconfig.app.json && … -p tsconfig.server.json` |
 | Prilozi na telefonu vire 26 px van ekrana | 40 px unutrašnje margine + dva potpisa u redu bez prelamanja, tabele bez skrola | `.prilog-list` (manja margina na telefonu), potpisi se prelamaju, tabele u `.data-table-wrap` — našao test ekrana |
 | temperatura na KKT 3 ocijenjena po drugoj granici nego na KKT 1 | KKT 3 je padao na `artikal.temp_*` kad pravila nema, KKT 1 nije | jedan izvor — pravilo (invarijanta #39); dopuna 24 napravila pravila iz postojećih granica |

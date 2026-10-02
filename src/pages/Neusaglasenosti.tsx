@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Check, ArrowRight } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
@@ -191,6 +191,10 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
   // Četiri oka u maloj firmi (H7): server kaže da li je izuzetak moguć; tek tada se nudi.
   const [izuzetakMoguc, setIzuzetakMoguc] = useState(false);
   const [izuzetak, setIzuzetak] = useState(false);
+  const greskaRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (greska) greskaRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [greska]);
   const p = detalj.provjera;
   useEffect(() => {
     if (p?.izuzetakMoguc) setIzuzetakMoguc(true);
@@ -207,14 +211,28 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
       if (e instanceof ApiGreska && e.code === "VERIFIKACIJA_NIJE_NEZAVISNA" && e.details.izuzetakMoguc === true) setIzuzetakMoguc(true);
     }
   };
-  const provjeri = (rezultat: "POTVRDJENO" | "ODBIJENO") =>
-    radnja(
+  const provjeri = (rezultat: "POTVRDJENO" | "ODBIJENO") => {
+    // Ništa sivo bez objašnjenja (#74, proba 02.10.2026: „neće da se zatvori“ — dugme je bilo sivo).
+    if (rezultat === "POTVRDJENO" && p?.fali) {
+      setGreska(`Još ne može: ${p.fali}`);
+      return;
+    }
+    if (izuzetakMoguc && !izuzetak) {
+      setGreska("Mjeru ste uradili vi, a drugog odgovornog lica nema: označite kvačicu iznad („provjeru radim bez drugog lica“) i upišite šta ste pregledali.");
+      return;
+    }
+    if (izuzetakMoguc && izuzetak && napomena.trim().length < 10) {
+      setGreska(`Upišite šta ste pregledali — još ${10 - napomena.trim().length} znakova (najmanje 10).`);
+      return;
+    }
+    return radnja(
       () =>
         api(`/neusaglasenosti/${detalj.id}/verifikacija`, {
           telo: { rezultat, napomena: napomena || undefined, izuzetak: izuzetak || undefined },
         }),
       "Provjera nije sačuvana.",
     );
+  };
 
   const k = korak(detalj.status);
   const otvorenaMjera = detalj.korektivneMjere.find((m) => m.status !== "ZAVRSENA");
@@ -227,11 +245,14 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
     }
     // Iz kontrole se zatvara tek kad ponovna kontrola prođe (R-22) — server to provjerava i kaže šta fali.
     const ponovo = detalj.izvor_tip === "mjerenje_temperature" ? " Prije zatvaranja mora postojati novo mjerenje u granici." : detalj.izvor_tip === "kontrola_vozila" ? " Prije zatvaranja nova kontrola vozila (D1) mora proći." : detalj.izvor_tip === "mjerni_uredjaj" ? " Prije zatvaranja termometar mora proći novu provjeru." : "";
-    return vodiSistem ? `Mjera je urađena — provjerite na licu mjesta i zatvorite. Ne može provjeriti ista osoba koja je uradila mjeru.${ponovo}` : `Mjera je urađena — čeka provjeru odgovornog lica.${ponovo}`;
+    if (!vodiSistem) return `Mjera je urađena — čeka provjeru odgovornog lica.${ponovo}`;
+    if (detalj.provjera?.izuzetakMoguc) return `Mjera je urađena. Uradili ste je vi, a drugog odgovornog lica nema — zatvarate sami: ispod označite kvačicu, upišite šta ste pregledali i „Provjereno — zatvori“.${ponovo}`;
+    if (detalj.provjera?.svojaMjera) return `Mjera je urađena. Uradili ste je vi — provjerava i zatvara ${detalj.provjera.drugoLice ?? "drugo odgovorno lice"} (četiri oka).${ponovo}`;
+    return `Mjera je urađena — provjerite na licu mjesta i zatvorite.${ponovo}`;
   })();
 
   return (
-    <Modal naslov={detalj.broj} podnaslov={detalj.izvor_oznaka ?? "Prijava"} onClose={onClose} greska={greska}>
+    <Modal naslov={detalj.broj} podnaslov={detalj.izvor_oznaka ?? "Prijava"} onClose={onClose}>
       <div style={{ padding: 20 }}>
         <div className="nc-koraci">
           {KORACI.map((naziv, i) => (
@@ -288,7 +309,7 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
           );
         })}
 
-        {vodiSistem && detalj.status !== "ZATVORENA" && !otvorenaMjera && (
+        {vodiSistem && detalj.status !== "ZATVORENA" && detalj.status !== "CEKA_VERIFIKACIJU" && !otvorenaMjera && (
           <div className="form-grid nc-nova-mjera">
             <label style={{ gridColumn: "1 / -1" }}>
               Nova korektivna mjera
@@ -363,18 +384,19 @@ function NcDetaljModal({ detalj, vodiSistem, mojId, onClose, onOsvjezi }: { deta
               </label>
             )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                className="primary-button"
-                disabled={cekaDrugog || !!p?.fali || (izuzetakMoguc && (!izuzetak || napomena.trim().length < 10))}
-                title={p?.fali ? "Prvo ponovna kontrola — vidi iznad" : izuzetakMoguc && !izuzetak ? "Označite kvačicu iznad i upišite šta ste pregledali" : undefined}
-                onClick={() => provjeri("POTVRDJENO")}
-              >
+              <button className="primary-button" disabled={cekaDrugog} onClick={() => provjeri("POTVRDJENO")}>
                 Provjereno — zatvori
               </button>
-              <button className="secondary-button" disabled={cekaDrugog || (izuzetakMoguc && (!izuzetak || napomena.trim().length < 10))} onClick={() => provjeri("ODBIJENO")}>
+              <button className="secondary-button" disabled={cekaDrugog} onClick={() => provjeri("ODBIJENO")}>
                 Nije riješeno — vrati
               </button>
             </div>
+          </div>
+        )}
+
+        {greska && (
+          <div ref={greskaRef} className="auth-error" role="alert" style={{ marginTop: 12 }}>
+            {greska}
           </div>
         )}
 
