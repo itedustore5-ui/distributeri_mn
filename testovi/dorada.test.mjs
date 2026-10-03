@@ -62,6 +62,23 @@ export async function pokreni({ provjeri }) {
     for (const s of detalj?.stavke ?? []) await ana(`/prijem/${p.tijelo.id}/lot/${s.lot_id}/odluka`, { method: "PATCH", telo: { odluka: "PRIHVATI", kolicina: 10 } });
     const lotKeks = sS?.lot_id;
 
+    // ── Istekao rok na prijemu (02.10.2026): čitljiv datum i put do ispravke ────────────────────
+    const prijemX = await marko("/prijem", {
+      telo: { dobavljacId: dobavljac.id, brojDokumenta: `${oznaka}-2`, datumPrijema: danasCG(), skladisteId, stavke: [{ artikalId: suho.tijelo.id, brojLota: `${oznaka}-X`, primljenaKolicina: 5, rokTrajanja: rokZaDana(-1) }] },
+      zaglavlja: { "x-kljuc-zahtjeva": K("prijem2") },
+    });
+    t.prijemi.push(prijemX.tijelo?.id);
+    const lotX = (await pool.query(`select id from lot where prijem_id = $1`, [prijemX.tijelo?.id])).rows[0]?.id;
+    const odbijeno = await ana(`/prijem/${prijemX.tijelo?.id}/lot/${lotX}/odluka`, { method: "PATCH", telo: { odluka: "PRIHVATI", kolicina: 5 } });
+    provjeri(
+      "Istekao rok: ne prihvata se, poruka ima datum kako se čita (dd.mm.gggg.) i kaže kako se ispravlja pogrešan rok",
+      odbijeno.status === 409 && odbijeno.tijelo.error.code === "ROK_ISTEKAO" && /\d{2}\.\d{2}\.\d{4}\./.test(odbijeno.tijelo.error.message) && /Izmijeni/.test(odbijeno.tijelo.error.message),
+      odbijeno.tijelo?.error?.message,
+    );
+    const ispravka = await ana(`/prijem/${prijemX.tijelo?.id}/lot/${lotX}`, { method: "PATCH", telo: { rokTrajanja: rokZaDana(30) } });
+    const prihvaceno = await ana(`/prijem/${prijemX.tijelo?.id}/lot/${lotX}/odluka`, { method: "PATCH", telo: { odluka: "PRIHVATI", kolicina: 5 } });
+    provjeri("…pogrešno ukucan rok se ispravi na stavci, pa se roba prihvata", ispravka.status < 300 && prihvaceno.status < 300, `${ispravka.status} ${prihvaceno.status} ${prihvaceno.tijelo?.error?.message ?? ""}`);
+
     // ── D1 samo za vozilo koje danas vozi ────────────────────────────────────────────────────
     const v = await ana("/vozila", { telo: { registarskiBroj: `E2E-${oznaka.slice(-7)}`, tip: "kombi", tempKontrolisano: false } });
     t.vozilo = v.tijelo?.id;

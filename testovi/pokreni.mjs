@@ -28,10 +28,11 @@ const fajlovi = (await fs.readdir(folder)).filter((f) => f.endsWith(".test.mjs")
 const sazetak = [];
 
 for (const fajl of fajlovi) {
-  const modul = await import(pathToFileURL(path.join(folder, fajl)).href);
   const { lista, provjeri } = noviRezultati();
-  console.log(`\n▶ ${modul.naziv ?? fajl}`);
   try {
+    // Uvoz u try: fajl sa greškom (npr. sintaksa) je pao test, ne pad cijelog prolaza.
+    const modul = await import(pathToFileURL(path.join(folder, fajl)).href);
+    console.log(`\n▶ ${modul.naziv ?? fajl}`);
     await modul.pokreni({ provjeri });
   } catch (e) {
     lista.push({ naziv: "test se srušio", ok: false });

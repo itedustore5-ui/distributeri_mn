@@ -469,7 +469,12 @@ export async function donesiOdlukuOLotu(lotId: string, odluka: Odluka, kolicina:
       const rok = await klijent.query<{ rok_trajanja: string | null }>(`select rok_trajanja from lot where id = $1`, [lotId]);
       const r = rok.rows[0]?.rok_trajanja;
       if (r && r < danasCG()) {
-        throw new ApiGreska(409, "ROK_ISTEKAO", `Rok trajanja je istekao (${r}) — roba se ne prihvata. Odbijte je: povrat dobavljaču ili uništenje.`);
+        const rokCitljiv = `${String(r).slice(0, 10).split("-").reverse().join(".")}.`;
+        throw new ApiGreska(
+          409,
+          "ROK_ISTEKAO",
+          `Rok trajanja je istekao ${rokCitljiv} — istekla roba se ne prihvata. Odbijte je (povrat dobavljaču ili uništenje). Ako je rok pogrešno ukucan, ispravite ga na stavci („Izmijeni“), pa prihvatite.`,
+        );
       }
     }
     if (odluka === "ODBIJI" && (!napomena || napomena.trim() === "")) {

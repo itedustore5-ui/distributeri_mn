@@ -674,7 +674,7 @@ Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Is
 ```bash
 npm run typecheck
 npm run build
-npm test             # 611 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 613 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 npm run test:ekrani  # 46 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže
 ```
 

@@ -43,6 +43,10 @@ type Stavka = {
   temp_termometar?: string | null;
 };
 
+const citljivDatum = (iso: string) => `${iso.slice(0, 10).split("-").reverse().join(".")}.`;
+/** Rok trajanja je prošao (po Podgorici — #11). Istekla roba se upisuje, ali se ne prihvata ni pušta (#38). */
+const istekao = (s: { rok_trajanja: string | null }) => !!s.rok_trajanja && s.rok_trajanja.slice(0, 10) < lokalniDatum();
+
 /** Temperatura pri prijemu (KKT 1) uz stavku — sa granicom i ocjenom, da odgovorno lice odlučuje znajući šta je izmjereno. */
 function TemperaturaPrijema({ s }: { s: Stavka }) {
   const t = s.temp_izmjereno ?? s.temperatura_prijema;
@@ -107,9 +111,12 @@ export function Prijem() {
 
   const donesiOdluku = async (prijemId: string, lotId: string, odluka: "PRIHVATI" | "HOLD" | "ODBIJI", kolicina: number) => {
     let napomena: string | undefined;
-    const izHolda = stavke[prijemId]?.find((s) => s.lot_id === lotId)?.lot_status === "HOLD";
+    const stavka = stavke[prijemId]?.find((s) => s.lot_id === lotId);
+    const izHolda = stavka?.lot_status === "HOLD";
     if (odluka === "ODBIJI" || izHolda) {
-      napomena = window.prompt(izHolda && odluka === "PRIHVATI" ? "Zašto se zadržana roba pušta (obavezno):" : "Razlog odbijanja (obavezno):") ?? undefined;
+      // Istekla roba: razlog je već poznat — predlaže se, može se dopuniti.
+      const predlog = stavka && istekao(stavka) ? `Istekao rok trajanja (${citljivDatum(stavka.rok_trajanja!)}) — povrat dobavljaču` : "";
+      napomena = window.prompt(izHolda && odluka === "PRIHVATI" ? "Zašto se zadržana roba pušta (obavezno):" : "Razlog odbijanja (obavezno):", predlog) ?? undefined;
       if (!napomena) return;
     }
     try {
@@ -118,6 +125,7 @@ export function Prijem() {
       ucitaj();
     } catch (e) {
       setGreska(e instanceof ApiGreska ? e.message : "Odluka nije sačuvana.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -228,20 +236,29 @@ export function Prijem() {
                                 <td><StatusBadge status={s.lot_status} /></td>
                                 <td>
                                   {s.lot_status === "PRIMLJEN" ? (
-                                    <div style={{ display: "flex", gap: 6 }}>
+                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                       <button className="small-action" onClick={() => setModalIzmjena({ prijemId: p.id, stavka: s })}>Izmijeni</button>
-                                      {moguOdlucivati && (
+                                      {moguOdlucivati && !istekao(s) && (
                                         <>
                                           <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "PRIHVATI", Number(s.primljena_kolicina))}>Prihvati</button>
                                           <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "HOLD", Number(s.primljena_kolicina))}>Hold</button>
                                           <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "ODBIJI", Number(s.primljena_kolicina))}>Odbij</button>
                                         </>
                                       )}
+                                      {/* Istekla roba se ne prihvata (#38): odbija se, a ako je rok pogrešno ukucan — „Izmijeni“. */}
+                                      {moguOdlucivati && istekao(s) && (
+                                        <>
+                                          <button className="small-action odstupanje-dugme" onClick={() => donesiOdluku(p.id, s.lot_id, "ODBIJI", Number(s.primljena_kolicina))}>
+                                            Odbij — istekao rok
+                                          </button>
+                                          <span className="muted-text" style={{ fontSize: 10, flexBasis: "100%" }}>Rok pogrešno ukucan? „Izmijeni“ pa prihvatite.</span>
+                                        </>
+                                      )}
                                     </div>
                                   ) : s.lot_status === "HOLD" && moguOdlucivati ? (
                                     <div style={{ display: "flex", gap: 6 }}>
-                                      <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "PRIHVATI", Number(s.primljena_kolicina))}>Pusti</button>
-                                      <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "ODBIJI", Number(s.primljena_kolicina))}>Odbij</button>
+                                      {!istekao(s) && <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "PRIHVATI", Number(s.primljena_kolicina))}>Pusti</button>}
+                                      <button className="small-action" onClick={() => donesiOdluku(p.id, s.lot_id, "ODBIJI", Number(s.primljena_kolicina))}>{istekao(s) ? "Odbij — istekao rok" : "Odbij"}</button>
                                     </div>
                                   ) : (
                                     <span className="muted-text">Odlučeno</span>
