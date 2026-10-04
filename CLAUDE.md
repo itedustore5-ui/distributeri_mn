@@ -50,7 +50,7 @@ pisano ne odredi ko je to, to je izvršni direktor. *(likely — iz teksta kazni
 | # | Šta | Čime |
 |---|---|---|
 | 1 | Direktor potpiše rješenje o imenovanju | `/prilozi` → prva stavka |
-| 2 | Imenovanom licu se otvara nalog `bzr` | `npm run prvi-korisnik` |
+| 2 | Imenovanom licu se otvara nalog `bzr`, a konsultantu `izvodjac` (bez njega nema direktora, podataka firme ni obavještenja „bez četiri oka“) | `npm run prvi-korisnik -- … --konsultant …` |
 | 3 | To lice dobija Kontrolni centar kao prvu stranu | `/tabla`, automatski po ulozi |
 | 4 | Upisuje sve zaposlene; kod onih koji rukuju hranom — rok sanitarne knjižice | `/ljudi` → Svi zaposleni |
 | 5 | Magacioneri (`operater`) i vozači (`vozac`) dobijaju naloge — **otvara ih sam**, odmah pri unosu zaposlenog, sa početnom lozinkom i ceduljicom za štampu | `/ljudi` → Novo lice / „Otvori nalog" |
@@ -223,7 +223,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Prilozi, izvještaji, izvoz | `/prilozi`, `/izvjestaji` | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
 | Inspekcijski paket | `/inspekcija` (meni „Za inspekciju“): štampa / PDF i ZIP sa CSV | `inspekcija.ts` | `inspekcijaService` (+ `pregledPlana` iz `monitoringService`, `izvezi` iz `izvozService`), `server/zip.ts` | samo čita (sve evidencije za period) |
 | Audit | `/audit` („bilo → sada“) | `audit.ts` | `auditService` (`stanjeReda`, `logIzmjenaReda`) | `audit_log` (`dogadjaj` se od faze 4 ne puni — stari redovi ostaju) |
-| Bekap | `/tabla` (kartica) — bez tajni (#68); pun bekap je `npm run bekap` | `bekap.ts` | `bekapService` | `bekap_log` |
+| Bekap | `/tabla` (kartica „Preuzmi bekap sada“) — preuzima se, u bazi samo trag (#68); pun bekap je `npm run bekap` | `bekap.ts` | `bekapService` (`pisiBekap`, sedmični podsjetnik) | `bekap_log` (ko je i kad preuzeo) |
 | Rad bez interneta (#85) | traka na vrhu svake strane (`VanMreze.tsx`), „Sačuvano na telefonu“; red `src/lib/izlaz.ts`; `public/sw.js` | `vanMreze.ts` (odbijeni upisi) + posrednik `server/vanMreze.ts` na D1, predaji, mjerenju, zapisu i prijavi problema | `vrijemeVanMreze()` u `vozilaService`, `isporukaService`, `haccpService`, `ncService` | `van_mreze_odbijeno`, `kljuc_zahtjeva`, kolona `van_mreze` (`potvrda_van_mreze` na isporuci) |
 | Podešavanje (konsultant) | `/admin` | `firma.ts`, `provjeraZnanja.ts` | — | `firma`, banka pitanja konsultanta |
 
@@ -283,7 +283,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `13_demo_cg` | **demo podaci — samo `npm run seed:demo`, samo demo baza** |
 | `14_povlacenje` | `povlacenje`, `povlacenje_kontakt` |
 | `15_isporuka_uneo_cg` | `isporuka.uneo_korisnik_id` |
-| `16_bekap_cg` | `bekap_log` (bekap u ISTOJ bazi) |
+| `16_bekap_cg` | `bekap_log` (bekap u ISTOJ bazi — od dopune 35 samo trag preuzimanja) |
 | `17_naknadno_cg` | pogledi sa `naknadno_dana` za izvoz |
 | `18_temperatura_predaje_cg` | `isporuka_stavka.temperatura_predaje` (KKT 3) |
 | `19_skladista_poruke_cg` | `skladiste` (+ veze na prijem/isporuku/nalog), `poruka` |
@@ -296,6 +296,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `26_talas1_cg` | CHECK zaliha ≥ 0 i količine stavke isporuke (`NOT VALID`, pa provjera starih redova — ako ne prođe, samo `notice`, a pravilo važi za nove upise); `kljuc_zahtjeva` (R-10) |
 | `27_talas2_cg` | `mjerenje_temperature.mjerni_uredjaj_id` (R-23); `kontrola_vozila` + `granica_min/max`, `temperatura_ok` (R-05); jedinstven `zapis.ispravlja_id` (R-07, u `do`-bloku — grananje na staroj bazi daje `notice`); pogledi za izvoz `v_izvoz_kontrole_vozila`, `v_izvoz_provjere_nc`, `v_izvoz_termometri`, `v_izvoz_verifikacija_sistema`, `v_izvoz_kretanja_zalihe` (R-20) |
 | `28_talas3_otkaz_cg` | samo `isporuka_status_t` + `OTKAZANA` — nova vrijednost enuma u svom fajlu (ne smije se koristiti u istoj transakciji) |
+| `35_bekap_preuzimanje_cg` | `bekap_log.podaci` može biti prazno + `velicina_bajtova`; stare kopije podataka obrisane (bekap se više ne čuva u bazi, #68) |
 | `34_van_mreze_cg` | rad bez interneta (#85): `van_mreze` na mjerenju, D1, zapisu i neusaglašenosti, `isporuka.potvrda_van_mreze`; `van_mreze_odbijeno` (sa RLS-om) |
 | `33_talas5_cg` | potvrda u dva koraka (`korisnik.totp_*`, `prijava_izazov`) i dnevnik grešaka (`greska_log`) — obje tabele sa RLS-om (#78, #80, #81) |
 | `32_bezbjednost_baze_cg` | RLS na svim tabelama šeme public (bez politika), pogledi `security_invoker`, `anon`/`authenticated` bez prava i bez podrazumijevanih prava — samo gdje te uloge postoje (#78, R-12) |
@@ -309,8 +310,8 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 
 | Alat | Šta radi |
 |---|---|
-| `npm run prvi-korisnik -- --firma … --ime … --korisnik …` | prvi `bzr` nalog u novoj bazi |
-| `npm run dnevni-pregled` | stanje svih klijenata iz `alati/klijenti.txt`; izlazni kod 1 ako je neko u zastoju |
+| `npm run prvi-korisnik -- --firma … --ime … --korisnik … [--konsultant …]` | prvi nalozi u NOVOJ bazi: `bzr` i (preporučeno) `izvodjac`; jedna transakcija, audit, privremene lozinke. Ispiše u koju bazu upisuje; bazu koja već ima `bzr`/`izvodjac` odbija (demo iz `.env`!). Samo `--konsultant …` — konsultant naknadno |
+| `npm run dnevni-pregled` | stanje svih klijenata iz `alati/klijenti.txt` (+ veličina baze i otpremnica); izlazni kod 1 ako je neko u zastoju ili mu je baza ≥ `BAZA_UPOZORENJE_MB` (400). `KLIJENTI_FAJL=` drugi spisak (test ga usmjerava na nepostojeći, da gleda samo `DATABASE_URL`) |
 | `alati/napravi-licencu.ts` | licencni ključ za ugovor (papirni trag, aplikacija ga ne provjerava) |
 | `npm run demo-lozinke` | nove lozinke pet demo naloga, SAMO na demo bazi; upiše ih u `.env` (`DEMO_LOZINKA_*`) za `test:e2e` |
 | `npm run iskljuci-2fa -- --korisnik ime` | isključi 2FA nalogu bez telefona i rezervnih kodova (#81); prekida prijave, audit |
@@ -329,7 +330,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) — API testovi pa ekrani (`--sve`) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-24 testa, 639 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+25 testova, 647 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -361,7 +362,8 @@ današnji status vozila, odbijen upis javljen odgovornom licu — `talas6`), i d
 danas vozi, vozač kad mu isporuka ode ili se izmijeni, temperatura uz stavku prijema, NC unaprijed kaže šta fali i ko provjerava,
 primljene poruke po vremenu, filteri izvještaja (pregled = CSV) i audita, nova verzija pitanja firme, „Riješeno je“ — jedino odgovorno lice zatvara jednim upisom, sa drugim čeka četiri oka, konsultant ne zatvara, iz mjerenja čeka ponovno mjerenje, dodijeljena mjera se završava, povlačenje mora biti završeno — `dorada`), i inspekcijski paket (prijem sa temperaturom i termometrom, mjerenje van granice i
 njegova neusaglašenost, zapis upisan dan kasnije i ispravka — obje verzije, kontinuitet broji naknadne, period provjeren na serveru,
-direktor ga izvlači, ZIP prolazi kontrolni zbir svakog fajla, bez audita — `inspekcija`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
+direktor ga izvlači, ZIP prolazi kontrolni zbir svakog fajla, bez audita — `inspekcija`), i alati (prvi-korisnik na novoj praznoj bazi pravi odgovorno lice i konsultanta, odbija bazu koja
+već ima vodstvo i bazu bez tabela; dnevni-pregled javlja veličinu baze i upozorava — `alati`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
 fiksnim ID-jevima) i brišu sve što naprave. Nov tok u aplikaciji = nov test.
 
 Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
@@ -633,10 +635,13 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     pošiljalac i primaoci**; vodstvo (bzr, konsultant, uprava) i dalje vidi poruke drugih iz vodstva
     (da dvoje ne šalje različita uputstva istim ljudima). Ko je pročitao vidi pošiljalac (i vodstvo za
     poruke vodstva) — tuđa poruka → 404.
-68. **Bekap iz aplikacije je bez tajni** (R-19, `bekapService`): bez heševa lozinki, sesija, VAPID
-    ključa, push uređaja, ključeva zahtjeva i samog fajla otpremnice; sa svim poslovnim tabelama (i HACCP
-    sistema). Preuzima se na računar i šalje dalje — pun bekap sa svim je `npm run bekap` (pg_dump).
-    Nova tabela sa tajnom → u `TABELE` ne ide, ili njena kolona u `BEZ_KOLONA`.
+68. **Bekap iz aplikacije je bez tajni i NE čuva se u bazi** (R-19, `bekapService`): bez heševa lozinki, sesija,
+    VAPID ključa, push uređaja, ključeva zahtjeva i samog fajla otpremnice; sa svim poslovnim tabelama (i HACCP
+    sistema). `GET /bekap/preuzmi` piše JSON direktno u odgovor, tabelu po tabelu iz jednog snimka (repeatable read),
+    uz backpressure i prekid ako veza pukne; u `bekap_log` ostaje samo ko/kad/koliko (dopuna 35 — ranije je svaka
+    kopija, i sedmična automatska, ostajala u istoj bazi 90 dana i punila besplatnih 500 MB, a od gubitka baze nije
+    štitila). Sedmično: samo PODSJETNIK odgovornom licu kad 7 dana niko nije preuzeo (najviše jednom u 7 dana).
+    Pun bekap sa svim je `npm run bekap` (pg_dump). Nova tabela sa tajnom → u `TABELE` ne ide, ili njena kolona u `BEZ_KOLONA`.
 69. **Kriv zahtjev je 4xx, ne 500** (R-26, `greskaHandler`): `ZodError` → 400, neispravan JSON → 400,
     PostgreSQL 22P02/22007/22008/22003 → 400, 23503 → 409 „zapis ne postoji“, 23505 → 409, 23514 → 409.
     Poruka iz šeme (na našem jeziku) ide na ekran umjesto opšte. 500 ostaje samo za pravu grešku servera.
@@ -1006,6 +1011,9 @@ repozitorijuma. Ovdje samo stanje.
 | „kod vozača nova isporuka se čuva, kod magacionera ne“ (02.10.2026) | magacioneru je matični magacin bio bez robe („Magacin Bar“ na demo bazi); forma je nudila samo njega — lot „nema robe“ i SIVO „Sačuvaj“ bez riječi. Vozač nema matični magacin, pa je dobijao Glavni | forma bira magacin u kom ima slobodne robe, uz magacin piše „nema slobodne robe — roba je u: …“ (klik prebacuje); „Sačuvaj“ nikad sivo — kaže šta fali (#74). Test ekrana `5_isporuka_nc` |
 | „neusaglašenost neće da se zatvori“ (02.10.2026) | posle dorade 01.10. dugme „Provjereno — zatvori“ je bilo SIVO dok se ne označi kvačica izuzetka — kršenje #74 koje je dorada sama uvela; greška je stajala na VRHU prozora, a ispod mjere je i dalje stajala forma „Nova korektivna mjera“ | dugme uvijek aktivno, klik kaže šta fali; greška uz dugmad (skrol do nje); dok mjera čeka provjeru — nema forme za novu mjeru; tekst na vrhu kaže tačno šta da se uradi |
 | „kad hoću da neusaglašenost zatvorim, nešto se nesretno završava“ (03.10.2026, NC iz povlačenja) | zatvaranje je bilo četiri radnje: mjera (opis, kome, rok) → „Urađeno“ → napomena + kvačica → „Provjereno — zatvori“; za povlačenje nije ni pisalo da prvo treba završiti povlačenje | „Riješeno je — upiši“ kao prvi izbor: jedan upis, server sam odluči — zatvori, čeka drugog ili čeka ponovnu kontrolu/kraj povlačenja — i kaže koje (#89) |
+| besplatna Supabase baza bi se napunila za nekoliko mjeseci, a da niko ne zna (04.10.2026) | bekap iz aplikacije (i sedmični automatski) čuvao je PUNU kopiju podataka u istoj bazi 90 dana — ~13 kopija; od gubitka baze ne štiti, a na 500 MB baza prelazi u „samo čitanje“ | bekap se preuzima direktno, u bazi samo trag (dopuna 35, #68); veličina baze u `dnevni-pregled` sa upozorenjem na 400 MB |
+| na novoj instanci klijenta niko nije mogao otvoriti nalog direktoru ni upisati PIB firme | `prvi-korisnik` je pravio samo `bzr`, a `bzr` otvara samo magacionere i vozače (#13); Podešavanje je samo konsultantovo | `prvi-korisnik --konsultant …`; alat i odbija bazu koja već ima `bzr`/`izvodjac` (da se ne upiše u demo iz `.env`) |
+| Python izmjena kroz bash heredoc „prošla“, a fajl nepromijenjen (assert na „⚠“) | konzola čita heredoc u cp1252 — znakovi van nje (⚠ ✓) se pokvare, pa se tekst ne poklopi | izmjene sa takvim znakovima: `.py` fajl napisan alatom (UTF-8), ne heredoc |
 | „Rok trajanja je istekao (2026-10-02)“ — Ana nije znala šta sad (03.10.2026) | pravilo je ispravno (#38), ali poruka je imala datum kao `2026-10-02`, nije rekla da se pogrešno ukucan rok ispravlja, „Prihvati“ se nudio iako ne može, a greška je stajala na vrhu strane | datum „02.10.2026.“, uputstvo „Izmijeni“ → prihvati; za isteklu robu umjesto Prihvati/Hold/Pusti stoji „Odbij — istekao rok“ sa predloženim razlogom; skrol do greške |
 | jedan test sa sintaksnom greškom oborio je CIO prolaz (izlazni kod 9, bez sažetka) | `await import(...)` scenarija stajao je van `try` u pokretaču | uvoz u `try` — pokvaren fajl je pao test, ostali se izvrše (`testovi/pokreni.mjs`, `testovi/ekrani/pokreni.mjs`) |
 | `npm run typecheck` prolazi, a u stranici fali uvoz | korijenski `tsconfig.json` ima `"files": []` sa referencom — `tsc --noEmit` bez `-b` NE provjerava frontend (hvatao ga je samo `tsc -b` u `npm run build`) | `typecheck` = `tsc --noEmit -p tsconfig.app.json && … -p tsconfig.server.json` |
@@ -1023,7 +1031,13 @@ dopuna padne, novo izdanje ne kreće i Render ostavlja staro. Da li je deploy pr
 ### Okruženje
 
 - **Supabase: Session pooler, port 5432.** Direct connection radi samo preko IPv6, Render ga ne dohvata.
-- **Render besplatni plan spava poslije 15 min** — za demo i pravi rad plaćeni plan.
+- **Render besplatni plan spava poslije 15 min** — za demo i pravi rad plaćeni plan. Provjereno 04.10.2026 (render.com/docs/free):
+  750 besplatnih sati mjesečno važi za CIJELI nalog (workspace) — jedan budan servis ih troši sam; kad se potroše, Render gasi
+  SVE besplatne servise do 1. u mjesecu. 512 MB, 0,1 procesora (OCR presporo). Starter $7/mj po servisu: ne spava, 0,5 procesora.
+- **Supabase besplatno** (supabase.com/pricing, 04.10.2026): najviše 2 aktivna projekta (demo + jedan klijent), 500 MB po bazi —
+  preko toga „samo čitanje“ (aplikacija ne prima upise), pauza posle 7 dana bez rada, bez sopstvenih bekapa. Pro $25/mj
+  (prvi projekat) + $10/mj svaki sljedeći, 8 GB po projektu. Izmjereno: prazna baza sa šemom ~11 MB, red 100–230 B (sa
+  indeksima ~0,5 KB); najviše troše fotografije otpremnica (u bazi, `prijem_dokument`). `dnevni-pregled` javlja veličinu.
 - **`x-render-routing: suspend-by-user`** u odgovoru = servis je SUSPENDOVAN u Render panelu (ručno,
   ili zbog naplate/iskorišćenih besplatnih sati) — to nije spavanje. UptimeRobot ga ne budi; kod ne
   pomaže. Render → servis → „Resume Service“ (ako traži — dodati karticu ili preći na plaćeni plan).

@@ -156,9 +156,9 @@ export async function pokreni({ provjeri }) {
     provjeri("2FA: uključivanje je u auditu", audit === 1, String(audit));
     const tajnaUAuditu = (await pool.query(`select count(*)::int as n from audit_log where entitet_id = $1 and (coalesce(nove_vrijednosti::text, '') || coalesce(stare_vrijednosti::text, '')) like $2`, [korisnikId, `%${tajna}%`])).rows[0].n;
     provjeri("2FA: tajna se ne vidi u auditu", tajnaUAuditu === 0);
-    const b = await ana("/bekap", { method: "POST" });
-    trag.bekap = b.tijelo?.id;
-    const podaci = (await ana(`/bekap/${b.tijelo.id}/preuzmi`)).tijelo;
+    const t0Bekap = new Date();
+    const podaci = JSON.parse((await preuzmi(ana, "/bekap/preuzmi")).sadrzaj.toString("utf8"));
+    trag.bekap = (await pool.query(`select id from bekap_log where pokrenuo_korisnik_id = $1 and created_at >= $2 order by created_at desc limit 1`, [NALOZI.ana.id, t0Bekap])).rows[0]?.id ?? null;
     provjeri("2FA: tajna i rezervni kodovi ne idu u bekap iz aplikacije", podaci.korisnik.every((k) => !("totp_tajna" in k) && !("totp_rezervni" in k) && !("totp_zadnji_korak" in k)));
 
     const p1 = await surovo(BAZA, "/auth/prijava", { korisnickoIme: ime, lozinka });

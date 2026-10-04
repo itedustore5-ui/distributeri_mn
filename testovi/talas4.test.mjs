@@ -3,7 +3,7 @@
 //   R-25 /api/zdravlje provjerava i bazu;
 //   R-26 neispravan zahtjev → 400/409 sa porukom, ne 500;
 //   R-27 bezbjednosna zaglavlja (CSP i HSTS samo u produkciji — ovdje se provjerava ostatak).
-import { pool, prijava, anonimno, NALOZI, APP_URL, danasCG } from "./pomoc.mjs";
+import { pool, prijava, anonimno, preuzmi, NALOZI, APP_URL, danasCG } from "./pomoc.mjs";
 
 export const naziv = "Mali talas 4: bekap bez tajni, zdravlje, greške 4xx, zaglavlja";
 
@@ -41,19 +41,34 @@ export async function pokreni({ provjeri }) {
     provjeri("R-26: poruka iz šeme ide na ekran („Upišite svoju lozinku.\")", bezLozinke.status === 400 && bezLozinke.tijelo.error.message === "Upišite svoju lozinku.", bezLozinke.tijelo?.error?.message);
 
     // ── R-19 ──
-    const b = await ana("/bekap", { method: "POST" });
-    trag.bekap = b.tijelo?.id;
-    const podaci = (await ana(`/bekap/${b.tijelo.id}/preuzmi`)).tijelo;
+    // Podsjetnik umjesto sedmične kopije: na čistoj bazi server pri pokretanju javi odgovornom licu.
+    const podsjetnik = (await pool.query(
+      `select exists (select 1 from obavjestenje where izvor_tip = 'bekap_log' and naslov = 'Preuzmite sedmični bekap') as ima,
+              exists (select 1 from bekap_log where created_at > now() - interval '7 days') as preuzet`,
+    )).rows[0];
+    provjeri("Bekap: podsjetnik „Preuzmite sedmični bekap“ (ili je bekap preuzet ove sedmice)", podsjetnik.ima || podsjetnik.preuzet, JSON.stringify(podsjetnik));
+    const t0 = new Date();
+    const b = await preuzmi(ana, "/bekap/preuzmi");
+    const podaci = JSON.parse(b.sadrzaj.toString("utf8"));
+    const zapis = (await pool.query(
+      `select id, podaci is null as bez_kopije, velicina_bajtova from bekap_log where pokrenuo_korisnik_id = $1 and created_at >= $2 order by created_at desc limit 1`,
+      [NALOZI.ana.id, t0],
+    )).rows[0];
+    trag.bekap = zapis?.id;
+    provjeri(
+      "Bekap se preuzima direktno (JSON) — u bazi ostaje samo ko je i kad preuzeo i koliko je velik, BEZ kopije podataka (dopuna 35)",
+      b.status === 200 && /application\/json/.test(b.tip ?? "") && zapis?.bez_kopije === true && Number(zapis?.velicina_bajtova) === b.sadrzaj.length,
+      `${b.status} ${b.tip} ${JSON.stringify(zapis)} ${b.sadrzaj.length}`,
+    );
+    const kopije = (await pool.query(`select count(*)::int as n from bekap_log where podaci is not null`)).rows[0].n;
+    provjeri("…i nijedan stari bekap više ne drži kopiju podataka u bazi", kopije === 0, `${kopije}`);
     provjeri("R-19: bekap nosi naloge, ali bez heša lozinke", Array.isArray(podaci?.korisnik) && podaci.korisnik.length >= 5 && podaci.korisnik.every((k) => !("lozinka_hash" in k)));
     provjeri("R-19: …bez sesija, VAPID ključa, push uređaja i ključeva zahtjeva", ["sesija_prijave", "web_push_kljuc", "push_pretplata", "kljuc_zahtjeva", "bekap_log"].every((t) => !(t in podaci)));
     provjeri("R-19: …a sa tabelama HACCP sistema (plan, termometri, verifikacija)", ["plan_monitoringa", "mjerni_uredjaj", "provjera_uredjaja", "verifikacija_sistema", "artikal_dobavljaca"].every((t) => t in podaci));
     provjeri("R-19: otpremnice bez samog fajla (on je u pg_dump bekapu)", Array.isArray(podaci.prijem_dokument) && podaci.prijem_dokument.every((p) => !("sadrzaj" in p)));
-    const stari = (await pool.query(`select count(*)::int as n from bekap_log where podaci -> 'korisnik' -> 0 ? 'lozinka_hash'`)).rows[0].n;
-    provjeri("R-19: ni stari bekapi u bazi više nemaju heševe (dopuna 30)", stari === 0, `${stari}`);
   } finally {
     if (trag.bekap) {
       await pool.query(`delete from audit_log where entitet_id = $1`, [trag.bekap]);
-      await pool.query(`delete from obavjestenje where izvor_id = $1`, [trag.bekap]);
       await pool.query(`delete from bekap_log where id = $1`, [trag.bekap]);
     }
   }

@@ -100,22 +100,31 @@ npm start         # NODE_ENV=production tsx server/index.ts, servira dist/
 
 Svaki klijent dobija **svoj** Supabase projekat i **svoj** Render web servis, sa istim kodom.
 
-1. **Supabase**: napraviti novi projekat. Iz **Project Settings → Database → Connection
-   string** uzeti **Session pooler** (port 5432), ne Direct connection.
+1. **Supabase**: napraviti novi projekat (region u EU, npr. Frankfurt). **Odmah** Project Settings →
+   Data API → isključiti (R-12). Iz **Connect** uzeti **Session pooler** (port 5432), ne Direct
+   connection. Besplatni plan: najviše 2 aktivna projekta na nalogu (demo + jedan klijent), 500 MB po
+   bazi — preko toga baza prelazi u „samo čitanje“ i aplikacija ne prima upise; pauza posle 7 dana bez
+   rada. Najviše prostora troše fotografije otpremnica (čuvaju se u bazi). `npm run dnevni-pregled`
+   javlja veličinu svake baze i upozorava na 400 MB.
 2. **Render**: novi Web Service iz ovog repozitorijuma.
    - Build command: `npm install && npm run build`
    - Start command: `npm start`
    - Environment: `DATABASE_URL` (iz koraka 1), `NODE_ENV=production`
-   - Plaćeni plan — besplatni plan spava poslije 15 min neaktivnosti, a prvi zahtjev poslije
-     toga čeka ~50 s. Neprihvatljivo za demo pred klijentom ili za magacionera koji žuri.
-3. Poslije prvog deploy-a, sa svog računara pokrenuti migracije protiv NOVE baze:
-   ```bash
-   DATABASE_URL="<connection string novog klijenta>" npm run migriraj
-   DATABASE_URL="<connection string novog klijenta>" npm run prvi-korisnik -- --firma "Naziv d.o.o." --ime "Ime Prezime" --korisnik ime.prezime
+   - Plaćeni plan (Starter) — besplatni spava poslije 15 min neaktivnosti (prvi zahtjev čeka ~1 min),
+     ima 0,1 procesora (čitanje fotografija otpremnica je presporo), a 750 besplatnih sati mjesečno važi
+     za CIJELI Render nalog: jedan budan servis ih troši sam — dva besplatna servisa (npr. demo i klijent)
+     ostaju bez sati sredinom mjeseca i Render ih oba gasi do 1. u mjesecu.
+3. Server pri prvom pokretanju sam napravi sve tabele (dopune baze, #79). Zatim, sa svog računara
+   (PowerShell), prvi nalozi u NOVOJ bazi — odgovorno lice i vaš konsultantski nalog:
+   ```powershell
+   $env:DATABASE_URL="<adresa NOVE baze>"; npm run prvi-korisnik -- --firma "Naziv d.o.o." --ime "Ime Prezime" --korisnik ime.prezime --konsultant vase.ime
    ```
-   `prvi-korisnik` ispisuje privremenu lozinku — proslijediti je odmah odgovornom licu
-   (`bzr`), koje potom u `/moja` mijenja lozinku i u `/ljudi` otvara naloge magacioneru i
-   vozaču (vidi „Ljudi — nalozi i početna lozinka").
+   Alat prvo ispiše u koju bazu upisuje i **odbija bazu koja već ima odgovorno lice ili konsultanta**
+   (npr. demo iz `.env` kad se zaboravi adresa nove baze). Obje lozinke su privremene i ispišu se
+   jednom. Konsultantski nalog treba: samo on otvara nalog direktoru (`uprava`), upisuje adresu i PIB
+   firme (Podešavanje) i dobija obavještenje kad odgovorno lice samo zatvori neusaglašenost („bez četiri
+   oka“). Bez njega: izostaviti `--konsultant` (može se dodati i kasnije: samo `--konsultant vase.ime`).
+   Odgovorno lice u `/moja` mijenja lozinku i u `/ljudi` otvara naloge magacioneru i vozaču.
 4. Dodati klijenta u `alati/klijenti.txt` (nije u gitu — ostaje samo na vašem računaru):
    ```
    Naziv klijenta = postgresql://...
@@ -135,8 +144,8 @@ Demo baza (za prodajne sastanke) se pravi na isti način, ali sa `npm run seed:d
 
 | Alat | Šta radi |
 |---|---|
-| `npm run prvi-korisnik -- --firma "..." --ime "..." --korisnik ...` | Prvi nalog (`bzr`) poslije instalacije kod klijenta. |
-| `npm run dnevni-pregled` | Stanje SVIH klijenata iz `alati/klijenti.txt` u jednom ispisu (poslednji unos, otvorene neusaglašenosti, greške servera i ekrana u 24 h, neprimijenjene dopune baze, vodstvo bez potvrde u dva koraka). Izlazni kod `1` ako je neko u zastoju (>2 dana bez unosa) — pogodno za Task Scheduler + mejl na grešku. |
+| `npm run prvi-korisnik -- --firma "..." --ime "..." --korisnik ... [--konsultant ...]` | Prvi nalozi u novoj bazi: odgovorno lice (`bzr`) i konsultant (`izvodjac`), jedna transakcija, audit, privremene lozinke. Ispiše u koju bazu upisuje i odbija bazu koja već ima odgovorno lice ili konsultanta. Samo `--konsultant ...` — konsultantski nalog u bazi koja već ima odgovorno lice. |
+| `npm run dnevni-pregled` | Stanje SVIH klijenata iz `alati/klijenti.txt` u jednom ispisu (poslednji unos, otvorene neusaglašenosti, **veličina baze i koliko su otpremnice**, greške servera i ekrana u 24 h, neprimijenjene dopune baze, vodstvo bez potvrde u dva koraka). Izlazni kod `1` ako je neko u zastoju (>2 dana bez unosa) ili mu je baza ≥ 400 MB (`BAZA_UPOZORENJE_MB=` za klijente na plaćenom planu; `KLIJENTI_FAJL=` drugi spisak) — pogodno za Task Scheduler + mejl na grešku. |
 | `npm run demo-lozinke` | Nove lozinke za pet demo naloga — SAMO na demo bazi (provjeri fiksne ID-jeve); upiše ih u `.env` (`DEMO_LOZINKA_*`, za `test:e2e`) i ispiše jednom. |
 | `npm run iskljuci-2fa -- --korisnik ime` | Isključuje potvrdu u dva koraka nalogu koji je izgubio telefon i rezervne kodove; prekida njegove prijave, upisuje se u audit. |
 | `npm run zakazi-bekap` | Upisuje `npm run bekap` u Windows Task Scheduler (svaki dan u 13:00, i čim se računar upali ako je tada bio ugašen). `-Vrijeme 09:30`, `-Ukloni`. |
@@ -149,6 +158,8 @@ Demo baza (za prodajne sastanke) se pravi na isti način, ali sa `npm run seed:d
 
 **Bekap van baze** pravi `npm run bekap`, ali **ne pokreće se sam** dok nije u Task Scheduleru —
 jednom pokrenuti `npm run zakazi-bekap` (svaki dan u 13:00; ako je računar tada ugašen, čim se upali).
+Fajlovi su u `bekap\<klijent>\`, ishod u `bekap\POSLJEDNJI-BEKAP.txt`. Folder `bekap` povremeno
+kopirati i van računara (spoljni disk, šifrovan oblak) — u njemu su svi podaci klijenata.
 
 **Vraćanje** — uvijek u NOVU, praznu bazu, nikad preko žive:
 
@@ -375,19 +386,16 @@ upotrebi.
 
 ### Bekap
 
-Kontrolna tabla (`/tabla`, samo `bzr`/`izvodjac`) ima karticu **Bekap**: dugme koje odmah pravi
-snimak svih poslovnih tabela (JSON) i preuzima ga u pregledač, i status poslednjeg bekapa (kad,
-ko/automatski, koliko tabela i redova). Isti proces se pokreće **sam jednom sedmično** —
-`pokreniSedmicniBekap()` u `server/services/bekapService.ts` provjerava pri svakom pokretanju
-servera (i onda jednom dnevno) da li je prošlo 7 dana od poslednjeg bekapa; ako jeste, napravi ga
-i pošalje obavještenje ulozi `bzr`. Provjera je po stvarnom vremenu iz baze, ne po tajmeru koji
-mora neprekidno da radi — zato radi i kad besplatni Render plan uspava server: prvi sledeći
-zahtjev probudi server i provjera se pokrene odmah.
+**Pravi bekap je `npm run bekap` sa računara konsultantkinje** (vidi Alati) — samo iz njega se baza vraća.
+Besplatni Supabase nema svoje bekape.
 
-**Važno ograničenje, da se ne pogrešno razumije kao potpuna zaštita:** bekap se čuva u
-`bekap_log` u ISTOJ Supabase bazi (90 dana, pa se briše). To štiti od greške u aplikaciji ili
-čovjeku ("kakvo je stanje bilo prije nedelju dana"), ali NE štiti od gubitka same Supabase baze —
-za to je `npm run bekap` (vidi Alati).
+Kontrolni centar (`/tabla`, samo `bzr`/`izvodjac`) ima karticu **Bekap**: „Preuzmi bekap sada“ preuzima
+JSON sa svim poslovnim tabelama (bez lozinki, sesija i fajlova otpremnica) direktno na uređaj — to je
+kopija podataka koju klijent čuva kod sebe. **U bazi se ne čuva kopija** (od dopune 35, 04.10.2026):
+ranije je svaki bekap, i sedmični automatski, ostajao u istoj bazi 90 dana i trošio njen prostor, a od
+gubitka baze nije štitio. U `bekap_log` ostaje samo ko je i kad preuzeo i koliko je fajl bio velik.
+Kad prođe sedmica bez preuzimanja, odgovorno lice dobija podsjetnik „Preuzmite sedmični bekap“ (najviše
+jednom u 7 dana; provjera po vremenu iz baze, pa radi i kad besplatni Render uspava server).
 
 ### Povlačenje (čl. 28)
 
@@ -717,7 +725,7 @@ Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Is
 ```bash
 npm run typecheck
 npm run build
-npm test             # 639 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm test             # 647 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
 npm run test:ekrani  # 51 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže, inspekcijski paket
 ```
 
@@ -769,11 +777,12 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `ekrani/1_uloge` | svaka strana svake od pet uloga na telefonu: otvara se, bez vodoravnog skrola, bez greške; meni nudi samo strane uloge; četiri priloga za štampu |
 | `ekrani/2_teren` | vozač D1 pa predaja, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema, direktor kartica → lista — sve kroz ekran |
 | `ekrani/5_isporuka_nc` | magacioner čiji je matični magacin prazan: forma sama nudi magacin sa robom, „Sačuvaj“ kaže šta fali; Ana zatvara neusaglašenost jednim upisom („Riješeno je“ — kvačica i šta je provjereno) |
+| `alati` | `prvi-korisnik` odbija bazu koja već ima odgovorno lice ili konsultanta (i bazu bez tabela); na novoj praznoj bazi pravi odgovorno lice i konsultanta (privremene lozinke, audit, firma); drugi konsultant se odbija; `dnevni-pregled` javlja veličinu baze i upozorava preko granice |
 | `inspekcija` | paket za period: prijem sa temperaturom i termometrom, mjerenje van granice i njegova neusaglašenost, zapis upisan dan kasnije („naknadno +1“) i ispravka (obje verzije), kontinuitet broji naknadne; period se provjerava na serveru (obrnut, duži od godine, budućnost); direktor ga izvlači; ZIP je ispravan (kontrolni zbir svakog fajla), bez audita, sa istim periodom |
 | `ekrani/6_inspekcija` | paket se sklopi na telefonu (12 odjeljaka, ne viri van ekrana), isključen odjeljak nestaje i brojevi idu redom, ZIP se preuzima, u štampi ostaje samo dokument |
 | `ekrani/3_bez_mreze` | vozač bez signala: aplikacija sačuvana na telefonu, D1 i predaja čekaju (i posle ponovnog otvaranja), signal → odu same, redom, sa oznakom |
 | `talas5` | slika od 56 MP (mali fajl) odbijena prije obrade; izvoz bez Excel formula i sa vremenom po Podgorici; stari heš lozinke radi i pojača se; zdravlje javlja neprimijenjenu dopunu; dnevnik grešaka (pregledač, konsultant čita, 400 ne ide u dnevnik); potvrda u dva koraka — uključivanje, QR, rezervni kodovi, ponovljen kod ne važi, 5 pogrešnih = novi izazov, isključivanje, tajna nije u auditu ni bekapu, obavezna 2FA na drugom serveru |
-| `talas4` | bekap iz aplikacije bez heševa lozinki, sesija i ključeva, sa svim tabelama; stari bekapi očišćeni; zdravlje javlja i bazu; neispravan JSON, identifikator, veza i šema → 400/409 sa porukom; bezbjednosna zaglavlja |
+| `talas4` | bekap iz aplikacije se preuzima direktno, bez kopije u bazi (i stare kopije obrisane), bez heševa lozinki, sesija i ključeva, sa svim tabelama; podsjetnik za sedmični bekap; zdravlje javlja i bazu; neispravan JSON, identifikator, veza i šema → 400/409 sa porukom; bezbjednosna zaglavlja |
 | `talas3` | isporuka ne uzima rezervisanu robu, izmjena u okviru svoje rezervacije, otkaz (samo iz pripreme, uz razlog, ne vozač) oslobađa robu, ispravka kupca sa auditom; rok obavezan, serija jednom po prijemu, drugi rok iste serije → upozorenje; povlačenje cijele serije; otpremnica sa PIB-om i adresom isporuke; jedinstven PIB |
 | `talas2` | D1 ocjenjuje temperaturu po granici vozila, roba pod režimom samo rashladnim vozilom, predaja traži današnju D1; izmjene pamte „prije"; ispravka zapisa jednom, istog obrasca, svog zapisa; odstupanje iz odgovora u obrascu; lot po granici svog artikla; termometar na mjerenju i „upitna" mjerenja; zatvaranje tek posle ponovne kontrole; novi izvori izvoza |
 | `faza3_sistem` | temperatura obavezna na KKT 1, granica iz Šifarnika postaje pravilo (i nova verzija pri izmjeni), plan monitoringa i „šta danas fali", termometar (ispravan / neispravan → neusaglašenost, kalibracija traži sertifikat), verifikacija sistema, podaci za štampu HACCP plana, izuzetak od četiri oka samo kad je odgovorno lice jedino |

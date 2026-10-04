@@ -26,81 +26,82 @@ const BEZ_KOLONA: Partial<Record<(typeof TABELE)[number], string[]>> = {
   prijem_dokument: ["sadrzaj"],
 };
 
-type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
+type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; velicina_bajtova: number | null; created_at: string };
 
-export async function napraviBekap(tip: "RUCNI" | "AUTOMATSKI", korisnikId: string | null): Promise<BekapMeta> {
-  const podaci: Record<string, unknown[]> = {};
+/** Bekap iz aplikacije se PREUZIMA, ne čuva u bazi (04.10.2026). Ranije je svaki — i sedmični
+ * automatski — bio puna kopija podataka u ISTOJ bazi, 90 dana: trošio je prostor (besplatni Supabase
+ * ima 500 MB i tada prestaje da prima upise), a od gubitka baze ne štiti (ista je baza). Sada se JSON
+ * piše direktno u odgovor, tabelu po tabelu (u memoriji je najviše jedna tabela), a u `bekap_log`
+ * ostaje samo ko je i kad preuzeo. `pisi` vraća obećanje kad odgovor može da primi još (backpressure). */
+export async function pisiBekap(pisi: (dio: string) => Promise<void> | void, korisnikId: string): Promise<BekapMeta> {
   let ukupnoRedova = 0;
+  let bajtova = 0;
+  const izlaz = async (dio: string) => {
+    bajtova += Buffer.byteLength(dio);
+    await pisi(dio);
+  };
   // Sve tabele iz JEDNOG snimka baze (repeatable read) — inače isporuka upisana usred bekapa može
   // ući bez svojih stavki, ili stavke bez isporuke.
   await transakcija(async (klijent) => {
     await klijent.query("set transaction isolation level repeatable read, read only");
+    let prva = true;
+    await izlaz("{");
     for (const tabela of TABELE) {
       // Tabela iz dopune koja na ovoj bazi još nije pokrenuta ne smije da obori cio bekap.
       if (!(await tabelaPostoji(tabela))) continue;
-      const rezultat = await klijent.query<{ red: Record<string, unknown> }>(`select to_jsonb(t) - $1::text[] as red from ${tabela} t`, [BEZ_KOLONA[tabela] ?? []]);
-      podaci[tabela] = rezultat.rows.map((r) => r.red);
-      ukupnoRedova += rezultat.rowCount ?? 0;
+      // JSON pravi baza (jedan tekst po tabeli) — server ne drži hiljade objekata u memoriji.
+      const r = await klijent.query<{ n: number; json: string }>(
+        `select count(*)::int as n, coalesce(jsonb_agg(to_jsonb(t) - $1::text[]), '[]'::jsonb)::text as json from ${tabela} t`,
+        [BEZ_KOLONA[tabela] ?? []],
+      );
+      ukupnoRedova += r.rows[0].n;
+      await izlaz(`${prva ? "" : ","}\n${JSON.stringify(tabela)}:${r.rows[0].json}`);
+      prva = false;
     }
+    await izlaz("\n}\n");
   });
 
   const upisano = await pool.query<{ id: string; created_at: string }>(
-    `insert into bekap_log (tip, pokrenuo_korisnik_id, broj_tabela, broj_redova, podaci)
-     values ($1, $2, $3, $4, $5) returning id, created_at`,
-    [tip, korisnikId, TABELE.length, ukupnoRedova, JSON.stringify(podaci)],
+    `insert into bekap_log (tip, pokrenuo_korisnik_id, broj_tabela, broj_redova, velicina_bajtova)
+     values ('RUCNI', $1, $2, $3, $4) returning id, created_at`,
+    [korisnikId, TABELE.length, ukupnoRedova, bajtova],
   );
-
-  // Isto kao npm run bekap (alati/bekap.ts) — ne čuva se unazad zauvijek.
-  await pool.query(`delete from bekap_log where created_at < now() - interval '90 days'`);
-
-  if (tip === "AUTOMATSKI") {
-    await obavijestiUlogu(pool, "bzr", {
-      naslov: "Sedmični bekap je spreman",
-      poruka: "Preuzmite ga sa kontrolne table i sačuvajte van aplikacije — u bazi se čuva samo 90 dana.",
-      izvorTip: "bekap_log",
-      izvorId: upisano.rows[0].id,
-    });
-  }
-
-  return { id: upisano.rows[0].id, tip, broj_tabela: TABELE.length, broj_redova: ukupnoRedova, created_at: upisano.rows[0].created_at };
+  return { id: upisano.rows[0].id, tip: "RUCNI", broj_tabela: TABELE.length, broj_redova: ukupnoRedova, velicina_bajtova: bajtova, created_at: upisano.rows[0].created_at };
 }
 
 export async function poslednjiBekap(): Promise<BekapMeta | null> {
   const r = await pool.query<BekapMeta>(
-    `select id, tip, broj_tabela, broj_redova, created_at from bekap_log order by created_at desc limit 1`,
+    `select id, tip, broj_tabela, broj_redova, velicina_bajtova, created_at from bekap_log order by created_at desc limit 1`,
   );
   return r.rows[0] ?? null;
 }
 
 export async function istorijaBekapa(limit = 12): Promise<BekapMeta[]> {
   const r = await pool.query<BekapMeta>(
-    `select id, tip, broj_tabela, broj_redova, created_at from bekap_log order by created_at desc limit $1`,
+    `select id, tip, broj_tabela, broj_redova, velicina_bajtova, created_at from bekap_log order by created_at desc limit $1`,
     [limit],
   );
   return r.rows;
 }
 
-export async function preuzmiBekap(id: string): Promise<Record<string, unknown[]> | null> {
-  const r = await pool.query<{ podaci: Record<string, unknown[]> }>(`select podaci from bekap_log where id = $1`, [id]);
-  return r.rows[0]?.podaci ?? null;
-}
-
-/** Provjerava jednom pri startu i onda jednom dnevno — oslanja se na razliku stvarnog
- * vremena (created_at u bazi), ne na to da je server neprekidno budan. Zato radi i kad
- * Render besplatni plan uspava server: prvi zahtjev poslije buđenja pokrene provjeru. */
+/** Sedmični PODSJETNIK (ranije: sedmična kopija u bazi). Ako niko nije preuzeo bekap 7 dana, odgovorno
+ * lice dobija obavještenje — najviše jednom u 7 dana. Provjerava pri startu i jednom dnevno; oslanja se na
+ * vrijeme upisano u bazi, pa radi i kad Render besplatni plan uspava server. */
 export function pokreniSedmicniBekap() {
-  const NEDJELJU_DANA_MS = 7 * 24 * 60 * 60 * 1000;
-
   const provjeri = async () => {
     try {
-      const poslednji = await poslednjiBekap();
-      const prosloVrijeme = poslednji ? Date.now() - new Date(poslednji.created_at).getTime() : Infinity;
-      if (prosloVrijeme > NEDJELJU_DANA_MS) {
-        const rezultat = await napraviBekap("AUTOMATSKI", null);
-        console.log(`Sedmični bekap kreiran automatski (${rezultat.broj_tabela} tabela, ${rezultat.broj_redova} redova).`);
-      }
+      const r = await pool.query<{ preuzet: boolean; podsjecen: boolean }>(
+        `select exists (select 1 from bekap_log where created_at > now() - interval '7 days') as preuzet,
+                exists (select 1 from obavjestenje where izvor_tip = 'bekap_log' and created_at > now() - interval '7 days') as podsjecen`,
+      );
+      if (r.rows[0].preuzet || r.rows[0].podsjecen) return;
+      await obavijestiUlogu(pool, "bzr", {
+        naslov: "Preuzmite sedmični bekap",
+        poruka: "Kontrolni centar → „Preuzmi bekap sada“ (kartica na dnu). Fajl sačuvajte van telefona i aplikacije — npr. na računaru firme.",
+        izvorTip: "bekap_log",
+      });
     } catch (greska) {
-      console.error("Automatski bekap nije uspio:", greska);
+      console.error("Podsjetnik za bekap nije poslat:", greska);
     }
   };
 

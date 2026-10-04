@@ -40,6 +40,7 @@ const IZVOR: Record<string, { putanja: string; naziv: string }> = {
   prijem: { putanja: "/prijem", naziv: "prijem" },
   lot: { putanja: "/prijem", naziv: "prijem" },
   zadatak: { putanja: "/moja", naziv: "zadatak" },
+  bekap_log: { putanja: "/tabla", naziv: "bekap" },
 };
 
 function putanjaIzvora(izvorTip: string | null, uloga: Uloga) {

@@ -1,6 +1,8 @@
 // Dnevni pregled stanja SVIH klijenata — pokreće se ručno (ili iz Task Scheduler-a) sa
-// računara konsultantkinje. Čita alati/klijenti.txt ("Naziv = postgresql://..." po redu);
-// bez tog fajla gleda samo DATABASE_URL iz .env. Izlazni kod 1 ako je neko u zastoju.
+// računara konsultantkinje. Čita alati/klijenti.txt ("Naziv = postgresql://..." po redu; drugi fajl:
+// KLIJENTI_FAJL=); bez tog fajla gleda samo DATABASE_URL iz .env. Izlazni kod 1 ako je neko u zastoju
+// ili mu je baza blizu granice (BAZA_UPOZORENJE_MB, podrazumijevano 400 — besplatni Supabase na 500 MB
+// prelazi u „samo čitanje“ i aplikacija više ne prima upise; za klijenta na plaćenom planu postaviti više).
 import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -9,10 +11,13 @@ import { Pool } from "pg";
 import { migracijeNaCekanju } from "../server/migracije.js";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
+const FAJL_KLIJENATA = process.env.KLIJENTI_FAJL || path.join(dir, "klijenti.txt");
+const UPOZORENJE_MB = Number(process.env.BAZA_UPOZORENJE_MB) || 400;
+const MB = (b: string | number | null) => Math.round(Number(b ?? 0) / 1048576);
 
 async function ucitajKlijente(): Promise<{ naziv: string; url: string }[]> {
   try {
-    const sadrzaj = await fs.readFile(path.join(dir, "klijenti.txt"), "utf8");
+    const sadrzaj = await fs.readFile(FAJL_KLIJENATA, "utf8");
     return sadrzaj
       .split("\n")
       .map((red) => red.trim())
@@ -69,9 +74,21 @@ async function provjeriKlijenta(naziv: string, url: string): Promise<boolean> {
       // kolone 2FA još nema (dopuna 33)
     }
 
+    // Veličina baze (04.10.2026): fotografije otpremnica su u bazi i najbrže je pune.
+    const v = (await pool.query<{ baza: string; otpremnice: string | null }>(
+      `select pg_database_size(current_database())::bigint as baza,
+              case when to_regclass('public.prijem_dokument') is null then null else pg_total_relation_size('public.prijem_dokument') end as otpremnice`,
+    )).rows[0];
+    const bazaMb = MB(v.baza);
+    if (bazaMb >= UPOZORENJE_MB) {
+      problem = true;
+      napomene.push(`BAZA ${bazaMb} MB (granica upozorenja ${UPOZORENJE_MB} MB) — besplatni Supabase na 500 MB prestaje da prima upise: pređite na Pro`);
+    }
+
     const znak = uZastoju || problem ? "⚠" : "✓";
     const dodatak = napomene.map((n) => `\n    ${n}`).join("");
-    console.log(`${znak} ${naziv}: poslednji unos ${danaOdZadnjeg === null ? "nikad" : `prije ${danaOdZadnjeg} dana`}, otvorenih NC: ${otvoreneNc.rows[0].broj}${dodatak}`);
+    const velicina = `baza ${bazaMb} MB${v.otpremnice !== null ? ` (otpremnice ${MB(v.otpremnice)} MB)` : ""}`;
+    console.log(`${znak} ${naziv}: poslednji unos ${danaOdZadnjeg === null ? "nikad" : `prije ${danaOdZadnjeg} dana`}, otvorenih NC: ${otvoreneNc.rows[0].broj}, ${velicina}${dodatak}`);
     return !uZastoju && !problem;
   } catch (greska) {
     console.log(`✗ ${naziv}: greška pri povezivanju — ${(greska as Error).message}`);

@@ -11,7 +11,7 @@ import { ProvjeraZnanjaUlaz } from "../components/ProvjeraZnanjaUlaz";
 import { mozeNa } from "../components/Layout";
 import { useAuth } from "../lib/auth";
 
-type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; created_at: string };
+type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; velicina_bajtova: number | string | null; created_at: string };
 
 type Detalj = { naslov: string; prazno: string; kolone: { kljuc: string; naziv: string; vrsta?: "status" }[]; redovi: Record<string, string | null>[] };
 
@@ -57,11 +57,11 @@ export function Tabla() {
     setBekapUToku(true);
     setBekapGreska("");
     try {
-      const rezultat = await api<BekapMeta>("/bekap", { method: "POST" });
-      setBekap(rezultat);
-      await preuzmiFajl(`/bekap/${rezultat.id}/preuzmi`, `bekap-cg-${lokalniDatum()}.json`);
+      // Preuzima se direktno — kopija se više ne čuva u bazi (dopuna 35).
+      await preuzmiFajl("/bekap/preuzmi", `bekap-cg-${lokalniDatum()}.json`);
+      setBekap(await api<BekapMeta | null>("/bekap/poslednji"));
     } catch (e) {
-      setBekapGreska(e instanceof ApiGreska ? e.message : "Bekap nije napravljen.");
+      setBekapGreska(e instanceof ApiGreska ? e.message : "Bekap nije preuzet — provjerite internet i pokušajte ponovo.");
     } finally {
       setBekapUToku(false);
     }
@@ -209,7 +209,7 @@ export function Tabla() {
           <div className="section-heading" style={{ marginTop: 26 }}>
             <div>
               <h2>Bekap</h2>
-              <span>U bazi se čuva 90 dana i pravi se sam jednom sedmično — dugme pravi novi odmah i preuzima ga.</span>
+              <span>Kopija vaših podataka za čuvanje van aplikacije — preuzima se na ovaj uređaj. Sačuvajte je na računaru firme; podsjetnik stiže kad prođe sedmica bez preuzimanja.</span>
             </div>
           </div>
           <div className="panel" style={{ minHeight: "auto" }}>
@@ -221,19 +221,22 @@ export function Tabla() {
                 {bekap === undefined ? (
                   <span className="muted-text">Učitavanje...</span>
                 ) : bekap === null ? (
-                  <span className="muted-text">Bekap još nije napravljen.</span>
+                  <span className="muted-text">Bekap još nije preuzet.</span>
                 ) : (
                   <>
                     <strong style={{ display: "block", fontSize: 12 }}>
-                      Posljednji: {new Date(bekap.created_at).toLocaleString("sr-Latn-ME")} ({bekap.tip === "RUCNI" ? "ručni" : "automatski"})
+                      Posljednji: {new Date(bekap.created_at).toLocaleString("sr-Latn-ME")} ({bekap.tip === "RUCNI" ? "preuzet" : "napravljen automatski"})
                     </strong>
-                    <small className="muted-text">{bekap.broj_tabela} tabela · {bekap.broj_redova} redova</small>
+                    <small className="muted-text">
+                      {bekap.broj_tabela} tabela · {bekap.broj_redova} redova
+                      {bekap.velicina_bajtova ? ` · ${(Number(bekap.velicina_bajtova) / 1048576).toLocaleString("sr-Latn-ME", { maximumFractionDigits: 1 })} MB` : ""}
+                    </small>
                   </>
                 )}
                 {bekapGreska && <div className="auth-error" style={{ marginTop: 8 }}>{bekapGreska}</div>}
               </div>
               <button className="primary-button" onClick={napraviBekap} disabled={bekapUToku}>
-                {bekapUToku ? "Pravim bekap..." : "Preuzmi bekap sada"}
+                {bekapUToku ? "Preuzimam…" : "Preuzmi bekap sada"}
               </button>
             </div>
           </div>
