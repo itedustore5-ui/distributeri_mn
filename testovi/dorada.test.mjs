@@ -4,6 +4,8 @@
 //   • vozač dobija obavještenje i kad mu isporuka ODE (drugom vozaču / bez vozača) i kad se izmijeni;
 //   • temperatura sa prijema se vidi uz stavku (vrijednost, granica, ocjena, termometar);
 //   • neusaglašenost unaprijed kaže šta fali za zatvaranje i da li treba izuzetak „bez četiri oka“;
+//   • „Riješeno je“ (03.10.2026): mjera + provjera + zatvaranje jednim upisom, uz ista pravila
+//     (četiri oka, ponovna kontrola, povlačenje mora biti završeno);
 //   • poruke: primljene na jednom mjestu, po vremenu;
 //   • izvještaji i audit: filter po vremenu i po kategorijama (isti za pregled i CSV);
 //   • pitanje firme na koje se već odgovaralo mijenja se kao nova verzija.
@@ -17,7 +19,7 @@ export async function pokreni({ provjeri }) {
   const petar = await prijava(NALOZI.petar);
   const konsultant = await prijava(NALOZI.konsultant);
   const oznaka = `E2E-DO-${Date.now().toString(36)}`;
-  const t = { artikli: [], prijemi: [], vozilo: null, isporuke: [], plan: null, tacka: null, uredjaj: null, nc: [], pitanja: [], poruke: [], kljucevi: [] };
+  const t = { artikli: [], prijemi: [], vozilo: null, isporuke: [], plan: null, tacka: null, uredjaj: null, nc: [], pitanja: [], poruke: [], kljucevi: [], povlacenje: null };
   const K = (s) => {
     const k = `${oznaka}-${s}`;
     t.kljucevi.push(k);
@@ -139,6 +141,95 @@ export async function pokreni({ provjeri }) {
     await marko("/mjerenja", { telo: { kontrolnaTackaId: t.tacka, vrijednost: 3, mjerniUredjajId: t.uredjaj } });
     provjeri("…posle novog mjerenja u granici ništa ne fali", (await ana(`/neusaglasenosti/${ncId}`)).tijelo?.provjera?.fali === null);
 
+    // ── NC u jednom koraku: „Riješeno je“ (proba 03.10.2026) ────────────────────────────────
+    const nc2 = (await marko("/neusaglasenosti", { telo: { opis: `${oznaka} vrata komore ne dihtuju` } })).tijelo?.id;
+    t.nc.push(nc2);
+    const st2 = (await ana(`/neusaglasenosti/${nc2}`)).tijelo?.provjera;
+    provjeri(
+      "Riješeno je: ekran unaprijed zna da li odgovorno lice zatvara samo (jedino je) i da ništa ne fali",
+      st2?.samaZatvara === jednoBzr && st2?.fali === null && st2?.svojaMjera === false,
+      JSON.stringify(st2),
+    );
+    if (jednoBzr) {
+      const bez = await ana(`/neusaglasenosti/${nc2}/rijesi`, { telo: { uradjeno: "Zamijenjena guma na vratima" } });
+      const kratko = await ana(`/neusaglasenosti/${nc2}/rijesi`, { telo: { uradjeno: "Zamijenjena guma na vratima", izuzetak: true, napomena: "ok" } });
+      const mjera2 = (await pool.query(`select count(*)::int as n from korektivna_mjera where neusaglasenost_id = $1`, [nc2])).rows[0].n;
+      provjeri(
+        "…jedino odgovorno lice bez kvačice ili obrazloženja — kaže šta fali, ništa se ne upisuje",
+        bez.status === 400 && bez.tijelo.error.code === "IZUZETAK_POTREBAN" && kratko.status === 400 && kratko.tijelo.error.code === "OBRAZLOZENJE_OBAVEZNO" && mjera2 === 0,
+        `${bez.status} ${bez.tijelo?.error?.code} ${kratko.status} ${kratko.tijelo?.error?.code} mjera: ${mjera2}`,
+      );
+      const zatvori = await ana(`/neusaglasenosti/${nc2}/rijesi`, { telo: { uradjeno: "Zamijenjena guma na vratima", izuzetak: true, napomena: "Vrata zatvaraju, komora drži 3 °C" } });
+      const v2 = (await ana(`/neusaglasenosti/${nc2}`)).tijelo;
+      provjeri(
+        "…sa kvačicom i obrazloženjem — JEDAN upis: mjera urađena, provjereno, zatvoreno, oznaka „bez četiri oka“",
+        zatvori.status === 200 && zatvori.tijelo.status === "ZATVORENA" && v2?.status === "ZATVORENA" && v2?.korektivneMjere?.length === 1 &&
+          v2.korektivneMjere[0].status === "ZAVRSENA" && v2?.verifikacije?.[0]?.izuzetak_cetiri_oka === true,
+        `${zatvori.status} ${JSON.stringify(zatvori.tijelo)}`,
+      );
+      provjeri(
+        "…magacioner (prijavio) zna da je zatvoreno, konsultant zna da je bez četiri oka",
+        (await marko("/obavjestenja")).tijelo.some((o) => o.izvor_id === nc2 && /zatvorena/.test(o.naslov)) &&
+          (await konsultant("/obavjestenja")).tijelo.some((o) => o.izvor_id === nc2 && /bez četiri oka/.test(o.naslov)),
+      );
+    } else {
+      const r2 = await ana(`/neusaglasenosti/${nc2}/rijesi`, { telo: { uradjeno: "Zamijenjena guma na vratima", izuzetak: true, napomena: "Vrata zatvaraju, komora drži 3 °C" } });
+      provjeri(
+        "…sa drugim odgovornim licem: upisano, čeka NJEGOVU provjeru (četiri oka) — kvačica ne pomaže",
+        r2.status === 200 && r2.tijelo.status === "CEKA_VERIFIKACIJU" && /četiri oka/.test(r2.tijelo.razlog ?? ""),
+        JSON.stringify(r2.tijelo),
+      );
+    }
+
+    const nc3 = (await marko("/neusaglasenosti", { telo: { opis: `${oznaka} prosuto mlijeko u hodniku` } })).tijelo?.id;
+    t.nc.push(nc3);
+    const r3 = await konsultant(`/neusaglasenosti/${nc3}/rijesi`, { telo: { uradjeno: "Očišćeno i dezinfikovano", izuzetak: true, napomena: "Konsultant ne zatvara sam" } });
+    provjeri(
+      "Riješeno je (konsultant): upisano, a zatvara odgovorno lice — dobija obavještenje „čeka vašu provjeru“",
+      r3.status === 200 && r3.tijelo.status === "CEKA_VERIFIKACIJU" && (await ana("/obavjestenja")).tijelo.some((o) => o.izvor_id === nc3 && /čeka vašu provjeru/.test(o.naslov)),
+      JSON.stringify(r3.tijelo),
+    );
+    const p3 = await ana(`/neusaglasenosti/${nc3}/verifikacija`, { telo: { rezultat: "POTVRDJENO", napomena: "Pregledan hodnik" } });
+    provjeri("…odgovorno lice provjerava tuđu mjeru i zatvara", p3.status === 200 && p3.tijelo.status === "ZATVORENA", JSON.stringify(p3.tijelo));
+
+    const nc4 = (await marko("/mjerenja", { telo: { kontrolnaTackaId: t.tacka, vrijednost: 11, mjerniUredjajId: t.uredjaj } })).tijelo?.neusaglasenostId;
+    t.nc.push(nc4);
+    const r4 = await ana(`/neusaglasenosti/${nc4}/rijesi`, { telo: { uradjeno: "Roba premještena, servis pozvan", izuzetak: true, napomena: "Komora pregledana" } });
+    provjeri(
+      "Riješeno je (iz mjerenja): mjera upisana odmah, zatvaranje čeka novo mjerenje — i kaže to",
+      r4.status === 200 && r4.tijelo.status === "CEKA_VERIFIKACIJU" && /izmjerite ponovo/.test(r4.tijelo.razlog ?? "") &&
+        (await pool.query(`select count(*)::int as n from verifikacija where neusaglasenost_id = $1`, [nc4])).rows[0].n === 0,
+      JSON.stringify(r4.tijelo),
+    );
+    provjeri("…drugi „Riješeno je“ za istu neusaglašenost se ne prima (409)", (await ana(`/neusaglasenosti/${nc4}/rijesi`, { telo: { uradjeno: "opet isto" } })).status === 409);
+
+    const nc5 = (await marko("/neusaglasenosti", { telo: { opis: `${oznaka} oštećena paleta` } })).tijelo?.id;
+    t.nc.push(nc5);
+    await ana(`/neusaglasenosti/${nc5}/korektivna-mjera`, { telo: { opis: "Zamijeniti paletu", dodijeljenoKorisnikId: NALOZI.marko.id } });
+    const r5 = await ana(`/neusaglasenosti/${nc5}/rijesi`, { telo: { uradjeno: "Paleta zamijenjena", izuzetak: true, napomena: "Pregledala paletu i robu" } });
+    const m5 = (await ana(`/neusaglasenosti/${nc5}`)).tijelo?.korektivneMjere;
+    provjeri(
+      "Riješeno je dok je mjera kod magacionera: ta mjera se završava, ne pravi se nova",
+      r5.status === 200 && m5?.length === 1 && m5[0].status === "ZAVRSENA" && m5[0].rezultat === "Paleta zamijenjena",
+      `${r5.status} ${JSON.stringify(r5.tijelo)} ${JSON.stringify(m5?.map((m) => [m.status, m.rezultat]))}`,
+    );
+
+    // Povlačenje: neusaglašenost se ne zatvara dok povlačenje traje (čl. 28).
+    const pv = await ana(`/sledljivost/lot/${lotX}/povlacenje`, { telo: { razlog: `${oznaka} proba povlačenja` } });
+    t.povlacenje = pv.tijelo?.id;
+    const nc6 = pv.tijelo?.neusaglasenostId;
+    t.nc.push(nc6);
+    const st6 = (await ana(`/neusaglasenosti/${nc6}`)).tijelo?.provjera;
+    provjeri(
+      "NC iz povlačenja: ne zatvara se dok povlačenje nije završeno — ekran kaže šta fali i vodi pravo na to povlačenje",
+      pv.status === 201 && /mora biti završeno/.test(st6?.fali ?? "") && st6?.faliGdje === "/sledljivost" && st6?.povlacenjeId === t.povlacenje,
+      `${pv.status} ${pv.tijelo?.error?.message ?? ""} ${JSON.stringify(st6)}`,
+    );
+    const r6 = await ana(`/neusaglasenosti/${nc6}/rijesi`, { telo: { uradjeno: "Roba vraćena dobavljaču", izuzetak: true, napomena: "Karantin prazan, lot zadržan" } });
+    provjeri("…„Riješeno je“ upisuje mjeru, zatvaranje čeka kraj povlačenja", r6.status === 200 && r6.tijelo.status === "CEKA_VERIFIKACIJU" && /povlačenje/.test(r6.tijelo.razlog ?? ""), JSON.stringify(r6.tijelo));
+    await ana(`/povlacenja/${t.povlacenje}/zavrsi`, { method: "PATCH", telo: {} });
+    provjeri("…posle „Završi povlačenje“ ništa ne fali", (await ana(`/neusaglasenosti/${nc6}`)).tijelo?.provjera?.fali === null);
+
     // ── Poruke: primljene, po vremenu ────────────────────────────────────────────────────────
     for (const [i, naslov] of [`${oznaka} prva`, `${oznaka} druga`].entries()) {
       const r = await marko("/poruke", { telo: { naslov, primaoci: { nacin: "pojedinacno", korisnici: [NALOZI.petar.id] } } });
@@ -204,18 +295,21 @@ export async function pokreni({ provjeri }) {
       const isporuke = t.isporuke.filter(Boolean);
       const mjerenja = (await k.query(`select id from mjerenje_temperature where kontrolna_tacka_id = $1 or lot_id = any($2)`, [t.tacka, lotovi])).rows.map((r) => r.id);
       const kontrole = t.vozilo ? (await k.query(`select id from kontrola_vozila where vozilo_id = $1`, [t.vozilo])).rows.map((r) => r.id) : [];
-      const ncIds = (await k.query(`select id from neusaglasenost where id = any($1) or izvor_id = any($2)`, [t.nc.filter(Boolean), [...mjerenja, ...kontrole, ...isporuke, ...lotovi]])).rows.map((r) => r.id);
+      const povlacenja = (await k.query(`select id from povlacenje where lot_id = any($1)`, [lotovi])).rows.map((r) => r.id);
+      const ncIds = (await k.query(`select id from neusaglasenost where id = any($1) or izvor_id = any($2)`, [t.nc.filter(Boolean), [...mjerenja, ...kontrole, ...isporuke, ...lotovi, ...povlacenja]])).rows.map((r) => r.id);
       const pravila = (await k.query(`select id from pravilo_kontrole where kontrolna_tacka_id = $1 or artikal_id = any($2)`, [t.tacka, art])).rows.map((r) => r.id);
       const provjere = t.uredjaj ? (await k.query(`select id from provjera_uredjaja where uredjaj_id = $1`, [t.uredjaj])).rows.map((r) => r.id) : [];
       const poruke = t.poruke.filter(Boolean);
       const pitanja = t.pitanja.filter(Boolean);
-      const sve = [...art, ...lotovi, ...isporuke, ...mjerenja, ...kontrole, ...ncIds, ...pravila, ...provjere, ...poruke, ...pitanja, ...t.prijemi.filter(Boolean), t.vozilo, t.plan, t.tacka, t.uredjaj].filter(Boolean);
+      const sve = [...art, ...lotovi, ...isporuke, ...mjerenja, ...kontrole, ...ncIds, ...povlacenja, ...pravila, ...provjere, ...poruke, ...pitanja, ...t.prijemi.filter(Boolean), t.vozilo, t.plan, t.tacka, t.uredjaj].filter(Boolean);
       await k.query(`delete from obavjestenje where izvor_id = any($1) or naslov like $2 or poruka like $2`, [sve, `%${oznaka}%`]);
       await k.query(`delete from zadatak where izvor_id = any($1)`, [sve]);
       await k.query(`delete from audit_log where entitet_id = any($1)`, [sve]);
       await k.query(`delete from verifikacija where neusaglasenost_id = any($1)`, [ncIds]);
       await k.query(`delete from korektivna_mjera where neusaglasenost_id = any($1)`, [ncIds]);
       await k.query(`delete from neusaglasenost where id = any($1)`, [ncIds]);
+      await k.query(`delete from povlacenje_kontakt where povlacenje_id = any($1)`, [povlacenja]);
+      await k.query(`delete from povlacenje where id = any($1)`, [povlacenja]);
       await k.query(`delete from mjerenje_temperature where id = any($1)`, [mjerenja]);
       await k.query(`delete from isporuka_stavka where isporuka_id = any($1)`, [isporuke]);
       await k.query(`delete from isporuka where id = any($1)`, [isporuke]);

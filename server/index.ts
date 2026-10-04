@@ -30,6 +30,7 @@ import { bekapRuter } from "./routes/bekap.js";
 import { pushRuter } from "./routes/push.js";
 import { greskeRuter } from "./routes/greske.js";
 import { vanMrezeRuter } from "./routes/vanMreze.js";
+import { inspekcijaRuter } from "./routes/inspekcija.js";
 import { migracijeNaCekanju, primijeniMigracije } from "./migracije.js";
 import { opisGreske, pokreniCiscenjeGresaka, zapisiGresku } from "./services/greskeLogService.js";
 import { pokreniSlanjePush } from "./services/pushService.js";
@@ -135,6 +136,7 @@ app.use("/api", bekapRuter);
 app.use("/api", pushRuter);
 app.use("/api", greskeRuter);
 app.use("/api", vanMrezeRuter);
+app.use("/api", inspekcijaRuter);
 
 app.use("/api", (_request: Request, response: Response, _next: NextFunction) => {
   response.status(404).json({ error: { code: "RUTA_NE_POSTOJI", message: "Traženi API resurs ne postoji." } });

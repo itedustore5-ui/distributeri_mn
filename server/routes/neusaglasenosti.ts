@@ -4,7 +4,7 @@ import { upit } from "../db.js";
 import { asyncRuta, ApiGreska } from "../greske.js";
 import { requireUloga, NA_TERENU, type AuthZahtjev } from "../auth.js";
 import { tijelo, str } from "../validacija.js";
-import { kreirajRucnuNeusaglasenost, dodajKorektivnuMjeru, zavrsiKorektivnuMjeru, verifikuj, stanjeProvjere } from "../services/ncService.js";
+import { kreirajRucnuNeusaglasenost, dodajKorektivnuMjeru, zavrsiKorektivnuMjeru, verifikuj, stanjeProvjere, rijesiOdmah } from "../services/ncService.js";
 import { IME, IZVOR_OZNAKA, SAMO_MOJE_NC } from "../services/sqlDijelovi.js";
 import { vanMreze } from "../vanMreze.js";
 
@@ -95,6 +95,23 @@ ncRuter.post(
     const rezultat = typeof request.body?.rezultat === "string" ? request.body.rezultat : undefined;
     const neusaglasenostId = await zavrsiKorektivnuMjeru(str(request.params.id), rezultat, request.korisnik!.id, request.korisnik!.uloga);
     response.json({ neusaglasenostId });
+  }),
+);
+
+const rijesiSchema = z.object({
+  uradjeno: z.string().trim().min(3, "Upišite šta je urađeno — taj zapis čita inspektor."),
+  napomena: z.string().optional(),
+  izuzetak: z.boolean().optional(),
+});
+
+// „Riješila sam — zatvori“: mjera upisana kao urađena i, kad pravila dozvole, zatvoreno — jedna radnja.
+ncRuter.post(
+  "/neusaglasenosti/:id/rijesi",
+  requireUloga("bzr", "izvodjac"),
+  asyncRuta(async (request: AuthZahtjev, response) => {
+    const ulaz = tijelo(rijesiSchema, request.body);
+    const rezultat = await rijesiOdmah(str(request.params.id), ulaz, request.korisnik!.id, request.korisnik!.uloga);
+    response.json(rezultat);
   }),
 );
 

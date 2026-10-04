@@ -196,6 +196,22 @@ async function stoFaliZaZatvaranje(klijent: PoolClient, nc: { izvor_tip: string;
     if (!u || !u.aktivan || u.ispravan) return null;
     return `Prije zatvaranja termometar „${u.naziv}“ mora proći novu provjeru ili kalibraciju — ili ga isključite iz upotrebe (HACCP plan → Termometri).`;
   }
+
+  // Neusaglašenost „pokrenuto povlačenje“ (čl. 28) je riješena tek kad je povlačenje završeno —
+  // svi kupci obaviješteni. Zatvorena dok kupci još nisu zvani bila bi nalaz.
+  if (nc.izvor_tip === "povlacenje") {
+    const pv = (
+      await klijent.query<{ broj: string; status: string; nezvani: string }>(
+        `select p.broj, p.status,
+                (select count(*) from povlacenje_kontakt k where k.povlacenje_id = p.id and not k.kontaktiran) as nezvani
+         from povlacenje p where p.id = $1`,
+        [nc.izvor_id],
+      )
+    ).rows[0];
+    if (!pv || pv.status === "ZAVRSENO") return null;
+    const n = Number(pv.nezvani);
+    return `Prije zatvaranja povlačenje ${pv.broj} mora biti završeno${n > 0 ? ` — još ${n} ${n === 1 ? "kupac nije obaviješten" : "kupaca nije obaviješteno"}` : " — svi kupci su obaviješteni, ostaje „Završi povlačenje“"} (Sledljivost → Povlačenja).`;
+  }
   return null;
 }
 
@@ -203,17 +219,31 @@ export type StanjeProvjere = {
   /** Šta mora postojati prije zatvaranja (ponovna kontrola, R-22) — null kad ništa ne fali. */
   fali: string | null;
   /** Gdje se to radi u aplikaciji. */
-  faliGdje: "/haccp" | "/vozila" | "/haccp-plan" | null;
-  /** Mjeru je uradio onaj ko gleda — četiri oka (#15a). */
+  faliGdje: "/haccp" | "/vozila" | "/haccp-plan" | "/sledljivost" | null;
+  /** Povlačenje iz kog je neusaglašenost — ekran ga otvara direktno. */
+  povlacenjeId: string | null;
+  /** Mjeru je uradio onaj ko gleda — četiri oka (#15a). Samo dok neusaglašenost čeka provjeru. */
   svojaMjera: boolean;
   /** …a u firmi nema drugog odgovornog lica: smije sam, uz obrazloženje (#41). */
   izuzetakMoguc: boolean;
+  /** Ko gleda je JEDINO odgovorno lice u firmi — ako sam uradi mjeru, sam je i zatvara (uz izuzetak #41). */
+  samaZatvara: boolean;
   /** Ko drugi može provjeriti. */
   drugoLice: string | null;
 };
 
-/** Isto što provjerava `verifikuj`, ali UNAPRIJED — ekran kaže šta fali i ko provjerava prije nego
- * što se pritisne „Provjereno — zatvori“ (ranije se to saznavalo tek iz greške; proba 01.10.2026). */
+const DRUGO_ODGOVORNO_LICE = `select k.id, coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id
+   where k.uloga = 'bzr' and k.aktivan and k.id <> $1 order by 2`;
+
+function gdjeSeRadi(fali: string | null, izvorTip: string): StanjeProvjere["faliGdje"] {
+  if (!fali) return null;
+  if (izvorTip === "povlacenje") return "/sledljivost";
+  if (fali.includes("(D1)")) return "/vozila";
+  return izvorTip === "mjerni_uredjaj" ? "/haccp-plan" : "/haccp";
+}
+
+/** Isto što provjeravaju `verifikuj` i `rijesiOdmah`, ali UNAPRIJED — ekran kaže šta fali i ko
+ * provjerava prije nego što se išta pritisne (ranije se to saznavalo tek iz greške; proba 01.10.2026). */
 export async function stanjeProvjere(neusaglasenostId: string, korisnikId: string, uloga: string): Promise<StanjeProvjere | null> {
   return transakcija(async (klijent) => {
     const nc = (
@@ -222,134 +252,219 @@ export async function stanjeProvjere(neusaglasenostId: string, korisnikId: strin
         [neusaglasenostId],
       )
     ).rows[0];
-    if (!nc || nc.status !== "CEKA_VERIFIKACIJU") return null;
-    const zavrsio = (
-      await klijent.query<{ zavrsio_korisnik_id: string | null }>(
-        `select zavrsio_korisnik_id from korektivna_mjera where neusaglasenost_id = $1 and status = 'ZAVRSENA' order by zavrseno_at desc limit 1`,
-        [neusaglasenostId],
-      )
-    ).rows[0]?.zavrsio_korisnik_id;
+    if (!nc || nc.status === "ZATVORENA") return null;
+    const ceka = nc.status === "CEKA_VERIFIKACIJU";
+    const zavrsio = ceka
+      ? (
+          await klijent.query<{ zavrsio_korisnik_id: string | null }>(
+            `select zavrsio_korisnik_id from korektivna_mjera where neusaglasenost_id = $1 and status = 'ZAVRSENA' order by zavrseno_at desc limit 1`,
+            [neusaglasenostId],
+          )
+        ).rows[0]?.zavrsio_korisnik_id
+      : undefined;
     const fali = await stoFaliZaZatvaranje(klijent, nc);
-    const faliGdje = !fali ? null : fali.includes("(D1)") ? "/vozila" : nc.izvor_tip === "mjerni_uredjaj" ? "/haccp-plan" : "/haccp";
-    const svojaMjera = zavrsio === korisnikId;
-    const drugi = (
-      await klijent.query<{ ime: string }>(
-        `select coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id
-         where k.uloga = 'bzr' and k.aktivan and k.id <> $1 order by 1 limit 1`,
-        [korisnikId],
-      )
-    ).rows[0];
-    return { fali, faliGdje, svojaMjera, izuzetakMoguc: svojaMjera && uloga === "bzr" && !drugi, drugoLice: drugi?.ime ?? null };
+    const svojaMjera = ceka && zavrsio === korisnikId;
+    const drugi = (await klijent.query<{ ime: string }>(DRUGO_ODGOVORNO_LICE, [korisnikId])).rows[0];
+    const samaZatvara = uloga === "bzr" && !drugi;
+    return {
+      fali,
+      faliGdje: gdjeSeRadi(fali, nc.izvor_tip),
+      povlacenjeId: nc.izvor_tip === "povlacenje" ? nc.izvor_id : null,
+      svojaMjera,
+      izuzetakMoguc: svojaMjera && samaZatvara,
+      samaZatvara,
+      drugoLice: drugi?.ime ?? null,
+    };
   });
 }
 
-export async function verifikuj(
-  neusaglasenostId: string,
-  ulaz: { korektivnaMjeraId?: string | null; rezultat: "POTVRDJENO" | "ODBIJENO"; napomena?: string; izuzetak?: boolean },
-  korisnikId: string,
-  uloga?: string,
-) {
-  return transakcija(async (klijent) => {
-    // Provjerava se samo ono što je urađeno (nalaz H2): neusaglašenost mora čekati provjeru, a
-    // mjeru koju provjeravamo bira SERVER — posljednju završenu — ne pregledač. Ranije se mogla
-    // zatvoriti i otvorena neusaglašenost bez ijedne mjere, a "četiri oka" su se zaobilazila
-    // time što se id mjere jednostavno ne pošalje.
-    const nc = await klijent.query<{ status: string; izvor_tip: string; izvor_id: string | null; created_at: string }>(
-      `select status, izvor_tip, izvor_id, created_at from neusaglasenost where id = $1 for update`,
+type UlazProvjere = { korektivnaMjeraId?: string | null; rezultat: "POTVRDJENO" | "ODBIJENO"; napomena?: string; izuzetak?: boolean };
+
+export async function verifikuj(neusaglasenostId: string, ulaz: UlazProvjere, korisnikId: string, uloga?: string) {
+  return transakcija((klijent) => verifikujU(klijent, neusaglasenostId, ulaz, korisnikId, uloga));
+}
+
+/** Provjera u transakciji pozivaoca — zove je i `rijesiOdmah` (mjera i provjera zajedno ili nikako). */
+async function verifikujU(klijent: PoolClient, neusaglasenostId: string, ulaz: UlazProvjere, korisnikId: string, uloga?: string) {
+  // Provjerava se samo ono što je urađeno (nalaz H2): neusaglašenost mora čekati provjeru, a
+  // mjeru koju provjeravamo bira SERVER — posljednju završenu — ne pregledač. Ranije se mogla
+  // zatvoriti i otvorena neusaglašenost bez ijedne mjere, a "četiri oka" su se zaobilazila
+  // time što se id mjere jednostavno ne pošalje.
+  const nc = await klijent.query<{ status: string; izvor_tip: string; izvor_id: string | null; created_at: string }>(
+    `select status, izvor_tip, izvor_id, created_at from neusaglasenost where id = $1 for update`,
+    [neusaglasenostId],
+  );
+  if (!nc.rows[0]) throw new ApiGreska(404, "NC_NE_POSTOJI", "Neusaglašenost nije pronađena.");
+  if (nc.rows[0].status !== "CEKA_VERIFIKACIJU") {
+    throw new ApiGreska(409, "NIJE_SPREMNO_ZA_PROVJERU", "Provjerava se tek kad je korektivna mjera urađena — neusaglašenost se ne zatvara bez nje.");
+  }
+  const mjera = await klijent.query<{ id: string; zavrsio_korisnik_id: string | null }>(
+    `select id, zavrsio_korisnik_id from korektivna_mjera
+     where neusaglasenost_id = $1 and status = 'ZAVRSENA' order by zavrseno_at desc limit 1`,
+    [neusaglasenostId],
+  );
+  const zavrsena = mjera.rows[0];
+  if (!zavrsena) throw new ApiGreska(409, "NEMA_URADJENE_MJERE", "Nema urađene korektivne mjere — neusaglašenost se ne zatvara bez nje.");
+  if (ulaz.rezultat === "POTVRDJENO") {
+    const fali = await stoFaliZaZatvaranje(klijent, nc.rows[0]);
+    if (fali) throw new ApiGreska(409, "PONOVNA_KONTROLA_POTREBNA", fali);
+  }
+  // Četiri oka (invarijanta #15a). Izlaz za malu firmu (nalaz H7): kad u firmi NEMA drugog
+  // odgovornog lica, bzr smije provjeriti i sopstvenu mjeru — ali svjesno, uz obrazloženje, sa
+  // oznakom na zapisu i obavještenjem konsultantu da to pogleda pri posjeti.
+  let izuzetak = false;
+  if (zavrsena.zavrsio_korisnik_id === korisnikId) {
+    const drugi = (await klijent.query<{ ime: string }>(DRUGO_ODGOVORNO_LICE, [korisnikId])).rows[0];
+    const moguc = uloga === "bzr" && !drugi;
+    if (!ulaz.izuzetak) {
+      throw new ApiGreska(409, "VERIFIKACIJA_NIJE_NEZAVISNA", moguc
+        ? "Mjeru ste uradili vi. U firmi nema drugog odgovornog lica — možete provjeriti sami, uz obrazloženje (zapis nosi oznaku)."
+        : "Ko je završio korektivnu mjeru ne može istu i verifikovati.", { izuzetakMoguc: moguc });
+    }
+    if (!moguc) {
+      throw new ApiGreska(409, "IZUZETAK_NIJE_DOZVOLJEN", drugi
+        ? `Postoji drugo odgovorno lice (${drugi.ime}) — ono provjerava ovu mjeru.`
+        : "Izuzetak od četiri oka ima samo odgovorno lice u firmi bez drugog odgovornog lica.");
+    }
+    if (!ulaz.napomena || ulaz.napomena.trim().length < 10) {
+      throw new ApiGreska(400, "OBRAZLOZENJE_OBAVEZNO", "Upišite zašto provjeravate sami i šta ste pregledali (najmanje 10 znakova).");
+    }
+    izuzetak = true;
+  }
+  await klijent.query(
+    `insert into verifikacija (neusaglasenost_id, korektivna_mjera_id, verifikovao_korisnik_id, rezultat, napomena, izuzetak_cetiri_oka)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [neusaglasenostId, zavrsena.id, korisnikId, ulaz.rezultat, ulaz.napomena ?? null, izuzetak],
+  );
+  if (izuzetak) {
+    const broj = (await klijent.query<{ broj: string }>(`select broj from neusaglasenost where id = $1`, [neusaglasenostId])).rows[0]?.broj;
+    await obavijestiUlogu(klijent, "izvodjac", {
+      naslov: `Provjera bez četiri oka — ${broj ?? "neusaglašenost"}`,
+      poruka: `Odgovorno lice je samo uradilo i provjerilo mjeru (nema drugog odgovornog lica). Obrazloženje: ${ulaz.napomena!.trim()}. Pogledati pri posjeti.`,
+      ozbiljnost: "SREDNJI",
+      izvorTip: "neusaglasenost",
+      izvorId: neusaglasenostId,
+    });
+  }
+
+  const noviStatus = ulaz.rezultat === "POTVRDJENO" ? "ZATVORENA" : "PONOVO_OTVORENA";
+  await klijent.query(
+    `update neusaglasenost set status = $1::nc_status_t, updated_at = now(),
+     zatvoreno_at = case when $1::nc_status_t = 'ZATVORENA' then now() else null end,
+     zatvorio_korisnik_id = case when $1::nc_status_t = 'ZATVORENA' then $2::uuid else null end
+     where id = $3`,
+    [noviStatus, korisnikId, neusaglasenostId],
+  );
+
+  await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: noviStatus, rezultat: ulaz.rezultat } });
+
+  if (noviStatus === "ZATVORENA") {
+    await zatvoriZadatkeIzvora(klijent, "neusaglasenost", neusaglasenostId);
+    // Ko je prijavio problem saznaje da je riješen — inače magacioner koji je izmjerio 8 °C
+    // nikad ne sazna šta je bilo dalje, i sljedeći put ne prijavi.
+    const nc = await klijent.query<{ broj: string; prijavio_korisnik_id: string | null }>(
+      `select broj, prijavio_korisnik_id from neusaglasenost where id = $1`,
       [neusaglasenostId],
     );
-    if (!nc.rows[0]) throw new ApiGreska(404, "NC_NE_POSTOJI", "Neusaglašenost nije pronađena.");
-    if (nc.rows[0].status !== "CEKA_VERIFIKACIJU") {
-      throw new ApiGreska(409, "NIJE_SPREMNO_ZA_PROVJERU", "Provjerava se tek kad je korektivna mjera urađena — neusaglašenost se ne zatvara bez nje.");
-    }
-    const mjera = await klijent.query<{ id: string; zavrsio_korisnik_id: string | null }>(
-      `select id, zavrsio_korisnik_id from korektivna_mjera
-       where neusaglasenost_id = $1 and status = 'ZAVRSENA' order by zavrseno_at desc limit 1`,
-      [neusaglasenostId],
-    );
-    const zavrsena = mjera.rows[0];
-    if (!zavrsena) throw new ApiGreska(409, "NEMA_URADJENE_MJERE", "Nema urađene korektivne mjere — neusaglašenost se ne zatvara bez nje.");
-    if (ulaz.rezultat === "POTVRDJENO") {
-      const fali = await stoFaliZaZatvaranje(klijent, nc.rows[0]);
-      if (fali) throw new ApiGreska(409, "PONOVNA_KONTROLA_POTREBNA", fali);
-    }
-    // Četiri oka (invarijanta #15a). Izlaz za malu firmu (nalaz H7): kad u firmi NEMA drugog
-    // odgovornog lica, bzr smije provjeriti i sopstvenu mjeru — ali svjesno, uz obrazloženje, sa
-    // oznakom na zapisu i obavještenjem konsultantu da to pogleda pri posjeti.
-    let izuzetak = false;
-    if (zavrsena.zavrsio_korisnik_id === korisnikId) {
-      const drugi = (
-        await klijent.query<{ ime: string }>(
-          `select coalesce(l.ime, k.korisnicko_ime) as ime from korisnik k left join lice l on l.id = k.lice_id
-           where k.uloga = 'bzr' and k.aktivan and k.id <> $1 limit 1`,
-          [korisnikId],
-        )
-      ).rows[0];
-      const moguc = uloga === "bzr" && !drugi;
-      if (!ulaz.izuzetak) {
-        throw new ApiGreska(409, "VERIFIKACIJA_NIJE_NEZAVISNA", moguc
-          ? "Mjeru ste uradili vi. U firmi nema drugog odgovornog lica — možete provjeriti sami, uz obrazloženje (zapis nosi oznaku)."
-          : "Ko je završio korektivnu mjeru ne može istu i verifikovati.", { izuzetakMoguc: moguc });
-      }
-      if (!moguc) {
-        throw new ApiGreska(409, "IZUZETAK_NIJE_DOZVOLJEN", drugi
-          ? `Postoji drugo odgovorno lice (${drugi.ime}) — ono provjerava ovu mjeru.`
-          : "Izuzetak od četiri oka ima samo odgovorno lice u firmi bez drugog odgovornog lica.");
-      }
-      if (!ulaz.napomena || ulaz.napomena.trim().length < 10) {
-        throw new ApiGreska(400, "OBRAZLOZENJE_OBAVEZNO", "Upišite zašto provjeravate sami i šta ste pregledali (najmanje 10 znakova).");
-      }
-      izuzetak = true;
-    }
-    await klijent.query(
-      `insert into verifikacija (neusaglasenost_id, korektivna_mjera_id, verifikovao_korisnik_id, rezultat, napomena, izuzetak_cetiri_oka)
-       values ($1, $2, $3, $4, $5, $6)`,
-      [neusaglasenostId, zavrsena.id, korisnikId, ulaz.rezultat, ulaz.napomena ?? null, izuzetak],
-    );
-    if (izuzetak) {
-      const broj = (await klijent.query<{ broj: string }>(`select broj from neusaglasenost where id = $1`, [neusaglasenostId])).rows[0]?.broj;
-      await obavijestiUlogu(klijent, "izvodjac", {
-        naslov: `Provjera bez četiri oka — ${broj ?? "neusaglašenost"}`,
-        poruka: `Odgovorno lice je samo uradilo i provjerilo mjeru (nema drugog odgovornog lica). Obrazloženje: ${ulaz.napomena!.trim()}. Pogledati pri posjeti.`,
-        ozbiljnost: "SREDNJI",
+    const prijavio = nc.rows[0]?.prijavio_korisnik_id;
+    if (prijavio && prijavio !== korisnikId) {
+      await kreirajObavjestenje(klijent, {
+        korisnikId: prijavio,
+        naslov: `Neusaglašenost ${nc.rows[0].broj} je zatvorena`,
+        poruka: ulaz.napomena ?? "Korektivna mjera je sprovedena i provjerena.",
+        ozbiljnost: "NIZAK",
         izvorTip: "neusaglasenost",
         izvorId: neusaglasenostId,
       });
     }
+  }
 
-    const noviStatus = ulaz.rezultat === "POTVRDJENO" ? "ZATVORENA" : "PONOVO_OTVORENA";
-    await klijent.query(
-      `update neusaglasenost set status = $1::nc_status_t, updated_at = now(),
-       zatvoreno_at = case when $1::nc_status_t = 'ZATVORENA' then now() else null end,
-       zatvorio_korisnik_id = case when $1::nc_status_t = 'ZATVORENA' then $2::uuid else null end
-       where id = $3`,
-      [noviStatus, korisnikId, neusaglasenostId],
-    );
+  return { status: noviStatus };
+}
 
-    await logPromjenaStatusa(klijent, { korisnikId, entitetTip: "neusaglasenost", entitetId: neusaglasenostId, noveVrijednosti: { status: noviStatus, rezultat: ulaz.rezultat } });
-
-    if (noviStatus === "ZATVORENA") {
-      await zatvoriZadatkeIzvora(klijent, "neusaglasenost", neusaglasenostId);
-      // Ko je prijavio problem saznaje da je riješen — inače magacioner koji je izmjerio 8 °C
-      // nikad ne sazna šta je bilo dalje, i sljedeći put ne prijavi.
-      const nc = await klijent.query<{ broj: string; prijavio_korisnik_id: string | null }>(
-        `select broj, prijavio_korisnik_id from neusaglasenost where id = $1`,
+/** „Riješila sam“ — mjera upisana kao urađena i, kad može, provjerena i zatvorena: JEDNA radnja,
+ * JEDNA transakcija (proba vlasnice 03.10.2026: u maloj firmi odgovorno lice samo riješi problem, a
+ * zatvaranje je tražilo četiri koraka i dva prozora). Pravila ostaju ista:
+ * - fali ponovna kontrola (R-22) ili završeno povlačenje → mjera je upisana, neusaglašenost čeka provjeru;
+ * - u firmi postoji drugo odgovorno lice (ili radi konsultant) → četiri oka: provjerava DRUGI, dobija obavještenje;
+ * - jedino odgovorno lice → zatvara samo, ali svjesno: kvačica i obrazloženje (izuzetak #41).
+ * Otvorena mjera (dodijeljena nekome) se završava ovim upisom; inače nastaje nova, već urađena. */
+export async function rijesiOdmah(
+  neusaglasenostId: string,
+  ulaz: { uradjeno: string; napomena?: string; izuzetak?: boolean },
+  korisnikId: string,
+  uloga: string,
+): Promise<{ status: string; razlog: string | null }> {
+  const uradjeno = (ulaz.uradjeno ?? "").trim();
+  if (uradjeno.length < 3) throw new ApiGreska(400, "REZULTAT_OBAVEZAN", "Upišite šta je urađeno — taj zapis čita inspektor.");
+  return transakcija(async (klijent) => {
+    const nc = (
+      await klijent.query<{ broj: string; status: string; izvor_tip: string; izvor_id: string | null; created_at: string }>(
+        `select broj, status, izvor_tip, izvor_id, created_at from neusaglasenost where id = $1 for update`,
         [neusaglasenostId],
+      )
+    ).rows[0];
+    if (!nc) throw new ApiGreska(404, "NC_NE_POSTOJI", "Neusaglašenost nije pronađena.");
+    if (nc.status === "ZATVORENA") throw new ApiGreska(409, "NC_ZATVORENA", "Neusaglašenost je već zatvorena.");
+    if (nc.status === "CEKA_VERIFIKACIJU") throw new ApiGreska(409, "MJERA_VEC_URADJENA", "Mjera je već urađena — ispod je samo provjera i zatvaranje.");
+
+    const fali = await stoFaliZaZatvaranje(klijent, nc);
+    const drugi = (await klijent.query<{ id: string; ime: string }>(DRUGO_ODGOVORNO_LICE, [korisnikId])).rows;
+    const samaZatvara = uloga === "bzr" && drugi.length === 0;
+    const napomena = (ulaz.napomena ?? "").trim();
+    if (samaZatvara && !fali) {
+      if (!ulaz.izuzetak) {
+        throw new ApiGreska(400, "IZUZETAK_POTREBAN", "Vi ste jedino odgovorno lice, pa sami i zatvarate: označite kvačicu „zatvaram bez drugog lica“ i upišite šta ste provjerili.");
+      }
+      if (napomena.length < 10) {
+        throw new ApiGreska(400, "OBRAZLOZENJE_OBAVEZNO", `Upišite šta ste provjerili — još ${10 - napomena.length} znakova (najmanje 10).`);
+      }
+    }
+
+    // Otvorena mjera (dodijeljena nekome ili bez dodjele) se završava; inače nova, odmah urađena.
+    const zavrsene = await klijent.query(
+      `update korektivna_mjera set status = 'ZAVRSENA', zavrseno_at = now(), zavrsio_korisnik_id = $1, rezultat = $2
+       where neusaglasenost_id = $3 and status <> 'ZAVRSENA' returning id`,
+      [korisnikId, uradjeno, neusaglasenostId],
+    );
+    if (zavrsene.rowCount === 0) {
+      await klijent.query(
+        `insert into korektivna_mjera (neusaglasenost_id, opis, dodijeljeno_korisnik_id, status, zavrseno_at, zavrsio_korisnik_id, rezultat)
+         values ($1, $2, $3, 'ZAVRSENA', now(), $3, $2)`,
+        [neusaglasenostId, uradjeno, korisnikId],
       );
-      const prijavio = nc.rows[0]?.prijavio_korisnik_id;
-      if (prijavio && prijavio !== korisnikId) {
+    }
+    await klijent.query(`update neusaglasenost set status = 'CEKA_VERIFIKACIJU', updated_at = now() where id = $1`, [neusaglasenostId]);
+    await logPromjenaStatusa(klijent, {
+      korisnikId,
+      entitetTip: "neusaglasenost",
+      entitetId: neusaglasenostId,
+      stareVrijednosti: { status: nc.status },
+      noveVrijednosti: { status: "CEKA_VERIFIKACIJU", mjera: uradjeno },
+    });
+
+    if (fali) return { status: "CEKA_VERIFIKACIJU", razlog: fali };
+    if (!samaZatvara) {
+      // Četiri oka: provjerava drugo odgovorno lice — saznaje odmah.
+      for (const d of drugi) {
         await kreirajObavjestenje(klijent, {
-          korisnikId: prijavio,
-          naslov: `Neusaglašenost ${nc.rows[0].broj} je zatvorena`,
-          poruka: ulaz.napomena ?? "Korektivna mjera je sprovedena i provjerena.",
-          ozbiljnost: "NIZAK",
+          korisnikId: d.id,
+          naslov: `Mjera urađena — ${nc.broj} čeka vašu provjeru`,
+          poruka: uradjeno,
+          ozbiljnost: "SREDNJI",
           izvorTip: "neusaglasenost",
           izvorId: neusaglasenostId,
         });
       }
+      return {
+        status: "CEKA_VERIFIKACIJU",
+        razlog: drugi.length
+          ? `Mjera je upisana. Provjerava i zatvara ${drugi.map((d) => d.ime).join(" ili ")} (četiri oka) — dobija obavještenje.`
+          : "Mjera je upisana. Provjerava i zatvara odgovorno lice firme (četiri oka).",
+      };
     }
-
-    return { status: noviStatus };
+    const r = await verifikujU(klijent, neusaglasenostId, { rezultat: "POTVRDJENO", napomena, izuzetak: true }, korisnikId, uloga);
+    return { status: r.status, razlog: null };
   });
 }
 

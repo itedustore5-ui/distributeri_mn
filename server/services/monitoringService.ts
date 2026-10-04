@@ -205,24 +205,30 @@ export async function stanjeDanas(filter: { uloga?: string; skladisteId?: string
 /** Pregled rupa unazad: koliko završenih perioda je bilo i u kojima nije urađeno koliko treba. */
 export async function pregledRupa(dana: number) {
   const danas = danasCG();
-  const juce = dodajDane(danas, -1);
-  const pocetak = dodajDane(danas, -dana);
+  return pregledPlana(dodajDane(danas, -dana), dodajDane(danas, -1));
+}
+
+/** Isto za izabrani period [od, do] — HACCP plan (30 dana) i inspekcijski paket čitaju isto (#43).
+ * Ocjenjuju se samo ZAVRŠENI periodi: tekući dan (sedmica, mjesec) se ne broji kao propušten. */
+export async function pregledPlana(odDan: string, doDan: string) {
+  const juce = dodajDane(danasCG(), -1);
+  const kraj = doDan < juce ? doDan : juce;
   const rezultat = [];
   for (const s of (await stavkePlana()).filter((x) => x.ucestalost !== "PO_DOGADJAJU")) {
-    const od = s.vazi_od > pocetak ? s.vazi_od : pocetak;
-    if (od > juce) {
+    const od = s.vazi_od > odDan ? s.vazi_od : odDan;
+    if (od > kraj) {
       rezultat.push({ ...s, periodaUkupno: 0, propusteno: [] as { od: string; do: string; uradjeno: number }[] });
       continue;
     }
-    const brojevi = await poDanima(s, od, juce);
-    const voznja = dnevnaD1(s) ? await daniVoznje(s.vozilo_id!, od, juce) : null;
-    // Završeni periodi u rasponu: kraj perioda je prije danas.
+    const brojevi = await poDanima(s, od, kraj);
+    const voznja = dnevnaD1(s) ? await daniVoznje(s.vozilo_id!, od, kraj) : null;
+    // Završeni periodi u rasponu: kraj perioda je najkasnije juče i ne poslije kraja izabranog perioda.
     const periodi: { od: string; do: string }[] = [];
     let dan = od;
-    while (dan <= juce) {
+    while (dan <= kraj) {
       const p = period(s.ucestalost, dan)!;
       const obavezno = voznja ? voznja.has(dan) : p.obavezno;
-      if (obavezno && p.do <= juce) periodi.push({ od: p.od < od ? od : p.od, do: p.do });
+      if (obavezno && p.do <= kraj) periodi.push({ od: p.od < od ? od : p.od, do: p.do });
       dan = dodajDane(p.do, 1);
     }
     const propusteno = periodi
@@ -230,7 +236,7 @@ export async function pregledRupa(dana: number) {
       .filter((p) => p.uradjeno < s.puta);
     rezultat.push({ ...s, periodaUkupno: periodi.length, propusteno });
   }
-  return { od: pocetak, do: juce, stavke: rezultat };
+  return { od: odDan, do: kraj, stavke: rezultat };
 }
 
 /** Osnovni plan za distributera — konsultant ga zatim prilagodi. Samo kad plan još ne postoji. */

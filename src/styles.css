@@ -431,6 +431,12 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
 .nc-uradi { display: flex; gap: 8px; align-items: flex-end; margin-top: 4px; }
 .nc-uradi textarea { flex: 1; border: 1px solid #dfe7ed; border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 11px; resize: vertical; }
 .nc-nova-mjera { padding: 12px 0 0 !important; border-top: 1px solid #edf1f3; margin-top: 8px; }
+.nc-rijesi { border-top: 1px solid #edf1f3; margin-top: 10px; padding-top: 12px; }
+.nc-napomena { background: #f5f7f9; color: #394a57; border-radius: 8px; padding: 9px 12px; font-size: 11px; line-height: 1.45; }
+.nc-info { background: #eaf7f1; color: #1f6b4f; border-radius: 8px; padding: 10px 12px; font-size: 11px; font-weight: 600; line-height: 1.45; }
+.nc-rijesi .form-grid { padding: 0; }
+.form-grid label.nc-bez-drugog { flex-direction: row; align-items: flex-start; gap: 8px; font-weight: 500; font-size: 11px; line-height: 1.4; cursor: pointer; }
+.form-grid label.nc-bez-drugog input { width: auto; height: auto; margin-top: 2px; flex: none; }
 .nc-provjera { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; border-top: 1px solid #edf1f3; padding-top: 14px; }
 .nc-provjera input { height: 35px; border: 1px solid #dfe7ed; border-radius: 6px; padding: 0 9px; font-size: 11px; }
 @media (max-width: 480px) { .nc-uradi { flex-direction: column; align-items: stretch; } }
@@ -536,3 +542,50 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
 .prijem-kvacica input { width: 18px; height: 18px; margin-top: 1px; flex: none; }
 @media (max-width: 700px) { .prijem-stavka .form-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 480px) { .prijem-stavka { margin-inline: 12px; } .prijem-korak h3 { margin-inline: 16px; } .prijem-traka, .prijem-uputstvo { margin-inline: 12px; } .prijem-izbor { padding: 16px; } .prijem-dugme { min-height: 64px; } .prijem-stavka .form-grid { padding: 10px 12px 12px; gap: 10px; } .rezim-izbor button, .rezim-izbor select { min-height: 40px; } .prijem-kvacica { font-size: 13px; } .prijem-kvacica input { width: 22px; height: 22px; } }
+
+/* Inspekcijski paket (src/pages/Inspekcija.tsx): na ekranu pregled, u štampi A4 položeno, naslovna sama na strani. */
+.insp-akcije { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }
+.insp-akcije .muted-text { font-size: 11px; flex: 1 1 220px; }
+.insp-odjeljci { margin: 0 0 14px; font-size: 12px; }
+.insp-odjeljci summary { cursor: pointer; font-weight: 600; color: #34495a; }
+.insp-odjeljci > div { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; margin-top: 8px; }
+.insp-odjeljci label { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.insp-dokument { padding: 28px 28px 34px; max-width: 1100px; margin: 0 auto; }
+.insp-naslovna { text-align: center; padding: 10px 0 24px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+.insp-naslovna h1 { font-size: 20px; margin: 6px 0 2px; }
+.insp-naslovna h2 { font-size: 24px; margin: 26px 0 4px; }
+.insp-naslovna h3 { font-size: 13px; margin: 20px 0 6px; }
+.insp-podnaslov { font-size: 12px; color: #556774; margin: 0 0 16px; }
+.insp-naslovna dl { display: grid; grid-template-columns: auto auto; justify-content: center; gap: 4px 14px; font-size: 12px; margin: 0 auto; text-align: left; }
+.insp-naslovna dt { color: #7d8995; }
+.insp-naslovna dd { margin: 0; font-weight: 600; }
+.insp-osnov { font-size: 10.5px; line-height: 1.55; color: #394a57; max-width: 760px; margin: 18px auto 0; text-align: left; }
+.insp-sadrzaj { display: inline-block; text-align: left; font-size: 12px; line-height: 1.7; margin: 0; padding-left: 22px; }
+.insp-odjeljak { margin-top: 22px; }
+.insp-odjeljak h2 { font-size: 15px; margin: 0 0 4px; }
+.insp-opis { font-size: 11px; color: #556774; margin: 0 0 8px; line-height: 1.5; }
+.insp-tabela { margin-bottom: 10px; }
+.insp-tabela .data-table { font-size: 11px; }
+.insp-tabela .data-table td { vertical-align: top; }
+.insp-tabela .data-table.uska { max-width: 640px; }
+.insp-lose { color: var(--red); font-weight: 600; }
+.insp-brojke { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.insp-brojka { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.insp-brojka strong { display: block; font-size: 20px; }
+.insp-brojka span { display: block; font-size: 10.5px; color: #556774; line-height: 1.35; margin-top: 2px; }
+.insp-brojka.losa strong { color: var(--red); }
+.insp-potpisi { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 20px; margin-top: 44px; font-size: 12px; }
+@media (max-width: 480px) { .insp-dokument { padding: 18px 14px 24px; } .insp-naslovna h2 { font-size: 20px; } .insp-naslovna dl { grid-template-columns: 1fr; } }
+@page insp { size: A4 landscape; margin: 12mm; }
+@media print {
+  .insp-dokument { page: insp; padding: 0; max-width: none; }
+  .insp-naslovna { break-after: page; border: 0; padding: 6mm 0 0; margin: 0; }
+  .insp-naslovna h2 { margin-top: 14px; }
+  .insp-sadrzaj { columns: 2; column-gap: 40px; line-height: 1.6; }
+  .insp-odjeljak h2 { break-after: avoid; }
+  .insp-opis { break-after: avoid; }
+  .insp-tabela .data-table { font-size: 8pt; }
+  .insp-tabela tr { break-inside: avoid; }
+  .insp-brojke { grid-template-columns: repeat(6, 1fr); }
+  .insp-lose { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

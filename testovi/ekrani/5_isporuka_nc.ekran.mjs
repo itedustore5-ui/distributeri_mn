@@ -1,7 +1,8 @@
 // Prijava vlasnice 02.10.2026, na telefonu:
 //   • „kod vozača nova isporuka se čuva, kod magacionera ne“ — magacioneru je matični magacin bio bez robe
 //     (kao „Magacin Bar“ na demo bazi), forma je nudila samo taj magacin i sivo „Sačuvaj“ bez objašnjenja;
-//   • „kod Ane neusaglašenost neće da se zatvori“ — dugme je bilo sivo dok se ne označi kvačica ispod.
+//   • „kod Ane neusaglašenost neće da se zatvori“ — dugme je bilo sivo dok se ne označi kvačica ispod;
+//     03.10.: „treba da je funkcionalnije“ — sada „Riješeno je“: jedan upis, mjera + provjera + zatvaranje.
 import { pool, prijava, NALOZI } from "../pomoc.mjs";
 import { telefon, otvori, prozor, slikaj } from "./telefon.mjs";
 
@@ -61,29 +62,32 @@ export async function pokreni({ provjeri }) {
       await otvori(a, "/neusaglasenosti");
       await a.strana.getByRole("button", { name: /^Sve aktivne|^Sve/ }).first().click().catch(() => undefined);
       await a.strana.getByText(`${oznaka} proba zatvaranja`).first().click();
+      // Proba 03.10.2026: „Riješeno je“ — jedan upis umjesto mjera → urađeno → provjera u dva prozora.
       const m = a.strana.locator(".modal");
-      await m.getByPlaceholder("Šta treba uraditi").fill("Očišćeno");
-      await m.getByText("Mjera je već urađena").click();
-      await m.locator("textarea").first().fill("Pregledano i očišćeno");
-      await m.getByRole("button", { name: /Upiši mjeru kao urađenu/ }).click();
-      await m.getByRole("button", { name: "Provjereno — zatvori" }).waitFor({ timeout: 10_000 });
-      const novaMjera = await m.getByText("Nova korektivna mjera").count();
-      provjeri("Ana: dok mjera čeka provjeru, forma „Nova korektivna mjera“ se ne nudi", novaMjera === 0, `${novaMjera}`);
+      const upisi = m.getByRole("button", { name: jednoBzr ? "Upiši i zatvori" : "Upiši — šalji na provjeru" });
+      await upisi.waitFor({ timeout: 10_000 });
+      const prvi = await m.getByRole("button", { name: "Riješeno je — upiši" }).getAttribute("class");
+      provjeri("Ana: „Riješeno je — upiši“ je prvi izbor (dodjela nekome je drugi)", /selected/.test(prvi ?? ""), prvi);
+      await m.getByLabel("Šta je urađeno").fill("Pregledano i očišćeno");
+      const sivo = await upisi.isDisabled();
       if (jednoBzr) {
-        const zatvori = m.getByRole("button", { name: "Provjereno — zatvori" });
-        const sivo = await zatvori.isDisabled();
-        await zatvori.click();
+        await upisi.click();
         const poruka = await m.locator(".auth-error").first().textContent().catch(() => "");
-        provjeri("…„Provjereno — zatvori“ nije sivo; bez kvačice kaže šta da se uradi", !sivo && /označite kvačicu/.test(poruka ?? ""), `${sivo} · ${poruka}`);
-        await m.getByPlaceholder("Napomena o provjeri").fill("Pregledala sam komoru lično");
-        await m.locator(".nc-provjera input[type=checkbox]").check();
-        await zatvori.click();
-        await a.strana.waitForTimeout(1500);
-        await slikaj(a.strana, "8-nc-zatvorena");
+        provjeri("…„Upiši i zatvori“ nije sivo; bez kvačice kaže šta da se uradi", !sivo && /označite kvačicu/.test(poruka ?? ""), `${sivo} · ${poruka}`);
+        await m.getByLabel("Šta ste provjerili").fill("Pregledala sam komoru lično");
+        await m.locator(".nc-bez-drugog input[type=checkbox]").check();
+        await slikaj(a.strana, "8-nc-rijeseno-je");
+        await upisi.click();
+        await m.locator(".nc-sljedeci", { hasText: "Zatvoreno" }).waitFor({ timeout: 10_000 }).catch(() => undefined);
+        await slikaj(a.strana, "9-nc-zatvorena");
         const status = (await pool.query(`select status from neusaglasenost where id = $1`, [trag.nc])).rows[0]?.status;
-        provjeri("…uz kvačicu i napomenu — zatvorena", status === "ZATVORENA", status);
+        const mjere = (await pool.query(`select count(*)::int as n from korektivna_mjera where neusaglasenost_id = $1 and status = 'ZAVRSENA'`, [trag.nc])).rows[0].n;
+        provjeri("…uz kvačicu i šta je provjereno — JEDAN upis: mjera urađena i neusaglašenost zatvorena", status === "ZATVORENA" && mjere === 1, `${status} · mjera ${mjere}`);
       } else {
-        provjeri("…sa dva odgovorna lica provjerava drugo · preskočeno", true);
+        await upisi.click();
+        await a.strana.waitForTimeout(1500);
+        const status = (await pool.query(`select status from neusaglasenost where id = $1`, [trag.nc])).rows[0]?.status;
+        provjeri("…sa dva odgovorna lica: upisano, čeka provjeru drugog", !sivo && status === "CEKA_VERIFIKACIJU", status);
       }
       provjeri("…bez greške u konzoli", a.greske.length === 0, a.greske.join(" | "));
     } finally {

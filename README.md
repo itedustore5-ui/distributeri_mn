@@ -177,12 +177,13 @@ server/
   greske.ts            konzistentan format greške { error: { code, message, details } }
   services/            SQL i poslovna pravila: haccp (evaluacija pravila), prijem, isporuka, zaliha,
                         neusaglašenosti, vozila, sledljivost, izvoz, audit, zadaci, poruke, tabla,
-                        ljudi, provjera znanja, push
+                        ljudi, provjera znanja, push, inspekcijski paket
+  zip.ts               ZIP arhiva bez spoljne biblioteke (Node zlib: deflate + crc32)
   routes/               REST rute po modulu, montirane pod /api — šema, uloga, poziv servisa, odgovor
 src/
   pages/               po jedna strana po ulozi/modulu (Tabla, Ljudi, Prijem, Zalihe, HACCP,
                         Neusaglašenosti, Vozila, Isporuka, Moja, Sledljivost, Prilozi,
-                        Izvještaji, Audit, ProvjeraZnanja, Admin)
+                        Izvještaji, Inspekcija, Audit, ProvjeraZnanja, Admin)
   components/          Layout (sidebar+topbar), StatusBadge, Modal, StatCard
   lib/                 api.ts (fetch wrapper + CSRF zaglavlje), auth.tsx (AuthContext)
 public/obrasci-cg.json definicija dnevnih obrazaca (P3–P10) — nov obrazac se dodaje ovdje; čitaju je
@@ -241,7 +242,8 @@ Roba pod temperaturnim režimom ide samo rashladnim vozilom; predaja traži dana
 
 Dnevni obrazac: odstupanje slijedi iz odgovora („tragovi štetočina: da"), ne samo iz kvačice
   Ispravka: nov zapis, jednom, istog obrasca; terenska uloga samo svoj
-Neusaglašenost iz kontrole (mjerenje, D1, termometar) se zatvara tek kad ponovna kontrola prođe
+Neusaglašenost iz kontrole (mjerenje, D1, termometar) se zatvara tek kad ponovna kontrola prođe;
+  iz povlačenja — tek kad je povlačenje završeno. „Riješeno je“ = mjera + provjera u jednom upisu
 
 Priprema isporuke drži robu (rezervacija): slobodno = na zalihi − isporuke u pripremi
   → otkaz isporuke (uz razlog) robu oslobađa; otpis ispod rezervisanog javlja ko je spremio
@@ -444,12 +446,29 @@ Na vrhu strane stoje četiri koraka, a u svakoj neusaglašenosti piše **šta je
 4. **Provjera** — odgovorno lice provjeri i zatvori (ne može ista osoba koja je uradila mjeru), ili
    vrati. Zadatak se zatvara sam, a ko je prijavio dobija obavještenje.
 
+**„Riješeno je“ — kad je odgovorno lice samo riješilo problem.** U otvorenoj neusaglašenosti
+odgovorno lice (i konsultant) bira između **„Riješeno je — upiši“** (prvi izbor) i **„Dodijeli
+mjeru nekome“** (koraci 2–3 iznad). „Riješeno je“ je JEDAN upis (`POST /neusaglasenosti/:id/rijesi`,
+jedna transakcija): šta je urađeno postaje urađena mjera, a dalje odlučuju ista pravila:
+
+- fali ponovna kontrola (novo mjerenje, nova D1, provjera termometra) ili povlačenje još nije
+  završeno → mjera je upisana, neusaglašenost čeka; ekran kaže šta fali i vodi tamo gdje se radi;
+- u firmi postoji drugo odgovorno lice, ili upisuje konsultant → provjerava i zatvara DRUGO
+  odgovorno lice (četiri oka), koje odmah dobija obavještenje;
+- jedino odgovorno lice → upisuje i šta je provjerilo, označi kvačicu „zatvaram bez drugog lica“ i
+  neusaglašenost se **odmah zatvara**.
+
+Ako je mjera već dodijeljena nekome, „Riješeno je“ završava baš tu mjeru (ne pravi novu).
+
 **Mala firma — jedno odgovorno lice.** Kad je mjeru uradilo samo odgovorno lice, a u firmi nema
 drugog aktivnog `bzr` naloga, server to prepozna i ponudi kvačicu „provjeru radim bez drugog
 lica". Tada napomena mora imati bar 10 znakova (šta je pregledano), provjera nosi trajnu oznaku
 „bez četiri oka" (`verifikacija.izuzetak_cetiri_oka`), a konsultant dobija obavještenje. Čim
 firma ima dva odgovorna lica, izuzetak se odbija (`IZUZETAK_NIJE_DOZVOLJEN`). Uprava ni tada ne
 provjerava.
+
+**Povlačenje.** Neusaglašenost „Pokrenuto povlačenje …“ se zatvara tek kad je povlačenje završeno
+(svi kupci obaviješteni, „Završi povlačenje“) — dugme sa neusaglašenosti otvara baš to povlačenje.
 
 Terenske uloge prvo vide „Za mene" (ono što su prijavile ili im je dodijeljeno).
 
@@ -489,6 +508,30 @@ aplikaciji, bez internih ID-jeva, pretraga), pa se štampa ili preuzme CSV sa sv
 radnje, npr. datumu prijema) i **po kategorijama** koje izvještaj ima (status, magacin, obrazac,
 rezultat…) radi na serveru: isti filter važi za pregled, štampu i CSV, i ispiše se u zaglavlju
 štampe. Period ostaje izabran kad se pređe na drugi izvještaj.
+
+### Za inspekciju — inspekcijski paket (`/inspekcija`)
+
+Kad dođe inspektor UBH: izabere se period (podrazumijevano posljednjih 30 dana, najviše godinu dana) i
+na ekranu se sklopi jedan dokument — **Štampaj / sačuvaj PDF** (A4 položeno, naslovna sama na strani)
+i **Podaci za inspektora (ZIP)** (isti izvori kao Izvještaji, CSV za Excel, sa `SADRZAJ.txt`; bez
+dnevnika izmjena, koji se daje na zahtjev). Pravi ga odgovorno lice ili konsultant; i direktor, kad
+on dočekuje inspektora (samo čita).
+
+Redoslijed je namjeran — prvo ono što se prodaje, **dokaz da zapisi nastaju svaki dan**:
+
+1. **Kontinuitet zapisa** — koliko zapisa, koliko upisano istog dana a koliko naknadno, koliko dana
+   ima zapise, koliko ljudi upisuje, koliko obaveza po planu je urađeno; tabela po danu (preko dva
+   mjeseca — po sedmici), radni dan bez ijednog zapisa je crven;
+2. **Plan monitoringa** — urađeno X od Y i koji dani su propušteni (isto brojanje kao HACCP plan);
+3. prijem (KKT 1, sa temperaturom i granicom), temperaturna mjerenja (KKT 2 i 3), dnevni obrasci
+   (sa odgovorima; ispravka i zamijenjena verzija se obje vide), D1, isporuke sa lotovima,
+   neusaglašenosti (mjera, ko je uradio, ko provjerio, „bez četiri oka“), povlačenja, termometri,
+   verifikacija sistema, sanitarne knjižice (stanje u periodu) i obuka.
+
+Odjeljak se može isključiti („Šta ulazi u paket“). Iznad dokumenta (ne štampa se) stoji upozorenje
+ako ima propušteno po planu, otvorenih neusaglašenosti ili knjižica koje ne važe — **pregledajte paket
+prije inspekcije: crveno vidi i inspektor.** Naknadni upisi i upisi bez mreže nose svoje oznake i u
+paketu (`naknadno +N`, `bez mreže`) — paket ništa ne uljepšava.
 
 ### Audit trag — filteri
 
@@ -674,8 +717,8 @@ Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Is
 ```bash
 npm run typecheck
 npm run build
-npm test             # 613 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
-npm run test:ekrani  # 46 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže
+npm test             # 639 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm run test:ekrani  # 51 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže, inspekcijski paket
 ```
 
 **`npm run test:ekrani`** izgradi aplikaciju kao za Render, pokrene server u produkcijskom režimu (sa
@@ -721,11 +764,13 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `talas1` | predaja zadržanog lota, isteklog lota i više nego što je na zalihi se odbija, zaliha nikad u minusu; povrat u karantin i odluka o njemu; tuđa isporuka i stari prijem po adresi; isti ključ zahtjeva = jedan upis; potvrda sa svim stavkama; tuđi pogrešni pokušaji prijave ne zaključavaju druge |
 | `bezbjednost_baze` | RLS na svim tabelama, pogledi po pravima pitaoca, javne uloge Supabase-a (`anon`, `authenticated`) ne čitaju i ne pišu ni sa vraćenim pravom, nova tabela bez prava za njih, aplikacija i dalje vidi sve |
 | `monitoring_magacini` | plan po magacinu: ono što je izmjerio jedan magacioner važi za sve u tom magacinu, mjerenje u magacinu A ne pokriva B, vidi se ko je uradio, mjerenje i zapis (i ispravka) pamte magacin |
-| `dorada` | D1 samo za vozilo koje danas vozi (crveno se skida posle kontrole); vozač dobija obavještenje kad mu isporuka ode ili se izmijeni; temperatura uz stavku prijema; neusaglašenost unaprijed kaže šta fali i ko provjerava; primljene poruke po vremenu; filteri izvještaja (pregled = CSV) i audita; nova verzija pitanja firme |
+| `dorada` | D1 samo za vozilo koje danas vozi (crveno se skida posle kontrole); vozač dobija obavještenje kad mu isporuka ode ili se izmijeni; temperatura uz stavku prijema; neusaglašenost unaprijed kaže šta fali i ko provjerava; primljene poruke po vremenu; filteri izvještaja (pregled = CSV) i audita; nova verzija pitanja firme; „Riješeno je“ — neusaglašenost jednim upisom uz ista pravila (četiri oka, ponovna kontrola, završeno povlačenje) |
 | `talas6` | rad bez interneta: isti upis dvaput → jedan zapis i isti odgovor, neuspio upis ne zauzima ključ, upis u obradi → pokušaj kasnije; vrijeme sa telefona i oznaka „bez mreže“ (mjerenje, D1, zapis, problem, predaja); budućnost i starije od 36 h odbijeno; predaja po danu predaje (D1 i rok tog dana); kasna jučerašnja D1 ne mijenja današnji status vozila; odbijen upis stiže do odgovornog lica |
 | `ekrani/1_uloge` | svaka strana svake od pet uloga na telefonu: otvara se, bez vodoravnog skrola, bez greške; meni nudi samo strane uloge; četiri priloga za štampu |
 | `ekrani/2_teren` | vozač D1 pa predaja, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema, direktor kartica → lista — sve kroz ekran |
-| `ekrani/5_isporuka_nc` | magacioner čiji je matični magacin prazan: forma sama nudi magacin sa robom, „Sačuvaj“ kaže šta fali; Ana sama zatvara neusaglašenost (kvačica, napomena) |
+| `ekrani/5_isporuka_nc` | magacioner čiji je matični magacin prazan: forma sama nudi magacin sa robom, „Sačuvaj“ kaže šta fali; Ana zatvara neusaglašenost jednim upisom („Riješeno je“ — kvačica i šta je provjereno) |
+| `inspekcija` | paket za period: prijem sa temperaturom i termometrom, mjerenje van granice i njegova neusaglašenost, zapis upisan dan kasnije („naknadno +1“) i ispravka (obje verzije), kontinuitet broji naknadne; period se provjerava na serveru (obrnut, duži od godine, budućnost); direktor ga izvlači; ZIP je ispravan (kontrolni zbir svakog fajla), bez audita, sa istim periodom |
+| `ekrani/6_inspekcija` | paket se sklopi na telefonu (12 odjeljaka, ne viri van ekrana), isključen odjeljak nestaje i brojevi idu redom, ZIP se preuzima, u štampi ostaje samo dokument |
 | `ekrani/3_bez_mreze` | vozač bez signala: aplikacija sačuvana na telefonu, D1 i predaja čekaju (i posle ponovnog otvaranja), signal → odu same, redom, sa oznakom |
 | `talas5` | slika od 56 MP (mali fajl) odbijena prije obrade; izvoz bez Excel formula i sa vremenom po Podgorici; stari heš lozinke radi i pojača se; zdravlje javlja neprimijenjenu dopunu; dnevnik grešaka (pregledač, konsultant čita, 400 ne ide u dnevnik); potvrda u dva koraka — uključivanje, QR, rezervni kodovi, ponovljen kod ne važi, 5 pogrešnih = novi izazov, isključivanje, tajna nije u auditu ni bekapu, obavezna 2FA na drugom serveru |
 | `talas4` | bekap iz aplikacije bez heševa lozinki, sesija i ključeva, sa svim tabelama; stari bekapi očišćeni; zdravlje javlja i bazu; neispravan JSON, identifikator, veza i šema → 400/409 sa porukom; bezbjednosna zaglavlja |
@@ -756,6 +801,8 @@ Ručno, na `npm run dev`, kroz svih pet uloga:
    provjeru, upisati reviziju plana; pa kao magacioner na `/moja` provjeriti „Danas po planu" i
    „Upiši"; na `/prilozi` → HACCP plan provjeriti štampu.
 9. **Mobilni prikaz**: DevTools na 375px širine, provjeriti `/haccp`, `/isporuka`, `/moja`.
+10. **Za inspekciju**: `/inspekcija` → „Prošli mjesec“ → Štampaj / sačuvaj PDF i pogledati PDF; preuzeti
+    ZIP i otvoriti jedan CSV u Excelu.
 
 ---
 

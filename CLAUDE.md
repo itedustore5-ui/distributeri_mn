@@ -5,7 +5,7 @@ Ovdje je sve što se ne vidi iz koda: mapa aplikacije, zašto je nešto tako, š
 dirati, šta je poznato da ne valja, i na čemu se već izgubilo vrijeme.
 
 Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — upiši ovdje.
-Posljednji pregled koda i usklađivanje ovog fajla: **01.10.2026.** (dorada posle probe vlasnice; talas 6 30.09.; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
+Posljednji pregled koda i usklađivanje ovog fajla: **04.10.2026.** (inspekcijski paket i „Riješeno je“ za neusaglašenost; 01.10. dorada posle probe vlasnice; talas 6 30.09.; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
 opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje u ovom kodu nema.)
 
 ---
@@ -221,6 +221,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | `tablaService` (+ `monitoringService`, `haccpPlanService` za kartice „Danas fali po planu", „HACCP rokovi") | čita sve (aktivnost = unija domenskih tabela) |
 | HACCP plan: plan monitoringa, kontrolne tačke, termometri, verifikacija sistema | `/haccp-plan`; štampa `/prilozi` → HACCP plan; „Danas po planu" na `/moja` | `haccpPlan.ts` | `monitoringService` (šta danas fali), `haccpPlanService` (termometri, verifikacija, podaci za štampu), `pravilaService` (granica artikla → pravilo) | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`, `kontrolna_tacka` (opasnost, mjera, verifikacija) |
 | Prilozi, izvještaji, izvoz | `/prilozi`, `/izvjestaji` | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
+| Inspekcijski paket | `/inspekcija` (meni „Za inspekciju“): štampa / PDF i ZIP sa CSV | `inspekcija.ts` | `inspekcijaService` (+ `pregledPlana` iz `monitoringService`, `izvezi` iz `izvozService`), `server/zip.ts` | samo čita (sve evidencije za period) |
 | Audit | `/audit` („bilo → sada“) | `audit.ts` | `auditService` (`stanjeReda`, `logIzmjenaReda`) | `audit_log` (`dogadjaj` se od faze 4 ne puni — stari redovi ostaju) |
 | Bekap | `/tabla` (kartica) — bez tajni (#68); pun bekap je `npm run bekap` | `bekap.ts` | `bekapService` | `bekap_log` |
 | Rad bez interneta (#85) | traka na vrhu svake strane (`VanMreze.tsx`), „Sačuvano na telefonu“; red `src/lib/izlaz.ts`; `public/sw.js` | `vanMreze.ts` (odbijeni upisi) + posrednik `server/vanMreze.ts` na D1, predaji, mjerenju, zapisu i prijavi problema | `vrijemeVanMreze()` u `vozilaService`, `isporukaService`, `haccpService`, `ncService` | `van_mreze_odbijeno`, `kljuc_zahtjeva`, kolona `van_mreze` (`potvrda_van_mreze` na isporuci) |
@@ -236,7 +237,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 |---|---|---|:-:|---|
 | `izvodjac` | konsultantkinja | `/tabla` | 30 dana | sve što i `bzr` + Podešavanje, banka pitanja konsultanta; otvara sve naloge osim `izvodjac` |
 | `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, karantin povrata sa isporuke (pusti / otpiši), mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, HACCP plan (plan monitoringa, termometri, verifikacija), izvoz, poruke |
-| `uprava` | direktor | `/tabla` | — (samo gleda) | Kontrolni centar (kartice otvaraju listu iza broja, `/tabla/detalj`), aktivnost uživo, zalihe, sledljivost i povlačenja (čitanje), HACCP plan (čitanje), poruke; bez zadataka i unosa |
+| `uprava` | direktor | `/tabla` | — (samo gleda) | Kontrolni centar (kartice otvaraju listu iza broja, `/tabla/detalj`), aktivnost uživo, zalihe, sledljivost i povlačenja (čitanje), HACCP plan (čitanje), inspekcijski paket, poruke; bez zadataka i unosa |
 | `operater` | magacioner | `/moja` | 1 | prijem, zalihe i otpis, obrasci P3–P10 (i ispravka SVOG zapisa — #57), isporuka (samo svoje — #51; i otkaz svoje u pripremi — #63), prijava problema, SVOJA korektivna mjera; „Danas po planu" na Mojoj strani; provjera termometra (API) |
 | `vozac` | vozač | `/moja` | 1 | isporuka i potvrda sa temperaturom (KKT 3) — samo dodijeljene (#51), kontrola vozila D1 (sa temperaturom — #55), prijava problema, SVOJA mjera; „Danas po planu" |
 
@@ -260,7 +261,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | **termometar** | interna provjera (referentna vs izmjereno — rezultat računa server) ili kalibracija (broj sertifikata obavezan) | NEISPRAVAN → neusaglašenost (sa brojem upitnih mjerenja) + zadatak + obavještenje `bzr`; traka upozorenja na `/haccp`; mjerenja njime od posljednje dobre provjere „upitna“; njime se više ne mjeri (#60). Istekla provjera/kalibracija → kartica „HACCP rokovi" |
 | **verifikacija sistema** | revizija HACCP plana, interni audit, vježba povlačenja — jednom godišnje | POTREBNE_IZMJENE → zadatak (`verifikacija_sistema`); KASNI / NIJE_RADJENO → „HACCP rokovi" |
 | problem na isporuci | „Problem" na isporuci → neusaglašenost vezana za isporuku | zadatak + obavještenje `bzr` |
-| **neusaglašenost** | 4 koraka: prijava → mjera (kome, rok) → urađeno (samo dodijeljeni, uz opis) → provjera drugog lica | provjera SAMO iz „čeka provjeru"; mjeru koja se provjerava bira server (posljednja urađena), ne pregledač. Zadatak se zatvara sam; prijavilac dobija obavještenje. Izuzetak od četiri oka — invarijanta #41. Iz kontrole (mjerenje, D1, termometar) — tek kad ponovna kontrola prođe (#61) |
+| **neusaglašenost** | 4 koraka: prijava → mjera (kome, rok) → urađeno (samo dodijeljeni, uz opis) → provjera drugog lica. Ili **„Riješeno je“** (vodstvo): mjera + provjera jednim upisom (#89) | provjera SAMO iz „čeka provjeru"; mjeru koja se provjerava bira server (posljednja urađena), ne pregledač. Zadatak se zatvara sam; prijavilac dobija obavještenje. Izuzetak od četiri oka — invarijanta #41. Iz kontrole (mjerenje, D1, termometar) — tek kad ponovna kontrola prođe (#61); iz povlačenja — tek kad je povlačenje završeno |
 | **povlačenje** (čl. 28) | povlači se SERIJA — isti dobavljač, artikal i broj lota kroz sve prijeme (#64); kontakti iz stvarnih isporuka serije | svi lotovi serije na HOLD, zaliha u karantin; nijedan se ne pušta dok je povlačenje u toku; zatvara se tek kad su svi pozvani |
 
 ### Migracije (`npm run migriraj`, redoslijed nije proizvoljan)
@@ -328,7 +329,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) — API testovi pa ekrani (`--sve`) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-23 testa, 613 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+24 testa, 639 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -358,7 +359,9 @@ serije, otpremnica, jedinstven PIB — `talas3`), i mali talas 4 (bekap bez tajn
 sa telefona i oznaka „bez mreže“, budućnost i starije od 36 h odbijeno, D1 i rok po DANU PREDAJE, kasna jučerašnja D1 ne mijenja
 današnji status vozila, odbijen upis javljen odgovornom licu — `talas6`), i dorada posle probe vlasnice (D1 samo za vozilo koje
 danas vozi, vozač kad mu isporuka ode ili se izmijeni, temperatura uz stavku prijema, NC unaprijed kaže šta fali i ko provjerava,
-primljene poruke po vremenu, filteri izvještaja (pregled = CSV) i audita, nova verzija pitanja firme — `dorada`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
+primljene poruke po vremenu, filteri izvještaja (pregled = CSV) i audita, nova verzija pitanja firme, „Riješeno je“ — jedino odgovorno lice zatvara jednim upisom, sa drugim čeka četiri oka, konsultant ne zatvara, iz mjerenja čeka ponovno mjerenje, dodijeljena mjera se završava, povlačenje mora biti završeno — `dorada`), i inspekcijski paket (prijem sa temperaturom i termometrom, mjerenje van granice i
+njegova neusaglašenost, zapis upisan dan kasnije i ispravka — obje verzije, kontinuitet broji naknadne, period provjeren na serveru,
+direktor ga izvlači, ZIP prolazi kontrolni zbir svakog fajla, bez audita — `inspekcija`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
 fiksnim ID-jevima) i brišu sve što naprave. Nov tok u aplikaciji = nov test.
 
 Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
@@ -371,7 +374,7 @@ vraća status vozila i briše svoje kontrole. Test koji mjeri pravi svoj isprava
 na termometre demo baze. Rok je obavezan pri prijemu — testovi ga šalju (`rokZaDana()`); demo lot za isporuku se bira
 po SLOBODNOJ robi (`slobodno()` — isporuke u pripremi na demo bazi drže dio zalihe).
 
-**Testovi ekrana** (`testovi/ekrani/`, talas 6 i dorada, 46 provjera): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
+**Testovi ekrana** (`testovi/ekrani/`, talas 6, dorada i inspekcijski paket, 51 provjera): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
 koristi instaliran Chrome; `PW_KANAL=msedge` za Edge; na GitHub-u je Chrome već na računaru) u veličini telefona, prijava
 kroz API pa samo kolačić u pregledač (lozinka se ne kuca u pregledač). `1_uloge` — svaka strana svake od pet uloga: otvara
 se, ne viri van ekrana (vodoravni skrol), nema greške u konzoli; meni na telefonu nudi samo strane uloge; sva četiri priloga
@@ -379,7 +382,9 @@ za štampu. `2_teren` — vozač D1 pa predaja kroz ekran, magacioner mjerenje s
 direktor kartica → lista. `3_bez_mreze` — vozač bez signala: sve strane sačuvane na telefonu, D1 i predaja „Sačuvano na
 telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. `4_dorada` — filteri izvještaja i
 audita, poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. `5_isporuka_nc` — magacioner čiji je matični magacin
-prazan sprema isporuku; Ana sama zatvara neusaglašenost (kvačica „bez četiri oka“). Scenario pravi svoje podatke
+prazan sprema isporuku; Ana zatvara neusaglašenost jednim upisom („Riješeno je“, kvačica „bez četiri oka“). `6_inspekcija` —
+paket se sklopi (12 odjeljaka), isključen odjeljak nestaje i brojevi idu redom, ZIP se preuzima, u štampi samo dokument
+(sa `EKRANI_SLIKE=` sačuva i `inspekcijski-paket.pdf` za pregled očima). Scenario pravi svoje podatke
 (`priprema.mjs`) i briše ih. Pomoćne funkcije su u `telefon.mjs`, NE u `pokreni.mjs` (vidi „Naučeno“ — ciklus uvoza).
 
 ---
@@ -598,7 +603,8 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     `ncService.stoFaliZaZatvaranje`): mjerenje pri predaji → nova D1 vozila prošla; mjerenje lota koji je
     još na zalihi → novo mjerenje lota u granici (odbijen ili prodat lot — ne treba); mjerenje bez lota →
     novo na istoj tački; D1 → nova D1 prošla; termometar → nova ispravna provjera. Vozilo ili termometar
-    isključen iz upotrebe — ne treba. `PONOVNA_KONTROLA_POTREBNA` kaže šta tačno fali.
+    isključen iz upotrebe — ne treba. `PONOVNA_KONTROLA_POTREBNA` kaže šta tačno fali. Neusaglašenost iz POVLAČENJA
+    (čl. 28) — tek kad je povlačenje ZAVRSENO (svi kupci obaviješteni); ekran vodi pravo na to povlačenje.
 62. **Isporuka u pripremi drži robu — rezervacija se RAČUNA, ne upisuje** (R-14). Slobodno = na zalihi
     (DOSTUPNO) − planirano u isporukama U_PRIPREMI tog lota (`v_zaliha_dostupna.slobodno`, `/lotovi.rezervisano`).
     Priprema i izmjena primaju samo slobodno; stavke istog lota se sabiraju; izmjena ne broji svoju
@@ -784,6 +790,29 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     spisak vrijednosti dolazi sa servera (`filteri`). Audit: period, ko, radnja, nad čim, tekst u vrijednostima
     (`/audit/filteri`), najviše 500 redova. Ekran: `FilterVremena` (danas, 7 dana, ovaj/prošli mjesec, godina, sve, od–do);
     filteri idu i u zaglavlje štampe.
+89. **„Riješeno je“ — mjera i provjera JEDNIM upisom, ista pravila** (proba vlasnice 03.10.2026: „kad hoću da zatvorim,
+    nešto se nesretno završava“ — zatvaranje je tražilo mjeru, „urađeno“ i provjeru, u dva dijela prozora). `POST
+    /neusaglasenosti/:id/rijesi` (`ncService.rijesiOdmah`, bzr i konsultant), JEDNA transakcija: otvorena mjera se
+    završava (dodijeljena nekome — baš ona), inače nova, odmah urađena; status „čeka provjeru“. Dalje isto kao do sada:
+    fali ponovna kontrola ili kraj povlačenja (#61) → čeka, odgovor kaže šta fali (`razlog`); drugo odgovorno lice postoji
+    ili upisuje konsultant → čeka DRUGOG (četiri oka, #15a), on dobija obavještenje; JEDINO odgovorno lice → zatvara
+    odmah, ali samo uz kvačicu i „šta ste provjerili“ ≥ 10 znakova (`IZUZETAK_POTREBAN`, `OBRAZLOZENJE_OBAVEZNO` — prije
+    ikakvog upisa), sa oznakom „bez četiri oka“ i obavještenjem konsultantu (#41) — provjera je isti `verifikujU` kao
+    „Provjereno — zatvori“. Ekran unaprijed zna sve to (`stanjeProvjere`: `samaZatvara`, `fali`, `faliGdje`,
+    `povlacenjeId`) i bira dugme: „Upiši i zatvori“ / „Upiši — šalji na provjeru“ / „Upiši urađenu mjeru“.
+90. **Inspekcijski paket samo čita i ništa ne uljepšava** (`inspekcijaService`, 04.10.2026 — „ono što se prodaje: dokaz da
+    zapisi nastaju svaki dan“). Period se provjerava na SERVERU (`periodPaketa`): najviše 366 dana (`PERIOD_PREDUG`), početak
+    ne poslije kraja ni u budućnosti; bez „od“ — godinu unazad, kraj u budućnosti se odsijeca na danas. Prvo kontinuitet:
+    zapisa po danu (dan RADNJE po Podgorici, #11), koliko je upisano naknadno (`naknadno_dana`, #10 — ispravka se ne broji
+    kao nov zapis), koliko ljudi upisuje, izvršenje plana monitoringa iz `pregledPlana` — ISTO brojanje kao HACCP plan (#43;
+    tekući dan/sedmica/mjesec se ne ocjenjuje). KKT 1 je uz prijem (i u kalendaru se ne broji kao mjerenje), ostala mjerenja
+    posebno. Dnevni obrasci idu SVI — ispravka i zamijenjena verzija se obje vide (#1, #57). Neusaglašenosti i povlačenja: sve
+    koje su bile otvorene u periodu (nastale do kraja, nisu zatvorene prije početka). Knjižice: stanje u PERIODU, ne samo
+    danas; samo broj i rok (#15). Provjera znanja po terminu, bez imena — prodaje se kao dokaz o obuci i nadzoru (Uredba
+    91/2026, Dio 13), nikad kao „zakon traži test“. ZIP (`paketZip`): CSV iz `IZVORI_IZVOZA` sa istim filterom kao Izvještaji
+    (#88), BEZ audita (nosi IP adrese i uređaje zaposlenih — daje se na zahtjev), izvor koga nema ne obara paket (#30, piše
+    se u `SADRZAJ.txt`). `server/zip.ts` je bez spoljne biblioteke (zlib `deflateRawSync` + `crc32`, imena u UTF-8, vrijeme po
+    Podgorici). Vidi ga bzr, konsultant i uprava (direktor dočekuje inspektora kad odgovorno lice nije tu).
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -888,7 +917,7 @@ repozitorijuma. Ovdje samo stanje.
 | ~~**Talas 5 — sigurnost i pogon**~~ ✓ 29.09.2026 (inspekcija 29.09.) | `sharp` 0.35.5 (ranjivosti u libvips) i provjera veličine slike; izvoz bez Excel formula i po Podgorici; asinhroni scrypt sa parametrima u hešu; dopune baze pri pokretanju + zdravlje; dnevnik grešaka u bazi; potvrda u dva koraka za vodstvo (+ obavezna po instanci); zaštita od pada ekrana, rok za zahtjev, traka „nema interneta“; demo lozinke iz koda u `.env` + `npm run demo-lozinke`; `npm run zakazi-bekap`, `npm run iskljuci-2fa`, `npm run demo:lokalno`; dnevni pregled sa greškama, dopunama i 2FA. Repozitorijum je vlasnica prebacila u privatni. Dopuna `33_talas5_cg`, test `talas5` (40 provjera). | inspekcija #1–#10 | urađeno |
 | ~~**Talas 6 — teren i testovi**~~ ✓ 30.09.2026 | Rad bez interneta za vozača i magacionera (#85): red na telefonu, isti ključ, vrijeme sa telefona i oznaka „bez mreže“, predaja po danu predaje, odbijeni upisi odgovornom licu, aplikacija i posljednji podaci sačuvani na telefonu (service worker). Testovi ekrana (`npm run test:ekrani`, Chrome, 375 px, 5 uloga, bez mreže) — odmah našli dvije greške (bijela strana posle gradnje, Prilozi van ekrana). Paket po stranama (`React.lazy`) i gradnja bez serverovog `.env`: 970 → 257 KB. Dopuna `34_van_mreze_cg`, testovi `talas6` (31) i ekrani (32). | inspekcija #11–#18 (dio) | urađeno |
 | **Ostatak talasa 6** | Server kompajliran u JS umjesto `tsx`; `statement_timeout`; ESLint/Prettier; podjela `otpremnicaService` i `NoviPrijem`; ograničenje slanja otpremnica po korisniku; alat za novog klijenta. | inspekcija #11–#18 (ostalo) | oko 1 sedmica |
-| **Talas 7 — prodajne funkcije** | „Inspekcijski paket“ jednim klikom (PDF/ZIP za period); mjesečni izvještaj direktoru automatski; demo koji se vraća svake noći; uvoz iz Excela (zaposleni, artikli, kupci, dobavljači); pregled svih klijenata za konsultanta; EAN skeniranje; „preuzima kupac“. | inspekcija #20–#26 | 2–3 sedmice |
+| **Talas 7 — prodajne funkcije** | ~~„Inspekcijski paket“ jednim klikom (PDF/ZIP za period)~~ ✓ 04.10.2026 (#90, test `inspekcija`, ekran `6_inspekcija`); mjesečni izvještaj direktoru automatski; demo koji se vraća svake noći; uvoz iz Excela (zaposleni, artikli, kupci, dobavljači); pregled svih klijenata za konsultanta; EAN skeniranje; „preuzima kupac“. | inspekcija #20–#26 | 2–3 sedmice |
 | **Ostatak talasa 4** | Jedan odgovor po pitanju i u bazi (UQ), korisnik baze sa najmanjim pravima, provjera veličine slike za OCR, podjela JS paketa po stranama. | R-12, R-33 – R-36 | posle pilota |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
@@ -976,6 +1005,7 @@ repozitorijuma. Ovdje samo stanje.
 | „gdje se upisuje plan obuke / pitanja?“ | sve je bilo na Ljudi → kartice, bez putokaza | objašnjenje na kartici, ulaz sa HACCP plana (`state: { tab, pod }`), plan za sve koji rukuju hranom odjednom, korišćeno pitanje se mijenja kao nova verzija |
 | „kod vozača nova isporuka se čuva, kod magacionera ne“ (02.10.2026) | magacioneru je matični magacin bio bez robe („Magacin Bar“ na demo bazi); forma je nudila samo njega — lot „nema robe“ i SIVO „Sačuvaj“ bez riječi. Vozač nema matični magacin, pa je dobijao Glavni | forma bira magacin u kom ima slobodne robe, uz magacin piše „nema slobodne robe — roba je u: …“ (klik prebacuje); „Sačuvaj“ nikad sivo — kaže šta fali (#74). Test ekrana `5_isporuka_nc` |
 | „neusaglašenost neće da se zatvori“ (02.10.2026) | posle dorade 01.10. dugme „Provjereno — zatvori“ je bilo SIVO dok se ne označi kvačica izuzetka — kršenje #74 koje je dorada sama uvela; greška je stajala na VRHU prozora, a ispod mjere je i dalje stajala forma „Nova korektivna mjera“ | dugme uvijek aktivno, klik kaže šta fali; greška uz dugmad (skrol do nje); dok mjera čeka provjeru — nema forme za novu mjeru; tekst na vrhu kaže tačno šta da se uradi |
+| „kad hoću da neusaglašenost zatvorim, nešto se nesretno završava“ (03.10.2026, NC iz povlačenja) | zatvaranje je bilo četiri radnje: mjera (opis, kome, rok) → „Urađeno“ → napomena + kvačica → „Provjereno — zatvori“; za povlačenje nije ni pisalo da prvo treba završiti povlačenje | „Riješeno je — upiši“ kao prvi izbor: jedan upis, server sam odluči — zatvori, čeka drugog ili čeka ponovnu kontrolu/kraj povlačenja — i kaže koje (#89) |
 | „Rok trajanja je istekao (2026-10-02)“ — Ana nije znala šta sad (03.10.2026) | pravilo je ispravno (#38), ali poruka je imala datum kao `2026-10-02`, nije rekla da se pogrešno ukucan rok ispravlja, „Prihvati“ se nudio iako ne može, a greška je stajala na vrhu strane | datum „02.10.2026.“, uputstvo „Izmijeni“ → prihvati; za isteklu robu umjesto Prihvati/Hold/Pusti stoji „Odbij — istekao rok“ sa predloženim razlogom; skrol do greške |
 | jedan test sa sintaksnom greškom oborio je CIO prolaz (izlazni kod 9, bez sažetka) | `await import(...)` scenarija stajao je van `try` u pokretaču | uvoz u `try` — pokvaren fajl je pao test, ostali se izvrše (`testovi/pokreni.mjs`, `testovi/ekrani/pokreni.mjs`) |
 | `npm run typecheck` prolazi, a u stranici fali uvoz | korijenski `tsconfig.json` ima `"files": []` sa referencom — `tsc --noEmit` bez `-b` NE provjerava frontend (hvatao ga je samo `tsc -b` u `npm run build`) | `typecheck` = `tsc --noEmit -p tsconfig.app.json && … -p tsconfig.server.json` |

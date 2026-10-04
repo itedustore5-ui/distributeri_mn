@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useLocation } from "react-router-dom";
 import { Search, Truck, PackageCheck, User, Warehouse, Printer, AlertTriangle } from "lucide-react";
 import { api, ApiGreska } from "../lib/api";
 import { PageHeader, Modal, ZakonskaOznaka } from "../components/Zajednicko";
@@ -55,6 +56,12 @@ export function Sledljivost() {
     const detalj = await api<PovlacenjeDetalj>(`/povlacenja/${id}`);
     setOtvorenoPovlacenje(detalj);
   };
+  // Sa neusaglašenosti „pokrenuto povlačenje“ dolazi se pravo na to povlačenje.
+  const location = useLocation();
+  const traziPovlacenje = (location.state as { povlacenjeId?: string } | null)?.povlacenjeId;
+  useEffect(() => {
+    if (traziPovlacenje && vidiPovlacenja) otvoriPovlacenje(traziPovlacenje).catch(() => undefined);
+  }, [traziPovlacenje]);
 
   return (
     <>

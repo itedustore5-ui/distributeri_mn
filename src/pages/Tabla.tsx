@@ -225,7 +225,7 @@ export function Tabla() {
                 ) : (
                   <>
                     <strong style={{ display: "block", fontSize: 12 }}>
-                      Poslednji: {new Date(bekap.created_at).toLocaleString("sr-Latn-ME")} ({bekap.tip === "RUCNI" ? "ručni" : "automatski"})
+                      Posljednji: {new Date(bekap.created_at).toLocaleString("sr-Latn-ME")} ({bekap.tip === "RUCNI" ? "ručni" : "automatski"})
                     </strong>
                     <small className="muted-text">{bekap.broj_tabela} tabela · {bekap.broj_redova} redova</small>
                   </>

@@ -106,7 +106,7 @@ export function nizUCsv(redovi: Record<string, unknown>[], sveKolone?: string[])
   return `﻿${zaglavlje}\n${tijelo}`;
 }
 
-export async function izvezi(kod: string, filter: FilterIzvoza = {}): Promise<{ naziv: string; csv: string }> {
+export async function izvezi(kod: string, filter: FilterIzvoza = {}): Promise<{ naziv: string; csv: string; redova: number }> {
   const stavka = IZVORI_IZVOZA.find((i) => i.kod === kod);
   if (!stavka) throw new ApiGreska(404, "IZVOZ_NEPOZNAT", "Traženi izvor izvoza ne postoji.");
   const postoji = await tabelaPostoji(stavka.izvor);
@@ -118,7 +118,7 @@ export async function izvezi(kod: string, filter: FilterIzvoza = {}): Promise<{ 
   const opis = await opisIzvora(stavka.kod, stavka.izvor);
   const { where, parametri } = uslovFiltera(opis, filter);
   const rezultat = await pool.query(`select * from ${stavka.izvor} ${where} order by 1`, parametri);
-  return { naziv: stavka.naziv, csv: nizUCsv(rezultat.rows, rezultat.fields.map((f) => f.name)) };
+  return { naziv: stavka.naziv, csv: nizUCsv(rezultat.rows, rezultat.fields.map((f) => f.name)), redova: rezultat.rows.length };
 }
 
 /** Ne smije da padne zbog jednog nedostajućeg izvora — nedostajući se prijavi poimence,
