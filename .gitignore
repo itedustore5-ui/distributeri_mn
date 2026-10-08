@@ -18,3 +18,6 @@ otpremnice-test/
 # Prodajni materijal i ugovori — zaseban privatni repozitorijum (CLAUDE.md: Šta NE ide u ovaj repozitorijum)
 prezentacija/
 dokumenti/
+
+# Popunjeni upitnici klijenata (lični podaci zaposlenih) — nikad u git
+upitnik-start/*.json
