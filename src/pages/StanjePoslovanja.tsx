@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Send, Download, AlertCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Send, Download, FileText, AlertCircle } from "lucide-react";
 import { api, preuzmiFajl, ApiGreska } from "../lib/api";
 import { PageHeader } from "../components/Zajednicko";
 
@@ -87,7 +87,7 @@ export function StanjePoslovanja() {
     setPoruka("");
     // Ništa sivo bez objašnjenja (#74): klik kaže šta fali.
     if (!iz.slanje.podeseno) {
-      setGreska("Slanje mejla sa servera nije podešeno (SMTP). Preuzmite izvještaj i pošaljite ga kao prilog, ili podesite SMTP na Renderu.");
+      setGreska("Slanje mejla sa servera nije podešeno (SMTP). Kliknite „Sačuvaj PDF“ i pošaljite ga kao prilog, ili podesite SMTP na Renderu.");
       return;
     }
     if (!iz.primaoci.trim()) {
@@ -121,6 +121,23 @@ export function StanjePoslovanja() {
     } finally {
       setRadim(null);
     }
+  };
+
+  // PDF pravi pregledač (kao inspekcijski paket): izvještaj se otvori u novom prozoru i odmah ponudi štampu —
+  // kao štampač se izabere „Sačuvaj kao PDF“. Bez biblioteke na serveru; ime fajla je naslov izvještaja.
+  const sacuvajPdf = () => {
+    if (!iz) return;
+    setGreska("");
+    const prozor = window.open("", "_blank");
+    if (!prozor) {
+      setGreska("Pregledač je zaustavio novi prozor — dozvolite iskačuće prozore za ovu stranicu, pa kliknite ponovo.");
+      return;
+    }
+    prozor.document.open();
+    prozor.document.write(iz.html);
+    prozor.document.close();
+    prozor.focus();
+    setTimeout(() => prozor.print(), 300);
   };
 
   const vecPoslat = iz?.istorija.find((h) => h.vrsta === vrsta && h.od === iz.period.od);
@@ -165,11 +182,15 @@ export function StanjePoslovanja() {
           <button className="primary-button" onClick={posalji} disabled={radim === "salji" || !iz}>
             <Send size={15} /> {radim === "salji" ? "Šaljem…" : "Pošalji direktoru"}
           </button>
+          <button className="secondary-button" onClick={sacuvajPdf} disabled={!iz}>
+            <FileText size={15} /> Sačuvaj PDF
+          </button>
           <button className="secondary-button" onClick={preuzmi} disabled={radim === "preuzmi" || !iz}>
-            <Download size={15} /> Preuzmi izvještaj
+            <Download size={15} /> Preuzmi HTML
           </button>
           <span className="muted-text">
-            {iz?.slanje.podeseno ? `Šalje se sa: ${iz.slanje.posiljalac}` : "Slanje sa servera nije podešeno — preuzmite izvještaj i pošaljite ga kao prilog."}
+            {iz?.slanje.podeseno ? `Šalje se sa: ${iz.slanje.posiljalac}` : "Slanje sa servera nije podešeno — sačuvajte PDF i pošaljite ga kao prilog iz svoje pošte."}
+            {" "}PDF: otvori se prozor za štampu — kao štampač izaberite „Sačuvaj kao PDF“.
             {vecPoslat ? ` · Ovaj izvještaj je već poslat ${new Date(vecPoslat.created_at).toLocaleDateString("sr-Latn-ME")}.` : ""}
           </span>
         </div>

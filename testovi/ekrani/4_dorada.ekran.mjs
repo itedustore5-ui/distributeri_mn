@@ -55,6 +55,20 @@ export async function pokreni({ provjeri }) {
       `okvir ${Math.round(mjere.visina)}px ${mjere.unutra}/${mjere.sirina} · „${javljeno.trim().slice(0, 60)}“ · ${s0.visak}px ${s0.krivi.join(",")}`,
     );
 
+    // „Sačuvaj PDF“: izvještaj u novom prozoru + štampa (pregledač bez prozora je ne prikazuje — ovdje se samo bilježi).
+    await t.strana.context().addInitScript(() => {
+      window.print = () => {
+        window.__stampa = true;
+      };
+    });
+    const [pdfProzor] = await Promise.all([t.strana.context().waitForEvent("page"), t.strana.getByRole("button", { name: "Sačuvaj PDF" }).click()]);
+    await pdfProzor.waitForFunction(() => window.__stampa === true, null, { timeout: 5_000 }).catch(() => undefined);
+    const pdfNaslov = await pdfProzor.title();
+    const stampa = await pdfProzor.evaluate(() => window.__stampa === true);
+    if (process.env.EKRANI_SLIKE) await pdfProzor.pdf({ path: `${process.env.EKRANI_SLIKE}/stanje-poslovanja.pdf`, format: "A4", printBackground: true }).catch(() => undefined);
+    await pdfProzor.close();
+    provjeri("„Sačuvaj PDF“: izvještaj se otvori sam za sebe i ponudi štampu (Sačuvaj kao PDF)", /^Stanje poslovanja — /.test(pdfNaslov) && stampa, `„${pdfNaslov}“ ${stampa}`);
+
     // ── Audit ───────────────────────────────────────────────────────────────────────────────
     await otvori(t, "/audit");
     // Radnja koja u dnevniku postoji (na čistoj bazi ih je malo) — spisak dolazi sa servera.

@@ -222,7 +222,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Kontrolni centar, aktivnost | `/tabla` (direktor: `DirektorPregled.tsx`, `/tabla/direktor` — #95) | `tabla.ts` | `tablaService` (+ `monitoringService`, `haccpPlanService` za kartice „Danas fali po planu", „HACCP rokovi"); direktor — `stanjeService.pregledDirektora` | čita sve (aktivnost = unija domenskih tabela) |
 | HACCP plan: plan monitoringa, kontrolne tačke, termometri, verifikacija sistema | `/haccp-plan`; štampa `/prilozi` → HACCP plan; „Danas po planu" na `/moja` | `haccpPlan.ts` | `monitoringService` (šta danas fali), `haccpPlanService` (termometri, verifikacija, podaci za štampu), `pravilaService` (granica artikla → pravilo) | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`, `kontrolna_tacka` (opasnost, mjera, verifikacija) |
 | Prilozi, izvještaji, izvoz | `/prilozi`; `/izvjestaji` samo konsultant (#93) | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
-| Stanje poslovanja — izvještaj direktoru | `/stanje` (samo konsultant): period dan … godina, pregled mejla, primaoci, „Pošalji direktoru“, „Preuzmi izvještaj“ | `stanje.ts` | `stanjeService` (+ `pregledPlana`, `listaUredjaja`), `nodemailer` (SMTP iz env) | samo čita; `firma.izvjestaj_primaoci`, `izvjestaj_poslat` (trag slanja) |
+| Stanje poslovanja — izvještaj direktoru | `/stanje` (samo konsultant): period dan … godina, pregled mejla, primaoci, „Pošalji direktoru“, „Sačuvaj PDF“ (štampa pregledača), „Preuzmi HTML“ | `stanje.ts` | `stanjeService` (+ `pregledPlana`, `listaUredjaja`), `nodemailer` (SMTP iz env) | samo čita; `firma.izvjestaj_primaoci`, `izvjestaj_poslat` (trag slanja) |
 | Inspekcijski paket | `/inspekcija` (meni „Za inspekciju“): štampa / PDF i ZIP sa CSV | `inspekcija.ts` | `inspekcijaService` (+ `pregledPlana` iz `monitoringService`, `izvezi` iz `izvozService`), `server/zip.ts` | samo čita (sve evidencije za period) |
 | Audit | `/audit` („bilo → sada“) | `audit.ts` | `auditService` (`stanjeReda`, `logIzmjenaReda`) | `audit_log` (`dogadjaj` se od faze 4 ne puni — stari redovi ostaju) |
 | Bekap | `/tabla` (kartica „Preuzmi bekap sada“) — preuzima se, u bazi samo trag (#68); pun bekap je `npm run bekap` | `bekap.ts` | `bekapService` (`pisiBekap`, sedmični podsjetnik) | `bekap_log` (ko je i kad preuzeo) |
@@ -385,14 +385,15 @@ vraća status vozila i briše svoje kontrole. Test koji mjeri pravi svoj isprava
 na termometre demo baze. Rok je obavezan pri prijemu — testovi ga šalju (`rokZaDana()`); demo lot za isporuku se bira
 po SLOBODNOJ robi (`slobodno()` — isporuke u pripremi na demo bazi drže dio zalihe).
 
-**Testovi ekrana** (`testovi/ekrani/`, talas 6, dorada, inspekcijski paket, stanje poslovanja i pregled direktora, 54 provjere): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
+**Testovi ekrana** (`testovi/ekrani/`, talas 6, dorada, inspekcijski paket, stanje poslovanja i pregled direktora, 55 provjera): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
 koristi instaliran Chrome; `PW_KANAL=msedge` za Edge; na GitHub-u je Chrome već na računaru) u veličini telefona, prijava
 kroz API pa samo kolačić u pregledač (lozinka se ne kuca u pregledač). `1_uloge` — svaka strana svake od pet uloga: otvara
 se, ne viri van ekrana (vodoravni skrol), nema greške u konzoli; meni na telefonu nudi samo strane uloge; sva četiri priloga
 za štampu. `2_teren` — vozač D1 pa predaja kroz ekran, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema,
 direktor — svoj pregled (semafor, četiri broja, 14 dana zapisa, bez operativnih kartica), meni sa četiri strane, „Došao inspektor“ → paket. `3_bez_mreze` — vozač bez signala: sve strane sačuvane na telefonu, D1 i predaja „Sačuvano na
 telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. `4_dorada` (konsultant) — filteri izvještaja i
-audita, Stanje poslovanja (mejl u okviru čitav na 375 px, „Pošalji“ bez SMTP kaže šta fali), poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. `5_isporuka_nc` — magacioner čiji je matični magacin
+audita, Stanje poslovanja (mejl u okviru čitav na 375 px, „Pošalji“ bez SMTP kaže šta fali, „Sačuvaj PDF“ otvara izvještaj sa štampom —
+sa `EKRANI_SLIKE=` sačuva i `stanje-poslovanja.pdf`), poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. `5_isporuka_nc` — magacioner čiji je matični magacin
 prazan sprema isporuku; Ana zatvara neusaglašenost jednim upisom („Riješeno je“, kvačica „bez četiri oka“). `6_inspekcija` —
 paket se sklopi (12 odjeljaka), isključen odjeljak nestaje i brojevi idu redom, ZIP se preuzima, u štampi samo dokument
 (sa `EKRANI_SLIKE=` sačuva i `inspekcijski-paket.pdf` za pregled očima). Scenario pravi svoje podatke
@@ -864,8 +865,10 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     istekla knjižica, neispravan termometar, plan < 80 %). Isti izvori kao ostatak: plan iz `pregledPlana` (#43), naknadno
     (#10), dan po Podgorici (#11), knjižice na KRAJ perioda (#15). Mejl je HTML sa tabelama i stilovima u redu — grafikoni su
     stubići od tabela, ne slike (vidi se u svakom programu pošte bez preuzimanja slika), bez skripti; na telefonu (≤ 480 px)
-    kartice idu jedna ispod druge. Šalje se preko SMTP naloga konsultanta (env `SMTP_HOST`, `SMTP_PORT` — 465 = TLS,
-    `SMTP_KORISNIK`, `SMTP_LOZINKA`, `SMTP_POSILJALAC`); bez njih 409 `SLANJE_NIJE_PODESENO` i „Preuzmi izvještaj“ (isti HTML
+    kartice idu jedna ispod druge. PDF pravi pregledač (`Sačuvaj PDF` → novi prozor sa izvještajem + štampa → „Sačuvaj kao PDF“;
+    `@page` A4, `print-color-adjust: exact` da stubići i semafor ostanu u boji, blok se ne lomi) — bez biblioteke na serveru.
+    Šalje se preko SMTP naloga konsultanta (env `SMTP_HOST`, `SMTP_PORT` — 465 = TLS,
+    `SMTP_KORISNIK`, `SMTP_LOZINKA`, `SMTP_POSILJALAC`); bez njih 409 `SLANJE_NIJE_PODESENO` i „Sačuvaj PDF“ / „Preuzmi HTML“ (isti HTML
     kao fajl). Primaoci (`firma.izvjestaj_primaoci`, najviše 10, audit) — predlog je mejl firme. Trag `izvjestaj_poslat` se
     upisuje tek POSLIJE uspješnog slanja (502 `SLANJE_NIJE_USPJELO` → nema traga). Automatsko slanje po rasporedu još ne postoji.
 ---
@@ -1104,7 +1107,7 @@ dopuna padne, novo izdanje ne kreće i Render ostavlja staro. Da li je deploy pr
   (npr. `Ime Prezime <adresa@gmail.com>`) na SVAKOM Render servisu klijenta. Gmail: `smtp.gmail.com`, 465, lozinka je
   „lozinka za aplikacije“ (traži uključenu potvrdu u dva koraka na Google nalogu), ne obična. **Besplatni Render blokira
   odlazne SMTP portove 25, 465 i 587** (od 26.09.2025, render.com/changelog) — slanje radi samo na plaćenom planu; na
-  besplatnom: „Preuzmi izvještaj“ i poslati kao prilog. Lozinka za aplikacije ide samo u Render env, nikad u git ni `.env` u repou.
+  besplatnom: „Sačuvaj PDF“ i poslati kao prilog. Lozinka za aplikacije ide samo u Render env, nikad u git ni `.env` u repou.
 - **Node ≥ 22.13** (`engines` u `package.json`) — zbog `pdfjs-dist`.
 - **Push:** VAPID ključ server pravi sam i čuva u bazi (`web_push_kljuc`) — na Renderu ne treba ništa
   podešavati; `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` samo ako se želi ručno. Push radi

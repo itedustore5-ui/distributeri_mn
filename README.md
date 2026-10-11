@@ -544,11 +544,13 @@ Period: **dan, sedmica, mjesec, kvartal, polugodište, godina** — strelicama r
 
 - **Kome se šalje** — mejl direktora (više adresa zarezom, najviše 10) → „Sačuvaj“ → **„Pošalji direktoru“**. Svako slanje
   ostaje u spisku „Poslati izvještaji“ (ko, kad, period, kome).
-- **„Preuzmi izvještaj“** — isti izvještaj kao `.html` fajl, da se pošalje kao prilog iz vaše pošte.
+- **„Sačuvaj PDF“** — izvještaj se otvori u novom prozoru sa prozorom za štampu; kao štampač izaberite **„Sačuvaj kao
+  PDF“** (A4, boje i grafikoni ostaju). Taj PDF pošaljete kao prilog iz svoje pošte. **„Preuzmi HTML“** — isti izvještaj
+  kao `.html` fajl (otvara se u pregledaču).
 - Slanje ide sa VAŠEG mejl naloga, podešenog na Render servisu klijenta: `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`,
   `SMTP_KORISNIK=vasa.adresa@gmail.com`, `SMTP_LOZINKA=<lozinka za aplikacije>` (Google nalog → Bezbjednost → potvrda u dva
   koraka → Lozinke za aplikacije — ne obična lozinka), `SMTP_POSILJALAC=Ime Prezime <vasa.adresa@gmail.com>`.
-  **Besplatni Render blokira slanje mejla (SMTP)** — radi samo na plaćenom planu; do tada „Preuzmi izvještaj“.
+  **Besplatni Render blokira slanje mejla (SMTP)** — radi samo na plaćenom planu; do tada „Sačuvaj PDF“ i prilog.
 
 ### Za inspekciju — inspekcijski paket (`/inspekcija`)
 
@@ -760,7 +762,7 @@ Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Is
 npm run typecheck
 npm run build
 npm test             # 673 provjere na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
-npm run test:ekrani  # 54 provjere ekrana: telefon 375 px, pet uloga, rad bez mreže, inspekcijski paket, stanje poslovanja, pregled direktora
+npm run test:ekrani  # 55 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže, inspekcijski paket, stanje poslovanja, pregled direktora
 ```
 
 **`npm run test:ekrani`** izgradi aplikaciju kao za Render, pokrene server u produkcijskom režimu (sa

@@ -213,6 +213,12 @@ async function serije(vrsta: Vrsta, od: string, doDan: string): Promise<{ naslov
 // ─── Ocjena: semafor i šta treba uraditi ────────────────────────────────────────────────────────
 type Nivo = "zeleno" | "zuto" | "crveno";
 const mn = (n: number, jedan: string, vise: string) => `${n} ${n === 1 ? jedan : vise}`;
+/** Oblik imenice uz broj: 1 kupac, 2 kupca, 5 kupaca (21 kupac, 12 kupaca). */
+const oblik = (n: number, jedan: string, dva: string, pet: string) => {
+  const d = n % 10;
+  const s = n % 100;
+  return d === 1 && s !== 11 ? jedan : d >= 2 && d <= 4 && (s < 12 || s > 14) ? dva : pet;
+};
 
 function ocjena(k: Pokazatelji, termometri: { neispravni: number; istekli: number }) {
   const stavke: { nivo: Nivo; tekst: string }[] = [];
@@ -366,7 +372,7 @@ function stubici(naslov: string, podnaslov: string, stubovi: Stub[], slojevi: { 
 
 function htmlIzvjestaja(firma: string, per: ReturnType<typeof period>, k: Pokazatelji, p: Pokazatelji, o: ReturnType<typeof ocjena>, g: { naslov: string; stubovi: Stub[] }, term: { neispravni: number; istekli: number }) {
   const s = SEMAFOR[o.nivo];
-  const prethodni = `u odnosu na ${per.prethodni.naziv}`;
+  const prethodni = `prethodni period — ${per.prethodni.naziv.replace(/\.$/, "")}`;
   const red = (celije: string[]) => `<tr><td class="kpi-red" style="padding:0 12px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${celije.join("")}</tr></table></td></tr>`;
   const naslovOdjeljka = (t: string) => `<tr><td style="padding:16px 18px 2px;font-size:12px;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;color:${BOJE.plava}">${e(t)}</td></tr>`;
   const stavke = o.stavke.length
@@ -384,10 +390,19 @@ function htmlIzvjestaja(firma: string, per: ReturnType<typeof period>, k: Pokaza
     .kpi { display: block !important; width: 100% !important; box-sizing: border-box; padding: 4px 0 !important; }
     .kpi-v { font-size: 24px !important; }
   }
+  /* PDF / štampa (dugme „Sačuvaj PDF“): A4, bez sive pozadine, boje stubića i semafora ostaju, blok ne puca na dvije strane. */
+  @page { size: A4; margin: 12mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @media print {
+    body, .pozadina { background: #ffffff !important; }
+    .okvir { padding: 0 !important; }
+    .list { border: 0 !important; }
+    tr { page-break-inside: avoid; break-inside: avoid; }
+  }
 </style></head>
 <body style="margin:0;padding:0;background:${BOJE.pozadina};font-family:Arial,Helvetica,sans-serif;color:${BOJE.tekst};font-size:14px;line-height:1.45">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BOJE.pozadina}"><tr><td align="center" class="okvir" style="padding:16px 8px">
-<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;border:1px solid ${BOJE.linija};border-radius:12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="pozadina" style="background:${BOJE.pozadina}"><tr><td align="center" class="okvir" style="padding:16px 8px">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" class="list" style="max-width:640px;width:100%;background:#ffffff;border:1px solid ${BOJE.linija};border-radius:12px">
   <tr><td style="padding:20px 18px 6px">
     <div style="font-size:12px;color:${BOJE.sivo}">Stanje poslovanja · bezbjednost hrane</div>
     <div style="font-size:22px;font-weight:bold;color:#173452;margin-top:2px">${e(firma)}</div>
@@ -402,16 +417,16 @@ function htmlIzvjestaja(firma: string, per: ReturnType<typeof period>, k: Pokaza
 
   ${naslovOdjeljka("Poslovanje")}
   ${red([
-    kartica("Isporuke kupcima", broj(k.promet.isporuke), `${broj(k.promet.kupci)} kupaca${k.promet.odbijene_isporuke ? ` · odbijeno ${k.promet.odbijene_isporuke}` : ""}`, trend(k.promet.isporuke, p.promet.isporuke, "neutralno")),
-    kartica("Prijemi robe", broj(k.promet.prijemi), `${broj(k.promet.lotovi)} lotova${k.promet.odbijeni_lotovi ? ` · odbijeno ${k.promet.odbijeni_lotovi}` : ""}`, trend(k.promet.prijemi, p.promet.prijemi, "neutralno")),
+    kartica("Isporuke kupcima", broj(k.promet.isporuke), `${broj(k.promet.kupci)} ${oblik(k.promet.kupci, "kupac", "kupca", "kupaca")}${k.promet.odbijene_isporuke ? ` · odbijeno ${k.promet.odbijene_isporuke}` : ""}`, trend(k.promet.isporuke, p.promet.isporuke, "neutralno")),
+    kartica("Prijemi robe", broj(k.promet.prijemi), `${broj(k.promet.lotovi)} ${oblik(k.promet.lotovi, "lot", "lota", "lotova")}${k.promet.odbijeni_lotovi ? ` · odbijeno ${k.promet.odbijeni_lotovi}` : ""}`, trend(k.promet.prijemi, p.promet.prijemi, "neutralno")),
     kartica("Otpis robe", broj(k.promet.otpisi), "upisanih otpisa", trend(k.promet.otpisi, p.promet.otpisi, "manje")),
   ])}
 
   ${naslovOdjeljka("Bezbjednost hrane")}
   ${red([
     kartica("Kontrole po planu", k.plan.posto === null ? "—" : `${k.plan.posto} %`, k.plan.perioda ? `urađeno ${k.plan.uradjeno} od ${k.plan.perioda}` : "plan nije podešen", trend(k.plan.posto, p.plan.posto, "vise", true)),
-    kartica("Zapisi na vrijeme", k.zapisi.naVrijeme === null ? "—" : `${k.zapisi.naVrijeme} %`, `${broj(k.zapisi.ukupno)} zapisa · upisuje ${broj(k.zapisi.osoba)} ${k.zapisi.osoba % 10 >= 2 && k.zapisi.osoba % 10 <= 4 && (k.zapisi.osoba % 100 < 12 || k.zapisi.osoba % 100 > 14) ? "osobe" : "osoba"}`, trend(k.zapisi.naVrijeme, p.zapisi.naVrijeme, "vise", true)),
-    kartica("Temperatura u granici", k.temperatura.posto === null ? "—" : `${String(k.temperatura.posto).replace(".", ",")} %`, `${broj(k.temperatura.mjerenja)} mjerenja · van granice ${broj(k.temperatura.van)}`, trend(k.temperatura.van, p.temperatura.van, "manje")),
+    kartica("Zapisi na vrijeme", k.zapisi.naVrijeme === null ? "—" : `${k.zapisi.naVrijeme} %`, `${broj(k.zapisi.ukupno)} ${oblik(k.zapisi.ukupno, "zapis", "zapisa", "zapisa")} · upisuje ${broj(k.zapisi.osoba)} ${k.zapisi.osoba % 10 >= 2 && k.zapisi.osoba % 10 <= 4 && (k.zapisi.osoba % 100 < 12 || k.zapisi.osoba % 100 > 14) ? "osobe" : "osoba"}`, trend(k.zapisi.naVrijeme, p.zapisi.naVrijeme, "vise", true)),
+    kartica("Temperatura u granici", k.temperatura.posto === null ? "—" : `${String(k.temperatura.posto).replace(".", ",")} %`, `${broj(k.temperatura.mjerenja)} ${oblik(k.temperatura.mjerenja, "mjerenje", "mjerenja", "mjerenja")} · van granice ${broj(k.temperatura.van)}`, k.temperatura.mjerenja ? trend(k.temperatura.van, p.temperatura.van, "manje") : trend(null, null, "manje")),
   ])}
   ${red([
     kartica("Neusaglašenosti otvorene", broj(k.nc.otvorene), `nove ${broj(k.nc.nove)} · zatvorene ${broj(k.nc.zatvorene)}${k.nc.dana !== null ? ` · zatvaranje prosječno ${String(k.nc.dana).replace(".", ",")} d` : ""}`, trend(k.nc.otvorene, p.nc.otvorene, "manje")),
@@ -433,7 +448,7 @@ function htmlIzvjestaja(firma: string, per: ReturnType<typeof period>, k: Pokaza
 
   ${naslovOdjeljka("Ljudi i oprema")}
   ${red([
-    kartica("Sanitarne knjižice", k.ljudi.istekla ? `<span style="color:${BOJE.crvena}">${k.ljudi.istekla} isteklo</span>` : "u redu", `${broj(k.ljudi.rukuje)} rukuje hranom · ističe u 30 dana ${broj(k.ljudi.istice)}${k.ljudi.bez_roka ? ` · bez roka ${k.ljudi.bez_roka}` : ""}`, "", true),
+    kartica("Sanitarne knjižice", k.ljudi.istekla ? `<span style="color:${BOJE.crvena}">${k.ljudi.istekla} ${oblik(k.ljudi.istekla, "istekla", "istekle", "isteklo")}</span>` : "u redu", `rukuje hranom: ${broj(k.ljudi.rukuje)} · ističe u 30 dana: ${broj(k.ljudi.istice)}${k.ljudi.bez_roka ? ` · bez roka ${k.ljudi.bez_roka}` : ""}`, "", true),
     kartica("Obuka", k.ljudi.obuka_kasni ? `<span style="color:${BOJE.narandzasta}">kasni: ${k.ljudi.obuka_kasni}</span>` : "po planu", "godišnji plan obuke", "", true),
     kartica("Termometri", term.neispravni ? `<span style="color:${BOJE.crvena}">${term.neispravni} neispravno</span>` : term.istekli ? `<span style="color:${BOJE.narandzasta}">${term.istekli} istekla provjera</span>` : "ispravni", "stanje danas", "", true),
   ])}
@@ -456,7 +471,7 @@ function tekstIzvjestaja(firma: string, iz: Awaited<ReturnType<typeof izvjestaj>
     iz.ocjena.poruka,
     ...iz.ocjena.stavke.map((s) => `- ${s.tekst}`),
     "",
-    `Isporuke: ${k.promet.isporuke} (${k.promet.kupci} kupaca) · Prijemi: ${k.promet.prijemi}`,
+    `Isporuke: ${k.promet.isporuke} (${k.promet.kupci} ${oblik(k.promet.kupci, "kupac", "kupca", "kupaca")}) · Prijemi: ${k.promet.prijemi}`,
     `Kontrole po planu: ${k.plan.posto ?? "—"} % · Zapisi na vrijeme: ${k.zapisi.naVrijeme ?? "—"} % · Temperatura van granice: ${k.temperatura.van}`,
     `Neusaglašenosti otvorene: ${k.nc.otvorene} · Povlačenja u toku: ${k.povlacenja.u_toku}`,
   ].join("\n");
@@ -487,7 +502,7 @@ export function slanjePodeseno() {
 
 export async function posalji(vrsta: Vrsta, dan: string | undefined) {
   if (!slanjePodeseno()) {
-    throw new ApiGreska(409, "SLANJE_NIJE_PODESENO", "Slanje mejla nije podešeno na ovom serveru (SMTP_HOST, SMTP_KORISNIK, SMTP_LOZINKA). Do tada: „Preuzmi izvještaj“ i pošaljite ga kao prilog.");
+    throw new ApiGreska(409, "SLANJE_NIJE_PODESENO", "Slanje mejla nije podešeno na ovom serveru (SMTP_HOST, SMTP_KORISNIK, SMTP_LOZINKA). Do tada: „Sačuvaj PDF“ i pošaljite ga kao prilog.");
   }
   const iz = await izvjestaj(vrsta, dan);
   const primaoci = procitajPrimaoce(iz.primaoci);

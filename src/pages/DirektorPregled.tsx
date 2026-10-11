@@ -27,6 +27,12 @@ type Pregled = {
   posljednjiIzvjestaj: { naziv: string; poslat: string } | null;
 };
 
+/** Oblik imenice uz broj: 1 kupac, 2 kupca, 5 kupaca. */
+const oblik = (n: number, jedan: string, dva: string, pet: string) => {
+  const d = n % 10;
+  const s = n % 100;
+  return d === 1 && s !== 11 ? jedan : d >= 2 && d <= 4 && (s < 12 || s > 14) ? dva : pet;
+};
 const datum = (s: string) => new Date(s).toLocaleDateString("sr-Latn-ME", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 /** Promjena prema prethodnih 7 dana; boja po tome da li je promjena dobra. */
@@ -90,7 +96,7 @@ export function DirektorPregled() {
               Povlačenje {pov.broj} u toku — {pov.artikal}, lot {pov.broj_lota}
             </strong>
             <span>
-              Obaviješteno {pov.obavijesteno} od {pov.kupaca} kupaca · pokrenuto {datum(pov.pokrenuto_at)}. Vodi ga odgovorno lice; zatvara se kad su
+              Obaviješteno {pov.obavijesteno} od {pov.kupaca} {oblik(pov.kupaca, "kupca", "kupaca", "kupaca")} · pokrenuto {datum(pov.pokrenuto_at)}. Vodi ga odgovorno lice; zatvara se kad su
               obaviješteni svi kupci.
             </span>
           </div>
@@ -114,7 +120,7 @@ export function DirektorPregled() {
           <span>Zapisi upisani na vrijeme</span>
           <strong>{k.zapisi.naVrijeme === null ? "—" : `${k.zapisi.naVrijeme} %`}</strong>
           <small>
-            {k.zapisi.ukupno} zapisa · upisuje {k.zapisi.osoba} {k.zapisi.osoba % 10 >= 2 && k.zapisi.osoba % 10 <= 4 && (k.zapisi.osoba % 100 < 12 || k.zapisi.osoba % 100 > 14) ? "osobe" : "osoba"}
+            {k.zapisi.ukupno} {oblik(k.zapisi.ukupno, "zapis", "zapisa", "zapisa")} · upisuje {k.zapisi.osoba} {oblik(k.zapisi.osoba, "osoba", "osobe", "osoba")}
           </small>
           <Trend sada={k.zapisi.naVrijeme} prije={pr.zapisi.naVrijeme} bolje="vise" postotni />
         </div>
@@ -130,7 +136,7 @@ export function DirektorPregled() {
           <span>Isporuke kupcima</span>
           <strong>{k.promet.isporuke}</strong>
           <small>
-            {k.promet.kupci} kupaca · prijema robe {k.promet.prijemi}
+            {k.promet.kupci} {oblik(k.promet.kupci, "kupac", "kupca", "kupaca")} · prijema robe {k.promet.prijemi}
           </small>
           <Trend sada={k.promet.isporuke} prije={pr.promet.isporuke} bolje="svejedno" />
         </div>
