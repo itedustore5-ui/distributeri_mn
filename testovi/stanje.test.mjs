@@ -166,6 +166,15 @@ export async function pokreni({ provjeri }) {
     const stub = poslije.grafikon.stubovi[poslije.grafikon.stubovi.length - 1];
     provjeri("Dnevni izvještaj: grafikon posljednjih 14 dana, današnji stub broji novu neusaglašenost", poslije.grafikon.stubovi.length === 14 && stub.od === danas && stub.ncNove >= 1, `${poslije.grafikon.stubovi.length} ${stub?.od} ${stub?.ncNove}`);
 
+    // ── Kontrolni centar direktora: isti semafor, za posljednjih 7 dana ───────────────────────
+    const dir = await direktor("/tabla/direktor");
+    provjeri(
+      "Direktorov pregled: semafor (sa novom neusaglašenošću VISOK — crveno), 7 dana, 14 dana zapisa, povlačenja u toku",
+      dir.status === 200 && dir.tijelo.ocjena.nivo === "crveno" && dir.tijelo.period.do === danas && dir.tijelo.period.od === danaOd(danas, -6) &&
+        dir.tijelo.grafikon.stubovi.length === 14 && Array.isArray(dir.tijelo.povlacenja) && dir.tijelo.pokazatelji.nc.otvorene_visok >= 1,
+      `${dir.status} ${dir.tijelo?.ocjena?.nivo} ${dir.tijelo?.period?.od}–${dir.tijelo?.period?.do} ${dir.tijelo?.grafikon?.stubovi?.length}`,
+    );
+
     // ── Preuzimanje (kad slanje sa servera nije podešeno) ──────────────────────────────────────
     const fajl = await preuzmi(konsultant, "/stanje-poslovanja/izvjestaj.html?vrsta=mjesec&dan=2025-05-14");
     provjeri("„Preuzmi izvještaj“: isti HTML kao fajl", fajl.status === 200 && /text\/html/.test(fajl.tip) && fajl.sadrzaj.toString("utf8").includes("maj 2025."), `${fajl.status} ${fajl.tip}`);

@@ -20,8 +20,8 @@ async function otvorenTermin(): Promise<OtvorenTermin | null> {
 /** Lice prijavljenog naloga — provjeru radi SAMO on (invarijanta #32). Zaposleni se prepoznaje po
  * nalogu i lozinci; šifra lica je samo unutrašnji ključ učesnika i zaposlenom se ne pokazuje. */
 async function mojeLice(korisnikId: string) {
-  const r = await upit<{ id: string; ime: string; sifra: string }>(
-    `select l.id, l.ime, l.sifra from korisnik k join lice l on l.id = k.lice_id where k.id = $1 and l.aktivan and l.sifra is not null`,
+  const r = await upit<{ id: string; ime: string; sifra: string; rukuje_hranom: boolean }>(
+    `select l.id, l.ime, l.sifra, l.rukuje_hranom from korisnik k join lice l on l.id = k.lice_id where k.id = $1 and l.aktivan and l.sifra is not null`,
     [korisnikId],
   );
   if (!r.rows[0]) throw new ApiGreska(409, "NALOG_BEZ_SIFRE", "Vaš nalog nije vezan za zaposlenog u spisku ljudi — javite se odgovornom licu.");
@@ -59,6 +59,8 @@ export async function udji(korisnikId: string, lozinka: string, ip?: string) {
   const termin = await otvorenTermin();
   if (!termin) throw new ApiGreska(404, "NEMA_OTVORENE_SESIJE", "Trenutno nije otvorena nijedna provjera znanja.");
   const lice = await mojeLice(korisnikId);
+  // Provjera je dokaz o obuci zaposlenih koji rukuju hranom (#20) — direktor i ostali van hrane je ne rade.
+  if (!lice.rukuje_hranom) throw new ApiGreska(403, "PROVJERA_NIJE_ZA_VAS", "Provjera znanja je za zaposlene koji rukuju hranom — vi je ne radite.");
 
   const postojeci = await upit<{ id: string; zavrseno_at: string | null }>(
     `select id, zavrseno_at from ucesnik_znanja where sesija_id = $1 and sifra = $2`,
@@ -132,12 +134,14 @@ export async function zavrsi(ucesnikId: string, korisnikId: string) {
  * Ulaz u provjeru se nudi odatle, a ne sa strane za prijavu. */
 export async function mojTermin(korisnikId: string) {
   const termin = await otvorenTermin();
-  const lice = await upit<{ sifra: string | null }>(
-    `select l.sifra from korisnik k join lice l on l.id = k.lice_id where k.id = $1 and l.aktivan`,
+  const lice = await upit<{ sifra: string | null; rukuje_hranom: boolean }>(
+    `select l.sifra, l.rukuje_hranom from korisnik k join lice l on l.id = k.lice_id where k.id = $1 and l.aktivan`,
     [korisnikId],
   );
   const sifra = lice.rows[0]?.sifra ?? null;
   if (!termin || !sifra) return { otvoren: !!termin, naziv: termin?.naziv ?? null, vezan: !!sifra, zavrseno: false };
+  // Ko ne rukuje hranom (direktor, administracija) — provjera mu se ni ne nudi (#20).
+  if (!lice.rows[0].rukuje_hranom) return { otvoren: false, naziv: termin.naziv, vezan: true, zavrseno: false };
   const u = await upit<{ zavrseno: boolean }>(
     `select zavrseno_at is not null as zavrseno from ucesnik_znanja where sesija_id = $1 and sifra = $2`,
     [termin.id, sifra],

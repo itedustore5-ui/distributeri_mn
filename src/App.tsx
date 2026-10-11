@@ -73,14 +73,14 @@ function Rute() {
       <Route path="/ljudi" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Ljudi /></Zasticeno>} />
       <Route path="/sifarnici" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Sifarnici /></Zasticeno>} />
       <Route path="/prijem" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Prijem /></Zasticeno>} />
-      <Route path="/zalihe" element={<Zasticeno uloge={["operater", "bzr", "izvodjac", "uprava"]}><Zalihe /></Zasticeno>} />
+      <Route path="/zalihe" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Zalihe /></Zasticeno>} />
       <Route path="/haccp" element={<Zasticeno uloge={["operater", "bzr", "izvodjac"]}><Haccp /></Zasticeno>} />
-      <Route path="/haccp-plan" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><HaccpPlan /></Zasticeno>} />
+      <Route path="/haccp-plan" element={<Zasticeno uloge={["bzr", "izvodjac"]}><HaccpPlan /></Zasticeno>} />
       <Route path="/neusaglasenosti" element={<Zasticeno uloge={["operater", "vozac", "bzr", "izvodjac"]}><Neusaglasenosti /></Zasticeno>} />
       <Route path="/vozila" element={<Zasticeno uloge={["vozac", "bzr", "izvodjac"]}><Vozila /></Zasticeno>} />
       <Route path="/isporuka" element={<Zasticeno uloge={["vozac", "operater", "bzr", "izvodjac"]}><Isporuka /></Zasticeno>} />
       <Route path="/isporuka/:id/otpremnica" element={<Zasticeno uloge={["vozac", "operater", "bzr", "izvodjac"]}><OtpremnicaStampa /></Zasticeno>} />
-      <Route path="/sledljivost" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><Sledljivost /></Zasticeno>} />
+      <Route path="/sledljivost" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Sledljivost /></Zasticeno>} />
       <Route path="/prilozi" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Prilozi /></Zasticeno>} />
       <Route path="/izvjestaji" element={<Zasticeno uloge={["izvodjac"]}><Izvjestaji /></Zasticeno>} />
       <Route path="/stanje" element={<Zasticeno uloge={["izvodjac"]}><StanjePoslovanja /></Zasticeno>} />

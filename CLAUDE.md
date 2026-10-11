@@ -5,7 +5,7 @@ Ovdje je sve što se ne vidi iz koda: mapa aplikacije, zašto je nešto tako, š
 dirati, šta je poznato da ne valja, i na čemu se već izgubilo vrijeme.
 
 Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — upiši ovdje.
-Posljednji pregled koda i usklađivanje ovog fajla: **11.10.2026.** („Stanje poslovanja“ — izvještaj direktoru mejlom, Izvještaji samo kod konsultanta; upitnik za početak i `uvoz-start`, kontrolne tačke na svakoj bazi; 04.10. inspekcijski paket i „Riješeno je“ za neusaglašenost; 01.10. dorada posle probe vlasnice; talas 6 30.09.; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
+Posljednji pregled koda i usklađivanje ovog fajla: **11.10.2026.** (jednostavan Kontrolni centar direktora, provjera znanja samo za one koji rukuju hranom; „Stanje poslovanja“ — izvještaj direktoru mejlom, Izvještaji samo kod konsultanta; upitnik za početak i `uvoz-start`, kontrolne tačke na svakoj bazi; 04.10. inspekcijski paket i „Riješeno je“ za neusaglašenost; 01.10. dorada posle probe vlasnice; talas 6 30.09.; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
 opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje u ovom kodu nema.)
 
 ---
@@ -55,7 +55,7 @@ pisano ne odredi ko je to, to je izvršni direktor. *(likely — iz teksta kazni
 | 3 | To lice dobija Kontrolni centar kao prvu stranu | `/tabla`, automatski po ulozi |
 | 4 | Upisuje sve zaposlene; kod onih koji rukuju hranom — rok sanitarne knjižice | `/ljudi` → Svi zaposleni |
 | 5 | Magacioneri (`operater`) i vozači (`vozac`) dobijaju naloge — **otvara ih sam**, odmah pri unosu zaposlenog, sa početnom lozinkom i ceduljicom za štampu | `/ljudi` → Novo lice / „Otvori nalog" |
-| 6 | Direktor dobija `uprava` — pregled, aktivnost uživo i poruke, bez unosa | otvara konsultant |
+| 6 | Direktor dobija `uprava` — svoj Kontrolni centar (semafor, četiri broja, zapisi po danu), Za inspekciju i poruke, bez unosa (#95); „Stanje poslovanja“ mu konsultant šalje mejlom | otvara konsultant |
 | 7 | Konsultant podešava HACCP plan: „Predloži osnovni plan" pa prilagodi stvarnim komorama i vozilima, upiše termometre i tekst kontrolnih tačaka | `/haccp-plan` |
 | 8 | Svako na SVOM telefonu uključi obavještenja (na iPhoneu prvo „Dodaj na početni ekran") i pošalje probno | `/moja` → „Obavještenja na telefon" |
 
@@ -219,7 +219,7 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Sledljivost, povlačenje | `/sledljivost` | `sledljivost.ts`, `povlacenje.ts` | `sledljivostService`, `povlacenjeService` | `povlacenje`, `povlacenje_kontakt`, `v_sledljivost_*` |
 | Zadaci, obavještenja, poruke (šalju SVI — #67; na `/poruke` primljene i poslate zajedno, po vremenu — `/poruke/primljene`) | `/moja`, `/tabla`, `/poruke` | `zadaci.ts`, `poruke.ts` | `zadaciService`, `porukeService` | `zadatak`, `obavjestenje`, `poruka` |
 | Obavještenja na telefon (push) | `/moja` → „Obavještenja na telefon"; `public/sw.js`, `public/manifest.webmanifest` | `push.ts` | `pushService` | `push_pretplata`, `web_push_kljuc`, `obavjestenje.push_poslato_at` |
-| Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | `tablaService` (+ `monitoringService`, `haccpPlanService` za kartice „Danas fali po planu", „HACCP rokovi") | čita sve (aktivnost = unija domenskih tabela) |
+| Kontrolni centar, aktivnost | `/tabla` (direktor: `DirektorPregled.tsx`, `/tabla/direktor` — #95) | `tabla.ts` | `tablaService` (+ `monitoringService`, `haccpPlanService` za kartice „Danas fali po planu", „HACCP rokovi"); direktor — `stanjeService.pregledDirektora` | čita sve (aktivnost = unija domenskih tabela) |
 | HACCP plan: plan monitoringa, kontrolne tačke, termometri, verifikacija sistema | `/haccp-plan`; štampa `/prilozi` → HACCP plan; „Danas po planu" na `/moja` | `haccpPlan.ts` | `monitoringService` (šta danas fali), `haccpPlanService` (termometri, verifikacija, podaci za štampu), `pravilaService` (granica artikla → pravilo) | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`, `kontrolna_tacka` (opasnost, mjera, verifikacija) |
 | Prilozi, izvještaji, izvoz | `/prilozi`; `/izvjestaji` samo konsultant (#93) | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
 | Stanje poslovanja — izvještaj direktoru | `/stanje` (samo konsultant): period dan … godina, pregled mejla, primaoci, „Pošalji direktoru“, „Preuzmi izvještaj“ | `stanje.ts` | `stanjeService` (+ `pregledPlana`, `listaUredjaja`), `nodemailer` (SMTP iz env) | samo čita; `firma.izvjestaj_primaoci`, `izvjestaj_poslat` (trag slanja) |
@@ -239,7 +239,7 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 |---|---|---|:-:|---|
 | `izvodjac` | konsultantkinja | `/tabla` | 30 dana | sve što i `bzr` + Podešavanje, banka pitanja konsultanta; otvara sve naloge osim `izvodjac`; **Izvještaji (izvoz) i Stanje poslovanja** — samo on (#93) |
 | `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, karantin povrata sa isporuke (pusti / otpiši), mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, HACCP plan (plan monitoringa, termometri, verifikacija), inspekcijski paket, poruke |
-| `uprava` | direktor | `/tabla` | — (samo gleda) | Kontrolni centar (kartice otvaraju listu iza broja, `/tabla/detalj`), aktivnost uživo, zalihe, sledljivost i povlačenja (čitanje), HACCP plan (čitanje), inspekcijski paket, poruke; bez zadataka i unosa |
+| `uprava` | direktor | `/tabla` | — (samo gleda) | SVOJ Kontrolni centar (#95): semafor „šta traži vašu odluku“, četiri broja za 7 dana, zapisi po danu za 14 dana, povlačenje u toku, aktivnost uživo (sklopljena); inspekcijski paket, poruke, Moja strana. Bez zaliha, HACCP plana i sledljivosti u meniju, bez zadataka, unosa i provjere znanja (ako ne rukuje hranom — #94) |
 | `operater` | magacioner | `/moja` | 1 | prijem, zalihe i otpis, obrasci P3–P10 (i ispravka SVOG zapisa — #57), isporuka (samo svoje — #51; i otkaz svoje u pripremi — #63), prijava problema, SVOJA korektivna mjera; „Danas po planu" na Mojoj strani; provjera termometra (API) |
 | `vozac` | vozač | `/moja` | 1 | isporuka i potvrda sa temperaturom (KKT 3) — samo dodijeljene (#51), kontrola vozila D1 (sa temperaturom — #55), prijava problema, SVOJA mjera; „Danas po planu" |
 
@@ -335,7 +335,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) — API testovi pa ekrani (`--sve`) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-26 testova, 671 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+26 testova, 673 provjere (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -371,7 +371,8 @@ direktor ga izvlači, ZIP prolazi kontrolni zbir svakog fajla, bez audita — `i
 već ima vodstvo i bazu bez tabela; uvoz-start — proba bez upisa, upis, ponovni uvoz bez duplikata, odbijen kupac bez telefona i
 artikal bez granice, granice nepotvrđene, pravila KKT 1/3, šifra kod dobavljača, demo baza odbijena; dnevni-pregled javlja veličinu baze — `alati`). i stanje poslovanja (šest vrsta perioda sa granicama i nazivom, tekući period do danas, budućnost odbijena, nova neusaglašenost VISOK
 pali crveno, primaoci, slanje kroz LAŽNI SMTP server testa — prijava na nalog, oba primaoca, HTML i tekst, trag; SMTP odbije → 502 bez traga;
-Odgovorno lice, direktor i magacioner 403 — `stanje`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
+Odgovorno lice, direktor i magacioner 403; direktorov Kontrolni centar — isti semafor za 7 dana, 14 dana zapisa — `stanje`; u `provjera_znanja` i:
+direktor koji ne rukuje hranom ne dobija karticu i ne ulazi). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
 fiksnim ID-jevima) i brišu sve što naprave. Nov tok u aplikaciji = nov test.
 
 Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
@@ -384,12 +385,12 @@ vraća status vozila i briše svoje kontrole. Test koji mjeri pravi svoj isprava
 na termometre demo baze. Rok je obavezan pri prijemu — testovi ga šalju (`rokZaDana()`); demo lot za isporuku se bira
 po SLOBODNOJ robi (`slobodno()` — isporuke u pripremi na demo bazi drže dio zalihe).
 
-**Testovi ekrana** (`testovi/ekrani/`, talas 6, dorada, inspekcijski paket i stanje poslovanja, 52 provjere): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
+**Testovi ekrana** (`testovi/ekrani/`, talas 6, dorada, inspekcijski paket, stanje poslovanja i pregled direktora, 54 provjere): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
 koristi instaliran Chrome; `PW_KANAL=msedge` za Edge; na GitHub-u je Chrome već na računaru) u veličini telefona, prijava
 kroz API pa samo kolačić u pregledač (lozinka se ne kuca u pregledač). `1_uloge` — svaka strana svake od pet uloga: otvara
 se, ne viri van ekrana (vodoravni skrol), nema greške u konzoli; meni na telefonu nudi samo strane uloge; sva četiri priloga
 za štampu. `2_teren` — vozač D1 pa predaja kroz ekran, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema,
-direktor kartica → lista. `3_bez_mreze` — vozač bez signala: sve strane sačuvane na telefonu, D1 i predaja „Sačuvano na
+direktor — svoj pregled (semafor, četiri broja, 14 dana zapisa, bez operativnih kartica), meni sa četiri strane, „Došao inspektor“ → paket. `3_bez_mreze` — vozač bez signala: sve strane sačuvane na telefonu, D1 i predaja „Sačuvano na
 telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. `4_dorada` (konsultant) — filteri izvještaja i
 audita, Stanje poslovanja (mejl u okviru čitav na 375 px, „Pošalji“ bez SMTP kaže šta fali), poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. `5_isporuka_nc` — magacioner čiji je matični magacin
 prazan sprema isporuku; Ana zatvara neusaglašenost jednim upisom („Riješeno je“, kvačica „bez četiri oka“). `6_inspekcija` —
@@ -841,7 +842,21 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     pravilo (#39) i `granica_potvrdio = false` (#5 — potvrđuje čovjek), loša granica → predlog režima (drugi režim bez
     granice — odbijen), šifra kod dobavljača → `artikal_dobavljaca` (isti `kljucArtikla` kao prijem), audit sa
     `izvor: alati/uvoz-start`. NE otvara naloge (#28), ne upisuje komore, kalibracije ni ritam rada — to ispiše konsultantu.
-93. **Izvještaji su konsultantovi; direktor dobija „Stanje poslovanja“ mejlom** (odluka vlasnice 11.10.2026). `/izvjestaji` i
+94. **Provjeru znanja radi samo zaposleni koji RUKUJE HRANOM** (`lice.rukuje_hranom`, 11.10.2026 — direktoru Đorđu Peroviću na
+    demo bazi se nudila). Isto pravilo kao knjižica i obuka (#20): provjera je dokaz o obuci onih koji rade sa hranom (Uredba
+    91/2026, Dio 13). Ko ne rukuje hranom — kartica „Otvorena je provjera znanja“ se ne pokazuje (`moj-termin` → `otvoren: false`),
+    a ulaz se odbija (403 `PROVJERA_NIJE_ZA_VAS`). Već upisani rezultati se ne brišu (#1). Direktor koji i sam rukuje hranom
+    (mala firma) — u Ljudi označiti „rukuje hranom“, pa radi provjeru kao i ostali.
+95. **Direktor ima svoj, jednostavan Kontrolni centar** (pitanje vlasnice 11.10.2026: „šta mu u stvari koristi od ovoga“).
+    Direktor je „odgovorno lice u pravnom licu“ (čl. 82) i plaća uslugu — treba mu odgovor „jesmo li u redu, šta traži moju
+    odluku i vode li se zapisi svaki dan“, ne operativne kartice odgovornog lica. `/tabla` za `uprava` = `DirektorPregled`
+    (`GET /tabla/direktor`, samo `uprava`, `stanjeService.pregledDirektora`): semafor i stavke iz ISTE `ocjena` kao „Stanje
+    poslovanja“ (#93) za posljednjih 7 dana sa danas; četiri broja (kontrole po planu, zapisi na vrijeme, otvorene
+    neusaglašenosti, isporuke) prema prethodnih 7; zapisi po danu za 14 dana (crveno = radni dan bez zapisa); povlačenje u toku
+    sa brojem obaviještenih kupaca; „Došao inspektor“ → `/inspekcija`; „Poruka odgovornom licu“; aktivnost uživo samo na klik.
+    Meni direktora: Kontrolni centar, Moja strana, Poruke, Za inspekciju (Zalihe, HACCP plan i Sledljivost sklonjeni iz menija i
+    ruta pregledača). API prava za čitanje (`/lotovi`, `/povlacenja`, `/haccp-plan`…) uprava zadržava — sklonjen je ekran, ne pravo.
+**Izvještaji su konsultantovi; direktor dobija „Stanje poslovanja“ mejlom** (odluka vlasnice 11.10.2026). `/izvjestaji` i
     izvoz (`/izvoz/*`) — samo `izvodjac`; odgovornom licu i direktoru ostaje „Za inspekciju“ (#90). `/stanje-poslovanja`
     (`stanjeService`, samo `izvodjac`): period dan, sedmica, mjesec, kvartal, polugodište, godina — bez dana posljednji
     ZAVRŠENI, tekući se siječe na danas („do danas“), budućnost 400 `PERIOD_U_BUDUCNOSTI`; svaki broj poređen sa prethodnim

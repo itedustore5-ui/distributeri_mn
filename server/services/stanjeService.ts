@@ -263,6 +263,45 @@ export async function izvjestaj(vrsta: Vrsta, dan?: string) {
   };
 }
 
+// ─── Pregled za direktora (Kontrolni centar uprave, 11.10.2026) ─────────────────────────────────
+/** Direktoru ne trebaju operativne kartice odgovornog lica — treba mu odgovor „jesmo li u redu i šta traži moju
+ * odluku“. Isti semafor i pokazatelji kao „Stanje poslovanja“ (#93), za posljednjih 7 dana (sa danas) prema
+ * prethodnih 7; grafikon zapisa za 14 dana; povlačenja u toku sa brojem obaviještenih kupaca. Samo čita. */
+export async function pregledDirektora() {
+  const danas = danasCG();
+  const od = dodajDane(danas, -6);
+  const [sada, prije, grafikon, uredjaji, povlacenja, firma, posljednji] = await Promise.all([
+    pokazatelji(od, danas),
+    pokazatelji(dodajDane(danas, -13), dodajDane(danas, -7)),
+    serije("dan", danas, danas),
+    listaUredjaja(true),
+    upit<{ id: string; broj: string; artikal: string; broj_lota: string; pokrenuto_at: string; kupaca: number; obavijesteno: number }>(
+      `select p.id, p.broj, a.naziv as artikal, l.broj_lota, p.pokrenuto_at,
+              count(k.id)::int as kupaca, count(k.id) filter (where k.kontaktiran)::int as obavijesteno
+       from povlacenje p join lot l on l.id = p.lot_id join artikal a on a.id = l.artikal_id
+       left join povlacenje_kontakt k on k.povlacenje_id = p.id
+       where p.status = 'U_TOKU' group by p.id, a.naziv, l.broj_lota order by p.pokrenuto_at`,
+    ),
+    upit<{ odgovorno_lice_ime: string | null }>(`select odgovorno_lice_ime from firma limit 1`),
+    upit<{ vrsta: Vrsta; od: string; do: string; created_at: string }>(
+      `select vrsta, to_char(period_od, 'YYYY-MM-DD') as od, to_char(period_do, 'YYYY-MM-DD') as do, created_at
+       from izvjestaj_poslat order by created_at desc limit 1`,
+    ),
+  ]);
+  const termometri = { neispravni: uredjaji.filter((u) => u.stanje === "NEISPRAVAN").length, istekli: uredjaji.filter((u) => u.stanje === "ISTEKLA").length };
+  const p = posljednji.rows[0];
+  return {
+    period: { od, do: danas },
+    ocjena: ocjena(sada, termometri),
+    pokazatelji: sada,
+    prethodni: prije,
+    grafikon,
+    povlacenja: povlacenja.rows,
+    odgovornoLice: firma.rows[0]?.odgovorno_lice_ime ?? null,
+    posljednjiIzvjestaj: p ? { naziv: nazivPerioda(p.vrsta, p.od, p.do), poslat: p.created_at } : null,
+  };
+}
+
 // ─── HTML za mejl (tabele i stilovi u redu — tako ga čita svaki program za poštu) ────────────────
 const BOJE = { tekst: "#182431", sivo: "#5d6c7a", linija: "#dfe6ee", plava: "#2459da", zelena: "#18815e", narandzasta: "#a8641a", crvena: "#bd3c45", pozadina: "#f2f5f9" };
 const SEMAFOR: Record<Nivo, { boja: string; pozadina: string }> = {

@@ -226,7 +226,7 @@ alati/                 CLI skripte, pokreću se sa računara konsultantkinje
 | `bzr` | Odgovorno lice za bezbjednost hrane | sve u firmi — prva strana poslije prijave je `/tabla` |
 | `operater` | Magacioner | prijem, zalihe, HACCP, isporuka — samo poslednji 1 dan, samo svoje unose i isporuke koje je sam spremio |
 | `vozac` | Vozač | vozila (D1 — vidi samo vozač), isporuka — samo poslednji 1 dan, samo dodijeljene; on potvrđuje predaju |
-| `uprava` | Direktor | pregled bez unosa; šalje poruke zaposlenima |
+| `uprava` | Direktor | svoj Kontrolni centar (semafor, četiri broja, zapisi po danu), Za inspekciju, poruke — bez unosa |
 | `izvodjac` | Konsultant | sve + banka pitanja za provjeru znanja + podešavanje firme (`/admin`) + Izvještaji (izvoz) i Stanje poslovanja — samo on |
 
 Dozvole se provjeravaju **na serveru** (`server/auth.ts` → `requireUloga`, `ogranicenjeDatuma`,
@@ -506,18 +506,20 @@ dana, istekao, bez roka), dobavljač, artikal, magacin, „samo na stanju" i por
 količina). „Štampaj" i „CSV" daju **tačno ono što je na ekranu**; na papiru stoje firma, datum i
 primijenjeni filteri.
 
-### Uprava — „Aktivnost uživo"
+### Direktor (uprava) — jednostavan Kontrolni centar
 
-Na Kontrolnom centru: svaki prijem, odluka, isporuka, dnevni obrazac, kontrola vozila,
-neusaglašenost, otpis i povlačenje — ko i kada, osvježava se na 30 s, „Samo problemi" sužava.
-Uprava ne dobija obavještenje za svaki unos (50 poruka dnevno bi zatrpalo ono nekoliko važnih);
-važno stiže na zvonce. Uprava nema zadatke i ne vidi sanitarnu knjižicu ako ne rukuje hranom.
+Direktoru ne trebaju operativne kartice odgovornog lica. Njegov Kontrolni centar odgovara na tri pitanja:
 
-Kartice Kontrolnog centra kod uprave otvaraju **listu iza broja**, samo za čitanje (otvorene
-neusaglašenosti, temperature van opsega, nespremna vozila, knjižice, prijemi / isporuke /
-zapisi danas) — uprava ne ulazi na operativne strane. „Lotovi na HOLD-u" vodi na Zalihe sa već
-izabranim filterom, „Povlačenja u toku" na Sledljivost, gdje uprava vidi povlačenja i spisak
-kupaca, bez dugmadi za upis. Lista i broj na kartici se računaju istim uslovom (`/tabla/detalj`).
+1. **Jesmo li u redu i šta traži moju odluku?** — semafor („Sve pod kontrolom“ / „Ima stvari za pažnju“ /
+   „Potrebna je vaša odluka“) sa najviše 7 kratkih stavki (istekla knjižica, neusaglašenost visoke ozbiljnosti,
+   povlačenje u toku, propuštene kontrole…). Ista pravila kao mejl „Stanje poslovanja“, za posljednjih 7 dana.
+2. **Vode li se zapisi svaki dan?** — četiri broja za 7 dana prema prethodnih 7 (kontrole po planu, zapisi na
+   vrijeme, otvorene neusaglašenosti, isporuke) i zapisi po danu za 14 dana; crveno = radni dan bez ijednog zapisa.
+3. **Šta da radim?** — „Došao inspektor — paket za inspekciju“ i „Poruka odgovornom licu“.
+
+Povlačenje u toku stoji odmah ispod semafora, sa brojem obaviještenih kupaca. „Svaki upis uživo“ (ko je šta i kad
+radio) je na dnu, otvara se na klik. Meni direktora: Kontrolni centar, Moja strana, Poruke, Za inspekciju. Uprava ne
+dobija obavještenje za svaki unos (važno stiže na zvonce), nema zadatke i ne radi provjeru znanja ako ne rukuje hranom.
 
 ### Izvještaji — prvo pregled (samo konsultant)
 
@@ -589,8 +591,9 @@ izmjene se vidi „bilo → sada“. Štampa sa filterima u zaglavlju.
 ### Provjera znanja — pitanja firme i rezultati
 
 **Kako zaposleni ulazi:** prijavljen **svojim nalogom**, sa svoje početne strane. Dok je termin
-otvoren, na Mojoj strani (magacioner, vozač) i na Kontrolnom centru (odgovorno lice, direktor)
-stoji kartica **„Otvorena je provjera znanja — Uđi"**. Šifra se **ne kuca**: server uzima šifru
+otvoren, na Mojoj strani (magacioner, vozač) i na Kontrolnom centru (odgovorno lice)
+stoji kartica **„Otvorena je provjera znanja — Uđi"** — samo onima koji **rukuju hranom** (Ljudi → „rukuje
+hranom“). Direktor i administracija je ne rade; direktor koji i sam radi sa robom se tamo označi. Šifra se **ne kuca**: server uzima šifru
 prijavljenog, pa niko ne može raditi provjeru umjesto drugoga, a tuđu započetu provjeru ne može ni
 odgovarati ni završiti. Poslije završetka na početnoj strani piše da je provjera urađena. Bez
 prijave nema ulaza (ni na strani za prijavu, ni preko adrese). **Zaposleni bez naloga ne radi
@@ -756,8 +759,8 @@ Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Is
 ```bash
 npm run typecheck
 npm run build
-npm test             # 671 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
-npm run test:ekrani  # 52 provjere ekrana: telefon 375 px, pet uloga, rad bez mreže, inspekcijski paket, stanje poslovanja
+npm test             # 673 provjere na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm run test:ekrani  # 54 provjere ekrana: telefon 375 px, pet uloga, rad bez mreže, inspekcijski paket, stanje poslovanja, pregled direktora
 ```
 
 **`npm run test:ekrani`** izgradi aplikaciju kao za Render, pokrene server u produkcijskom režimu (sa

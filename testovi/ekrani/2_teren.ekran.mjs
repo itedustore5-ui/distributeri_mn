@@ -1,10 +1,10 @@
 // Rad na terenu kroz ekran telefona, kao što ga radi čovjek: vozač D1 pa predaja, magacioner mjerenje,
-// dnevni obrazac i početak prijema; direktor otvara karticu na Kontrolnom centru.
+// dnevni obrazac i početak prijema; direktor vidi svoj pregled i ide na paket za inspekciju.
 import { pool, NALOZI } from "../pomoc.mjs";
-import { telefon, otvori, siroko, prozor } from "./telefon.mjs";
+import { telefon, otvori, siroko, prozor, slikaj } from "./telefon.mjs";
 import { napraviTeren, napraviKomoru, ocisti } from "./priprema.mjs";
 
-export const naziv = "Ekrani: vozač (D1, predaja), magacioner (mjerenje, obrazac, prijem), direktor (kartica)";
+export const naziv = "Ekrani: vozač (D1, predaja), magacioner (mjerenje, obrazac, prijem), direktor (pregled)";
 
 export async function pokreni({ provjeri }) {
   const oznaka = `E2EEK${Date.now().toString(36)}`;
@@ -84,15 +84,31 @@ export async function pokreni({ provjeri }) {
       await magacioner.zatvori();
     }
 
-    // ── Direktor: kartica otvara listu iza broja ───────────────────────────────────────────
+    // ── Direktor: svoj, jednostavan Kontrolni centar (11.10.2026) ──────────────────────────────
     const direktor = await telefon("direktor");
     try {
       await otvori(direktor, "/tabla");
-      await direktor.strana.locator("button.stat-card", { hasText: "Prijemi danas" }).click();
-      const lista = direktor.strana.locator(".modal");
-      await lista.waitFor({ timeout: 10_000 });
-      const tekst = await lista.innerText();
-      provjeri("Direktor: kartica „Prijemi danas“ otvara listu iza broja (današnji prijem se vidi)", tekst.includes(oznaka), tekst.slice(0, 200));
+      const strana = direktor.strana;
+      await strana.locator(".dir-semafor").waitFor({ timeout: 10_000 });
+      const kpi = await strana.locator(".dir-kpi-k").count();
+      const stubovi = await strana.locator(".dir-graf-stub").count();
+      // Danas je magacioner izmjerio temperaturu (gore) — današnji stub nije prazan.
+      const danasStub = await strana.locator(".dir-graf-stub").last().locator("i").getAttribute("class");
+      const operativno = await strana.locator(".alert-card, button.stat-card").count();
+      const meni = await strana.evaluate(() => [...document.querySelectorAll("nav a")].map((a) => a.getAttribute("href")));
+      await slikaj(strana, "2-direktor-pregled");
+      if (process.env.EKRANI_SLIKE) await strana.screenshot({ path: `${process.env.EKRANI_SLIKE}/2-direktor-cijelo.png`, fullPage: true }).catch(() => undefined);
+      const s = await siroko(strana);
+      provjeri(
+        "Direktor: semafor, četiri broja za 7 dana, zapisi za 14 dana (današnji nije prazan) — bez operativnih kartica odgovornog lica; ne viri van ekrana",
+        kpi === 4 && stubovi === 14 && !danasStub && operativno === 0 && s.visak === 0,
+        `kpi ${kpi} stubova ${stubovi} danas „${danasStub}“ operativnih ${operativno} ${s.visak}px ${s.krivi.join(",")}`,
+      );
+      provjeri("Direktor: meni nudi samo Kontrolni centar, Moju stranu, Poruke i Za inspekciju",
+        !meni.some((h) => ["/zalihe", "/haccp-plan", "/sledljivost"].includes(h)), meni.join(","));
+      await strana.getByRole("button", { name: /Došao inspektor/ }).click();
+      await strana.waitForURL(/\/inspekcija/, { timeout: 10_000 });
+      provjeri("Direktor: „Došao inspektor“ vodi na paket za inspekciju", /\/inspekcija/.test(strana.url()), strana.url());
       provjeri("…bez greške u konzoli", direktor.greske.length === 0, direktor.greske.join(" | "));
     } finally {
       await direktor.zatvori();

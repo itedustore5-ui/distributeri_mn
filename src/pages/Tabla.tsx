@@ -10,6 +10,7 @@ import { AktivnostUzivo } from "../components/Aktivnost";
 import { ProvjeraZnanjaUlaz } from "../components/ProvjeraZnanjaUlaz";
 import { mozeNa } from "../components/Layout";
 import { useAuth } from "../lib/auth";
+import { DirektorPregled } from "./DirektorPregled";
 
 type BekapMeta = { id: string; tip: string; broj_tabela: number; broj_redova: number; velicina_bajtova: number | string | null; created_at: string };
 
@@ -35,7 +36,13 @@ type TablaPodaci = {
   operativno: { prijemiDanas: number; isporukeDanas: number; zapisiDanas: number };
 };
 
+/** Direktor (uprava) ima svoj, jednostavniji Kontrolni centar — DirektorPregled (11.10.2026). */
 export function Tabla() {
+  const { korisnik } = useAuth();
+  return korisnik?.uloga === "uprava" ? <DirektorPregled /> : <TablaVodstva />;
+}
+
+function TablaVodstva() {
   const { korisnik } = useAuth();
   const [podaci, setPodaci] = useState<TablaPodaci | null>(null);
   const [bekap, setBekap] = useState<BekapMeta | null | undefined>(undefined);

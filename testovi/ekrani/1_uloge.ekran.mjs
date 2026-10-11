@@ -9,7 +9,7 @@ const STRANE = {
   petar: ["/moja", "/isporuka", "/vozila", "/neusaglasenosti", "/poruke"],
   marko: ["/moja", "/prijem", "/zalihe", "/haccp", "/isporuka", "/neusaglasenosti", "/poruke"],
   ana: ["/tabla", "/moja", "/prijem", "/zalihe", "/haccp", "/haccp-plan", "/isporuka", "/vozila", "/neusaglasenosti", "/poruke", "/ljudi", "/sifarnici", "/sledljivost", "/prilozi", "/inspekcija", "/audit"],
-  direktor: ["/tabla", "/moja", "/zalihe", "/haccp-plan", "/poruke", "/sledljivost", "/inspekcija"],
+  direktor: ["/tabla", "/moja", "/poruke", "/inspekcija"], // jednostavniji interfejs direktora (11.10.2026)
 };
 STRANE.konsultant = [...STRANE.ana, "/izvjestaji", "/stanje", "/admin"];
 const IME = { petar: "Vozač", marko: "Magacioner", ana: "Odgovorno lice", direktor: "Uprava", konsultant: "Konsultant" };

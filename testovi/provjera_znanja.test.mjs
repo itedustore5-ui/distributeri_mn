@@ -9,6 +9,7 @@ export async function pokreni({ provjeri }) {
   const ana = await prijava(NALOZI.ana);
   const marko = await prijava(NALOZI.marko);
   const petar = await prijava(NALOZI.petar);
+  const direktor = await prijava(NALOZI.direktor);
   const anon = anonimno();
   const trag = { sesijaId: null };
   const pocetak = new Date();
@@ -26,6 +27,15 @@ export async function pokreni({ provjeri }) {
     // Ulaz se nudi na početnoj strani prijavljenog (ne na strani za prijavu).
     const mojPrije = (await marko("/provjera-znanja/moj-termin")).tijelo;
     provjeri("Magacioner na svojoj strani vidi otvoren termin (bez šifre — ne treba mu)", mojPrije?.otvoren === true && mojPrije.naziv === "E2E provjera" && mojPrije.vezan === true && !("sifra" in mojPrije) && mojPrije.zavrseno === false, JSON.stringify(mojPrije));
+
+    // Direktor (Đorđe Perović) ne rukuje hranom — provjera mu se ne nudi i ne prima (#20).
+    const dirTermin = (await direktor("/provjera-znanja/moj-termin")).tijelo;
+    const dirUlaz = await direktor("/provjera-znanja/uci", { telo: { lozinka: NALOZI.direktor.lozinka } });
+    provjeri(
+      "Ko ne rukuje hranom (direktor): bez kartice na početnoj strani, ulaz odbijen (403 PROVJERA_NIJE_ZA_VAS)",
+      dirTermin?.otvoren === false && dirUlaz.status === 403 && dirUlaz.tijelo?.error?.code === "PROVJERA_NIJE_ZA_VAS",
+      `${JSON.stringify(dirTermin)} ${dirUlaz.status} ${dirUlaz.tijelo?.error?.code}`,
+    );
 
     provjeri("Bez prijave se ne ulazi, ni sa tačnom šifrom (401)", (await anon("/provjera-znanja/uci", { telo: { sifra: lice.sifra } })).status === 401);
 
