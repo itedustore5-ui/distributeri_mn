@@ -77,7 +77,7 @@ export async function pokreni({ provjeri }) {
     // ── Izvoz: Excel formula i vrijeme po Podgorici ──
     const lice = await ana("/lica", { telo: { ime: `=HYPERLINK("http://x") ${oznaka}`, radnoMjesto: "-18,5" } });
     trag.lica.push(lice.tijelo?.id);
-    const csv = (await preuzmi(ana, "/izvoz/lica.csv")).sadrzaj.toString("utf8");
+    const csv = (await preuzmi(konsultant, "/izvoz/lica.csv")).sadrzaj.toString("utf8");
     const red = csv.split("\n").find((r) => r.includes(oznaka)) ?? "";
     provjeri("Izvoz: tekst koji počinje sa = dobija apostrof — Excel ga ne izvršava kao formulu", red.includes(`'=HYPERLINK(""http://x"") ${oznaka}`), red.slice(0, 160));
     provjeri("…a broj ostaje broj (−18,5 bez apostrofa)", /;"-18,5"(;|$)/.test(red) && !red.includes("'-18,5"), red.slice(0, 160));

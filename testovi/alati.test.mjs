@@ -1,9 +1,14 @@
 // Alati sa računara konsultantkinje (04.10.2026):
 //   • prvi-korisnik na NOVOJ, praznoj bazi pravi odgovorno lice i konsultantski nalog (jedna transakcija, audit,
 //     privremene lozinke), a bazu koja već ima odgovorno lice ili konsultanta odbija (npr. demo iz .env);
-//   • dnevni-pregled javlja veličinu baze i upozorava kad je blizu granice besplatnog Supabase-a.
+//   • dnevni-pregled javlja veličinu baze i upozorava kad je blizu granice besplatnog Supabase-a;
+//   • uvoz-start upisuje fajl iz upitnika (upitnik-start/) u novu bazu: proba ne upisuje ništa, upis jednom, ponovo — ništa
+//     novo; kupac bez telefona i artikal bez granice se odbijaju; granice nisu potvrđene; demo baza se odbija;
+//   • nova baza ima kontrolne tačke KKT 1–3 (dopuna 36 / prvi-korisnik) — bez njih prijem i predaja ne ocjenjuju temperaturu.
 // Nova baza se pravi samo na LOKALNOM klasteru (npm test / CI) i briše na kraju; na demo bazi se ta provjera preskače.
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -25,7 +30,37 @@ function alat(skripta, argumenti, env) {
   });
 }
 
+const UPITNIK = {
+  format: "pilot-upitnik-start", verzija: 1, sacuvano: "2026-10-11T08:00:00.000Z",
+  firma: {
+    naziv: "Nova d.o.o.", pib: "02999888", adresa: "Cetinjski put bb", grad: "Podgorica", registracija: "",
+    roba: { rashladjeno: true, smrznuto: true, sobna: true }, drugaRoba: "",
+    odgovorno: { ime: "Jelena Nović", telefon: "067 555 111", email: "" }, direktor: { ime: "Petar Nović", telefon: "", email: "" }, direktorJeOdgovorno: false,
+  },
+  rad: { dani: { pon: true, uto: true, sri: true, cet: true, pet: true, sub: true, ned: false }, prijema: "4", isporuka: "25", napomena: "" },
+  nemaVozila: false, nemaTermometra: false,
+  magacini: [{ naziv: "Magacin Podgorica", adresa: "Cetinjski put bb" }, { naziv: "Magacin Bar", adresa: "" }],
+  komore: [{ naziv: "Komora 1", magacin: "Magacin Podgorica", rezim: "rashladjeno", min: "0", max: "4" }],
+  vozila: [{ oznaka: "PG AB-123", tip: "kombi", rashladno: true, min: "0", max: "4" }, { oznaka: "PG XY-9", tip: "kamion", rashladno: true, min: "", max: "" }],
+  zaposleni: [
+    { ime: "Jelena Nović", radnoMjesto: "odgovorno lice", rukujeHranom: true, knjizicaBroj: "SK-1", knjizicaRok: "2027-05-31", nalog: "odgovorno", magacin: "Magacin Podgorica" },
+    { ime: "Marko Marković", radnoMjesto: "magacioner", rukujeHranom: true, knjizicaBroj: "SK-2", knjizicaRok: "2027-01-31", nalog: "magacioner", magacin: "Magacin Podgorica" },
+    { ime: "Petar Nović", radnoMjesto: "direktor", rukujeHranom: false, knjizicaBroj: "", knjizicaRok: "", nalog: "direktor", magacin: "" },
+  ],
+  dobavljaci: [{ naziv: "Mljekara d.o.o.", pib: "02123456", telefon: "040 123 456", mjesto: "Nikšić", roba: "mlijeko" }, { naziv: "Pekara", pib: "12", telefon: "", mjesto: "", roba: "" }],
+  kupci: [{ naziv: "Market Centar", telefon: "067 123 456", pib: "03012345", adresa: "", adresaIsporuke: "", kontakt: "" }, { naziv: "Kiosk bez telefona", telefon: "", pib: "", adresa: "", adresaIsporuke: "", kontakt: "" }],
+  artikli: [
+    { naziv: "Mlijeko 2,8% 1 l", jedinica: "kom", rezim: "rashladjeno", min: "0", max: "4", rok: true, dobavljac: "Mljekara d.o.o.", sifra: "1001" },
+    { naziv: "Sladoled vanila 1 l", jedinica: "kom", rezim: "smrznuto", min: "", max: "", rok: true, dobavljac: "", sifra: "" },
+    { naziv: "Keks 200 g", jedinica: "kom", rezim: "sobna", min: "", max: "", rok: true, dobavljac: "", sifra: "" },
+    { naziv: "Riba na ledu", jedinica: "kg", rezim: "drugo", min: "", max: "", rok: true, dobavljac: "", sifra: "" },
+  ],
+  termometri: [{ naziv: "Ubodni", oznaka: "T-01", gdje: "prijem", kalibracijaBroj: "K-55", kalibracijaDatum: "2026-01-10" }],
+};
+
 export async function pokreni({ provjeri }) {
+  const fajlUpitnika = path.join(os.tmpdir(), `pilot-start-proba-${Date.now().toString(36)}.json`);
+  fs.writeFileSync(fajlUpitnika, JSON.stringify(UPITNIK));
   // ── Zaštita: baza koja nije nova (ovdje — test baza sa demo nalozima) ───────────────────────────
   const prije = (await pool.query(`select count(*)::int as n from korisnik`)).rows[0].n;
   const bzr = await alat("alati/prvi-korisnik.ts", ["--firma", "Proba d.o.o.", "--ime", "Proba Probić", "--korisnik", "proba.bzr"], { DATABASE_URL: URL_TESTA });
@@ -36,6 +71,10 @@ export async function pokreni({ provjeri }) {
     bzr.kod === 1 && /već ima odgovorno lice/.test(bzr.izlaz) && /^Baza: /m.test(bzr.izlaz) && kons.kod === 1 && /već ima konsultantski nalog/.test(kons.izlaz) && prije === posle,
     `${bzr.kod} ${bzr.izlaz.trim().slice(0, 160)} | ${kons.kod} ${kons.izlaz.trim().slice(0, 120)} | ${prije}→${posle}`,
   );
+
+  const demoUvoz = await alat("alati/uvoz-start.ts", ["--fajl", fajlUpitnika, "--upisi"], { DATABASE_URL: URL_TESTA });
+  const artPoslije = (await pool.query(`select count(*)::int as n from artikal where naziv = 'Riba na ledu' or naziv = 'Sladoled vanila 1 l'`)).rows[0].n;
+  provjeri("uvoz-start: demo baza se odbija (upitnik klijenta ide samo u njegovu bazu), ništa se ne upisuje", demoUvoz.kod === 1 && /DEMO baza/.test(demoUvoz.izlaz) && artPoslije === 0, demoUvoz.izlaz.trim().slice(0, 200));
 
   // ── Nova, prazna baza: dopune pa prvi nalozi ─────────────────────────────────────────────────
   if (!URL_TESTA.includes("localhost")) {
@@ -77,12 +116,61 @@ export async function pokreni({ provjeri }) {
         provjeri("…lozinke se ispišu jednom (dvije, po 14 znakova), šifra zaposlenog se ne ispisuje (#17)", (r.izlaz.match(/^\s+(odgovorno lice|konsultant)\s+\S+\s+\S{14}$/gm) ?? []).length === 2 && !/Šifra/.test(r.izlaz), r.izlaz.trim());
         const opet = await alat("alati/prvi-korisnik.ts", ["--konsultant", "drugi.konsultant"], { DATABASE_URL: nova });
         provjeri("…drugi konsultant u istoj bazi se odbija (jedan po bazi)", opet.kod === 1 && /već ima konsultantski nalog/.test(opet.izlaz), opet.izlaz.trim().slice(0, 160));
+        const tacke = (await k.query(`select sifra from kontrolna_tacka order by sifra`)).rows.map((x) => x.sifra).join(",");
+        provjeri("Nova baza posle prvi-korisnik ima kontrolne tačke KKT 1–3 (bez njih nema ocjene temperature)", tacke === "KKT1,KKT2,KKT3", tacke);
+
+        // ── uvoz-start ──
+        const broj = async (sql) => (await k.query(sql)).rows[0].n;
+        const proba = await alat("alati/uvoz-start.ts", ["--fajl", fajlUpitnika], { DATABASE_URL: nova });
+        provjeri(
+          "uvoz-start bez --upisi: kaže šta bi uradio (artikli 3 nova, 1 odbijen; kupac bez telefona odbijen), a ništa ne upiše",
+          proba.kod === 0 && /PROBA/.test(proba.izlaz) && /Artikli\s+3 novih · 1 odbijeno/.test(proba.izlaz) && /Kiosk bez telefona: nema telefon/.test(proba.izlaz) &&
+            (await broj(`select count(*)::int as n from artikal`)) === 0 && (await broj(`select count(*)::int as n from kupac`)) === 0,
+          proba.izlaz.trim().slice(0, 600),
+        );
+        const upis = await alat("alati/uvoz-start.ts", ["--fajl", fajlUpitnika, "--upisi"], { DATABASE_URL: nova });
+        const magacini = (await k.query(`select naziv, adresa from skladiste order by naziv`)).rows;
+        const jelena = (await k.query(`select sanitarna_knjizica_broj as b, to_char(sanitarna_knjizica_rok, 'YYYY-MM-DD') as r from lice where ime = 'Jelena Nović'`)).rows[0];
+        const sladoled = (await k.query(`select temp_min::float as min, temp_max::float as max, granica_potvrdio from artikal where naziv = 'Sladoled vanila 1 l'`)).rows[0];
+        const firma2 = (await k.query(`select pib, adresa, grad from firma`)).rows[0];
+        provjeri(
+          "uvoz-start --upisi: prazni „Glavni magacin“ preimenovan + drugi magacin; vozila; Jelena dopunjena knjižicom, 2 nova zaposlena; firma dopunjena",
+          upis.kod === 0 && /Upisano/.test(upis.izlaz) &&
+            JSON.stringify(magacini) === JSON.stringify([{ naziv: "Magacin Bar", adresa: null }, { naziv: "Magacin Podgorica", adresa: "Cetinjski put bb" }]) &&
+            (await broj(`select count(*)::int as n from vozilo`)) === 2 && (await broj(`select count(*)::int as n from vozilo where registarski_broj = 'PG XY-9' and temp_min = 0 and temp_max = 4`)) === 1 &&
+            jelena?.b === "SK-1" && jelena?.r === "2027-05-31" && (await broj(`select count(*)::int as n from lice`)) === 3 &&
+            firma2.pib === "02999888" && firma2.adresa === "Cetinjski put bb" && firma2.grad === "Podgorica",
+          `${upis.kod} ${JSON.stringify(magacini)} ${JSON.stringify(jelena)} ${JSON.stringify(firma2)} | ${upis.izlaz.trim().slice(0, 300)}`,
+        );
+        provjeri(
+          "…kupci samo sa telefonom; dobavljač sa lošim PIB-om upisan bez PIB-a; artikli sa granicom koja NIJE potvrđena i pravilom na KKT 1 i KKT 3; šifra kod dobavljača upamćena; termometar",
+          (await broj(`select count(*)::int as n from kupac`)) === 1 && (await broj(`select count(*)::int as n from dobavljac where naziv = 'Pekara' and pib is null`)) === 1 &&
+            (await broj(`select count(*)::int as n from artikal`)) === 3 && sladoled?.min === -25 && sladoled?.max === -18 && sladoled?.granica_potvrdio === false &&
+            (await broj(`select count(*)::int as n from artikal where granica_potvrdio`)) === 0 &&
+            (await broj(`select count(*)::int as n from pravilo_kontrole p join kontrolna_tacka kt on kt.id = p.kontrolna_tacka_id where kt.sifra in ('KKT1', 'KKT3') and p.artikal_id is not null and p.aktivan`)) === 4 &&
+            (await broj(`select count(*)::int as n from artikal_dobavljaca where kljuc = 's:1001'`)) === 1 && (await broj(`select count(*)::int as n from mjerni_uredjaj`)) === 1,
+          JSON.stringify(sladoled),
+        );
+        provjeri(
+          "…svaki upis u audit, a nalozi se NE otvaraju (samo podsjetnik: magacioner, direktor)",
+          (await broj(`select count(*)::int as n from audit_log where nove_vrijednosti->>'izvor' = 'alati/uvoz-start'`)) >= 15 && (await broj(`select count(*)::int as n from korisnik`)) === 2 &&
+            /Marko Marković — magacioner/.test(upis.izlaz) && /PRETPOSTAVLJENE/.test(upis.izlaz),
+          upis.izlaz.trim().slice(-500),
+        );
+        const ponovo = await alat("alati/uvoz-start.ts", ["--fajl", fajlUpitnika, "--upisi"], { DATABASE_URL: nova });
+        provjeri(
+          "…ponovni uvoz istog fajla: ništa novo (sve „već postoji“), bez duplikata",
+          ponovo.kod === 0 && /Artikli\s+3 već postoji/.test(ponovo.izlaz) && (await broj(`select count(*)::int as n from artikal`)) === 3 && (await broj(`select count(*)::int as n from skladiste`)) === 2 && (await broj(`select count(*)::int as n from lice`)) === 3,
+          ponovo.izlaz.trim().slice(0, 400),
+        );
       } finally {
         await k.end();
         await pool.query(`drop database if exists ${ime} with (force)`).catch(() => undefined);
       }
     }
   }
+
+  fs.rmSync(fajlUpitnika, { force: true });
 
   // ── Dnevni pregled: veličina baze i upozorenje ────────────────────────────────────────────────
   // KLIJENTI_FAJL na nepostojeći fajl → gleda samo DATABASE_URL (test bazu), ne prave klijente ni demo iz .env.

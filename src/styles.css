@@ -589,3 +589,17 @@ h2 { font-family: "Space Grotesk"; font-size: 15px; letter-spacing: -.02em; colo
   .insp-brojke { grid-template-columns: repeat(6, 1fr); }
   .insp-lose { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* Stanje poslovanja (src/pages/StanjePoslovanja.tsx): izbor perioda, slanje, pregled mejla u okviru. */
+.stanje-alati { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 14px; }
+.stanje-period { display: flex; align-items: center; gap: 10px; }
+.stanje-period strong { font-family: "Space Grotesk"; font-size: 16px; color: #20303d; min-width: 0; text-align: center; }
+.stanje-period .secondary-button { padding: 6px 9px; }
+.stanje-slanje { padding: 16px 18px; display: grid; gap: 12px; min-height: auto; }
+.stanje-primaoci { display: grid; gap: 6px; font-size: 12px; font-weight: 600; color: #5d6c7a; }
+.stanje-primaoci > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.stanje-primaoci input { flex: 1 1 260px; min-width: 0; height: 38px; border: 1px solid #dfe7ed; border-radius: 8px; padding: 0 10px; font-weight: 400; color: #182431; }
+.stanje-dugmad { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.stanje-dugmad .muted-text { font-size: 12px; flex: 1 1 240px; }
+.stanje-pregled { margin-top: 16px; border-radius: 12px; overflow: hidden; }
+.stanje-okvir { width: 100%; min-height: 600px; border: 0; display: block; background: #f2f5f9; }

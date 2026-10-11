@@ -5,6 +5,8 @@ import { IZVORI_IZVOZA, izvezi, izveziSve, nizUCsv, pregled, spisakIzvora, type 
 import { str } from "../validacija.js";
 
 export const izvozRuter = Router();
+// Izvještaji (tabele, CSV, sve.json) su konsultantovi (odluka vlasnice 11.10.2026) — odgovorno lice ima
+// „Za inspekciju“ (svoj paket i ZIP, routes/inspekcija.ts), direktor dobija „Stanje poslovanja“ mejlom.
 // Provjera važi SAMO za adrese ovog rutera. Ruter je montiran na zajednički "/api", pa bi
 // .use(...) bez putanje važio za SVAKI zahtjev koji prođe kroz njega — i zaključao bi rute
 // registrovane poslije (ovako je uprava dobijala 403 na /api/tabla).
@@ -36,7 +38,7 @@ function filterIzUpita(upit: Record<string, unknown>): FilterIzvoza {
 
 izvozRuter.get(
   "/izvoz/izvori",
-  requireUloga("bzr", "izvodjac"),
+  requireUloga("izvodjac"),
   asyncRuta(async (_request, response) => {
     response.json(await spisakIzvora());
   }),
@@ -44,7 +46,7 @@ izvozRuter.get(
 
 izvozRuter.get(
   "/izvoz/:kod/pregled",
-  requireUloga("bzr", "izvodjac"),
+  requireUloga("izvodjac"),
   asyncRuta(async (request, response) => {
     response.json(await pregled(str(request.params.kod), filterIzUpita(request.query)));
   }),
@@ -52,7 +54,7 @@ izvozRuter.get(
 
 izvozRuter.get(
   "/izvoz/:kod.csv",
-  requireUloga("bzr", "izvodjac"),
+  requireUloga("izvodjac"),
   asyncRuta(async (request, response) => {
     const { naziv, csv } = await izvezi(str(request.params.kod), filterIzUpita(request.query));
     response.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -63,7 +65,7 @@ izvozRuter.get(
 
 izvozRuter.get(
   "/izvoz/sve.json",
-  requireUloga("bzr", "izvodjac"),
+  requireUloga("izvodjac"),
   asyncRuta(async (_request, response) => {
     const { podaci, nedostaje } = await izveziSve();
     response.json({ podaci, nedostaje, izvezenoAt: new Date().toISOString() });
@@ -72,7 +74,7 @@ izvozRuter.get(
 
 izvozRuter.get(
   "/izvoz/sve.csv-arhiva",
-  requireUloga("bzr", "izvodjac"),
+  requireUloga("izvodjac"),
   asyncRuta(async (_request, response) => {
     const { podaci, nedostaje } = await izveziSve();
     const dijelovi = Object.entries(podaci).map(([kod, redovi]) => `--- ${kod} ---\n${nizUCsv(redovi)}`);

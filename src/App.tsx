@@ -23,6 +23,7 @@ const Poruke = lazy(() => import("./pages/Poruke").then((m) => ({ default: m.Por
 const Sledljivost = lazy(() => import("./pages/Sledljivost").then((m) => ({ default: m.Sledljivost })));
 const Prilozi = lazy(() => import("./pages/Prilozi").then((m) => ({ default: m.Prilozi })));
 const Izvjestaji = lazy(() => import("./pages/Izvjestaji").then((m) => ({ default: m.Izvjestaji })));
+const StanjePoslovanja = lazy(() => import("./pages/StanjePoslovanja").then((m) => ({ default: m.StanjePoslovanja })));
 const Inspekcija = lazy(() => import("./pages/Inspekcija").then((m) => ({ default: m.Inspekcija })));
 const Audit = lazy(() => import("./pages/Audit").then((m) => ({ default: m.Audit })));
 const ProvjeraZnanja = lazy(() => import("./pages/ProvjeraZnanja").then((m) => ({ default: m.ProvjeraZnanja })));
@@ -81,7 +82,8 @@ function Rute() {
       <Route path="/isporuka/:id/otpremnica" element={<Zasticeno uloge={["vozac", "operater", "bzr", "izvodjac"]}><OtpremnicaStampa /></Zasticeno>} />
       <Route path="/sledljivost" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><Sledljivost /></Zasticeno>} />
       <Route path="/prilozi" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Prilozi /></Zasticeno>} />
-      <Route path="/izvjestaji" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Izvjestaji /></Zasticeno>} />
+      <Route path="/izvjestaji" element={<Zasticeno uloge={["izvodjac"]}><Izvjestaji /></Zasticeno>} />
+      <Route path="/stanje" element={<Zasticeno uloge={["izvodjac"]}><StanjePoslovanja /></Zasticeno>} />
       <Route path="/inspekcija" element={<Zasticeno uloge={["bzr", "izvodjac", "uprava"]}><Inspekcija /></Zasticeno>} />
       <Route path="/audit" element={<Zasticeno uloge={["bzr", "izvodjac"]}><Audit /></Zasticeno>} />
       <Route path="/admin" element={<Zasticeno uloge={["izvodjac"]}><Admin /></Zasticeno>} />

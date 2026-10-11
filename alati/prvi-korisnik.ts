@@ -14,6 +14,7 @@ import "dotenv/config";
 import crypto from "node:crypto";
 import pg from "pg";
 import { hashLozinke, MINIMALNA_DUZINA_LOZINKE } from "../server/lozinke.js";
+import { sljedeciBroj } from "../server/services/brojeviService.js";
 
 function argument(naziv: string): string | undefined {
   const indeks = process.argv.indexOf(`--${naziv}`);
@@ -80,11 +81,20 @@ async function main() {
       if (!(await klijent.query(`select 1 from firma limit 1`)).rows.length) {
         await klijent.query(`insert into firma (naziv, odgovorno_lice_ime) values ($1, $2)`, [firmaNaziv, ime]);
       }
+      // Kontrolne tačke KKT 1–3 (vidi dopunu 36): bez njih prijem i predaja tiho preskaču ocjenu temperature.
+      await klijent.query(
+        `insert into kontrolna_tacka (sifra, naziv, opis)
+         select v.sifra, v.naziv, v.opis from (values
+           ('KKT1', 'Prijem robe', 'Kontrola temperature i ispravnosti pri prijemu'),
+           ('KKT2', 'Skladištenje', 'Kontrola temperature rashladnih komora'),
+           ('KKT3', 'Vozilo i isporuka', 'Kontrola vozila i temperature pri isporuci')
+         ) as v (sifra, naziv, opis)
+         where not exists (select 1 from kontrolna_tacka k where k.sifra = v.sifra)`,
+      );
       // Šifra je unutrašnji evidencioni broj (#17) — zaposlenom ne treba, pa se ne ispisuje.
-      const brojLica = (await klijent.query<{ broj: number }>(`select count(*)::int as broj from lice`)).rows[0].broj;
       const lice = await klijent.query<{ id: string }>(
         `insert into lice (ime, radno_mjesto, rukuje_hranom, sifra) values ($1, 'Odgovorno lice za bezbjednost hrane', true, $2) returning id`,
-        [ime, `M-${String(brojLica + 1).padStart(2, "0")}`],
+        [ime, await sljedeciBroj(klijent, "lice", "M", 2)],
       );
       const lozinka = novaLozinka();
       const k = await klijent.query<{ id: string }>(

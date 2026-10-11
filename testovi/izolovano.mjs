@@ -136,7 +136,9 @@ try {
 
   if (!samoEkrani) {
     korak(`test server na portu ${PORT_APP}`);
-    server = nodeProces([...TSX, "server/index.ts"], { DATABASE_URL: baza.url, PORT: String(PORT_APP), SAMO_API: "1", NODE_ENV: "development" }, ["ignore", "ignore", "inherit"]);
+    // SMTP = lažni server testa `stanje` (127.0.0.1:54327, samo dok taj test traje) — pravi mejl nikad ne ide.
+    const posta = { SMTP_HOST: "127.0.0.1", SMTP_PORT: "54327", SMTP_KORISNIK: "proba@pilot.test", SMTP_LOZINKA: "proba", SMTP_POSILJALAC: "PILOT proba <proba@pilot.test>" };
+    server = nodeProces([...TSX, "server/index.ts"], { DATABASE_URL: baza.url, PORT: String(PORT_APP), SAMO_API: "1", NODE_ENV: "development", ...posta }, ["ignore", "ignore", "inherit"]);
     await sacekajServer(server);
 
     korak("testovi");

@@ -10,6 +10,8 @@ const zaglavlje = (csv) => (typeof csv === "string" ? csv.replace(/^﻿/, "").sp
 export async function pokreni({ provjeri }) {
   const ana = await prijava(NALOZI.ana);
   const direktor = await prijava(NALOZI.direktor);
+  // Izvještaji i izvoz su konsultantovi (odluka vlasnice 11.10.2026).
+  const konsultant = await prijava(NALOZI.konsultant);
 
   const firma = await ana("/firma");
   provjeri("Rješenje o imenovanju: podaci o firmi", firma.status === 200 && firma.tijelo?.naziv, firma.tijelo?.naziv);
@@ -18,14 +20,14 @@ export async function pokreni({ provjeri }) {
   const ev = await ana("/evidencija-osposobljavanja");
   provjeri("Prilog 14: evidencija osposobljavanja", ev.status === 200 && Array.isArray(ev.tijelo) && ev.tijelo.every((e) => "ime" in e), `${ev.tijelo?.length} lica`);
 
-  const izvori = (await ana("/izvoz/izvori")).tijelo;
+  const izvori = (await konsultant("/izvoz/izvori")).tijelo;
   provjeri("Spisak izvora za izvoz", Array.isArray(izvori) && izvori.length >= 10, `${izvori?.length}`);
   provjeri("Nijedan izvor ne nedostaje u bazi", izvori.every((i) => !i.nedostaje), izvori.filter((i) => i.nedostaje).map((i) => i.kod).join(", "));
 
   const pali = [];
   const csv = {};
   for (const i of izvori) {
-    const r = await ana(`/izvoz/${i.kod}.csv`);
+    const r = await konsultant(`/izvoz/${i.kod}.csv`);
     if (r.status !== 200) pali.push(`${i.kod} → ${r.status}`);
     csv[i.kod] = r.tijelo;
   }
@@ -35,10 +37,12 @@ export async function pokreni({ provjeri }) {
   provjeri("Stavke isporuka: temperatura_predaje", zaglavlje(csv.isporuke_stavke).includes("temperatura_predaje"));
   provjeri("Dnevni zapisi: naknadno_dana", zaglavlje(csv.zapisi).includes("naknadno_dana"));
 
-  const pregled = await ana("/izvoz/prijemi/pregled");
+  const pregled = await konsultant("/izvoz/prijemi/pregled");
   provjeri("Pregled prije preuzimanja: kolone, redovi i ukupan broj", pregled.status === 200 && pregled.tijelo.kolone.includes("naknadno_dana") && Array.isArray(pregled.tijelo.redovi) && pregled.tijelo.ukupno >= pregled.tijelo.redovi.length, `${pregled.tijelo?.redovi?.length}/${pregled.tijelo?.ukupno}`);
 
-  const sve = await ana("/izvoz/sve.json");
+  const sve = await konsultant("/izvoz/sve.json");
   provjeri("Sve u jednom JSON-u, bez nedostajućih", sve.status === 200 && (sve.tijelo?.nedostaje ?? []).length === 0 && Object.keys(sve.tijelo?.podaci ?? {}).length === izvori.length);
   provjeri("Uprava ne izvozi podatke (403)", (await direktor("/izvoz/sve.json")).status === 403);
+  provjeri("Odgovorno lice više ne izvozi tabele (403) — izvještaji su kod konsultanta; ostaje mu „Za inspekciju“",
+    (await ana("/izvoz/sve.json")).status === 403 && (await ana("/izvoz/prijemi.csv")).status === 403 && (await ana("/inspekcija")).status === 200);
 }

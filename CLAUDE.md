@@ -5,7 +5,7 @@ Ovdje je sve što se ne vidi iz koda: mapa aplikacije, zašto je nešto tako, š
 dirati, šta je poznato da ne valja, i na čemu se već izgubilo vrijeme.
 
 Ažurira se pri svakoj većoj izmjeni. Ako nešto naučiš na teži način — upiši ovdje.
-Posljednji pregled koda i usklađivanje ovog fajla: **04.10.2026.** (inspekcijski paket i „Riješeno je“ za neusaglašenost; 01.10. dorada posle probe vlasnice; talas 6 30.09.; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
+Posljednji pregled koda i usklađivanje ovog fajla: **11.10.2026.** („Stanje poslovanja“ — izvještaj direktoru mejlom, Izvještaji samo kod konsultanta; upitnik za početak i `uvoz-start`, kontrolne tačke na svakoj bazi; 04.10. inspekcijski paket i „Riješeno je“ za neusaglašenost; 01.10. dorada posle probe vlasnice; talas 6 30.09.; ranije inspekcija i talas 5 29.09., revizija 25.09. i talasi 1–4) (Ranija verzija ovog fajla
 opisivala je staru aplikaciju — `zapisi.js`, `promet.html`, `veza.js` — koje u ovom kodu nema.)
 
 ---
@@ -51,6 +51,7 @@ pisano ne odredi ko je to, to je izvršni direktor. *(likely — iz teksta kazni
 |---|---|---|
 | 1 | Direktor potpiše rješenje o imenovanju | `/prilozi` → prva stavka |
 | 2 | Imenovanom licu se otvara nalog `bzr`, a konsultantu `izvodjac` (bez njega nema direktora, podataka firme ni obavještenja „bez četiri oka“) | `npm run prvi-korisnik -- … --konsultant …` |
+| 2a | Podaci firme (zaposleni, magacini, vozila, dobavljači, kupci, artikli, termometri) — distributer ih popuni u upitniku, konsultant ih uveze | `upitnik-start/Upitnik-za-pocetak.html` → `npm run uvoz-start -- --fajl … [--upisi]` |
 | 3 | To lice dobija Kontrolni centar kao prvu stranu | `/tabla`, automatski po ulozi |
 | 4 | Upisuje sve zaposlene; kod onih koji rukuju hranom — rok sanitarne knjižice | `/ljudi` → Svi zaposleni |
 | 5 | Magacioneri (`operater`) i vozači (`vozac`) dobijaju naloge — **otvara ih sam**, odmah pri unosu zaposlenog, sa početnom lozinkom i ceduljicom za štampu | `/ljudi` → Novo lice / „Otvori nalog" |
@@ -220,7 +221,8 @@ PostgreSQL   tabele + pogledi (v_*) · migracije db/NN_*.sql, stanje u schema_mi
 | Obavještenja na telefon (push) | `/moja` → „Obavještenja na telefon"; `public/sw.js`, `public/manifest.webmanifest` | `push.ts` | `pushService` | `push_pretplata`, `web_push_kljuc`, `obavjestenje.push_poslato_at` |
 | Kontrolni centar, aktivnost | `/tabla` | `tabla.ts` | `tablaService` (+ `monitoringService`, `haccpPlanService` za kartice „Danas fali po planu", „HACCP rokovi") | čita sve (aktivnost = unija domenskih tabela) |
 | HACCP plan: plan monitoringa, kontrolne tačke, termometri, verifikacija sistema | `/haccp-plan`; štampa `/prilozi` → HACCP plan; „Danas po planu" na `/moja` | `haccpPlan.ts` | `monitoringService` (šta danas fali), `haccpPlanService` (termometri, verifikacija, podaci za štampu), `pravilaService` (granica artikla → pravilo) | `plan_monitoringa`, `mjerni_uredjaj`, `provjera_uredjaja`, `verifikacija_sistema`, `kontrolna_tacka` (opasnost, mjera, verifikacija) |
-| Prilozi, izvještaji, izvoz | `/prilozi`, `/izvjestaji` | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
+| Prilozi, izvještaji, izvoz | `/prilozi`; `/izvjestaji` samo konsultant (#93) | `izvoz.ts`, `firma.ts` | `izvozService` | `firma`, pogledi `v_izvoz_*`, `v_plan_obuke`, `v_evidencija_osposobljavanja` |
+| Stanje poslovanja — izvještaj direktoru | `/stanje` (samo konsultant): period dan … godina, pregled mejla, primaoci, „Pošalji direktoru“, „Preuzmi izvještaj“ | `stanje.ts` | `stanjeService` (+ `pregledPlana`, `listaUredjaja`), `nodemailer` (SMTP iz env) | samo čita; `firma.izvjestaj_primaoci`, `izvjestaj_poslat` (trag slanja) |
 | Inspekcijski paket | `/inspekcija` (meni „Za inspekciju“): štampa / PDF i ZIP sa CSV | `inspekcija.ts` | `inspekcijaService` (+ `pregledPlana` iz `monitoringService`, `izvezi` iz `izvozService`), `server/zip.ts` | samo čita (sve evidencije za period) |
 | Audit | `/audit` („bilo → sada“) | `audit.ts` | `auditService` (`stanjeReda`, `logIzmjenaReda`) | `audit_log` (`dogadjaj` se od faze 4 ne puni — stari redovi ostaju) |
 | Bekap | `/tabla` (kartica „Preuzmi bekap sada“) — preuzima se, u bazi samo trag (#68); pun bekap je `npm run bekap` | `bekap.ts` | `bekapService` (`pisiBekap`, sedmični podsjetnik) | `bekap_log` (ko je i kad preuzeo) |
@@ -235,8 +237,8 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 
 | Uloga | Ko | Prva strana | Upis unazad (`PROZOR`) | Šta radi |
 |---|---|---|:-:|---|
-| `izvodjac` | konsultantkinja | `/tabla` | 30 dana | sve što i `bzr` + Podešavanje, banka pitanja konsultanta; otvara sve naloge osim `izvodjac` |
-| `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, karantin povrata sa isporuke (pusti / otpiši), mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, HACCP plan (plan monitoringa, termometri, verifikacija), izvoz, poruke |
+| `izvodjac` | konsultantkinja | `/tabla` | 30 dana | sve što i `bzr` + Podešavanje, banka pitanja konsultanta; otvara sve naloge osim `izvodjac`; **Izvještaji (izvoz) i Stanje poslovanja** — samo on (#93) |
+| `bzr` | odgovorno lice | `/tabla` | 7 | odluke o prijemu, karantin povrata sa isporuke (pusti / otpiši), mjere i provjera neusaglašenosti, povlačenje, nalozi `operater`/`vozac`, pitanja firme, HACCP plan (plan monitoringa, termometri, verifikacija), inspekcijski paket, poruke |
 | `uprava` | direktor | `/tabla` | — (samo gleda) | Kontrolni centar (kartice otvaraju listu iza broja, `/tabla/detalj`), aktivnost uživo, zalihe, sledljivost i povlačenja (čitanje), HACCP plan (čitanje), inspekcijski paket, poruke; bez zadataka i unosa |
 | `operater` | magacioner | `/moja` | 1 | prijem, zalihe i otpis, obrasci P3–P10 (i ispravka SVOG zapisa — #57), isporuka (samo svoje — #51; i otkaz svoje u pripremi — #63), prijava problema, SVOJA korektivna mjera; „Danas po planu" na Mojoj strani; provjera termometra (API) |
 | `vozac` | vozač | `/moja` | 1 | isporuka i potvrda sa temperaturom (KKT 3) — samo dodijeljene (#51), kontrola vozila D1 (sa temperaturom — #55), prijava problema, SVOJA mjera; „Danas po planu" |
@@ -296,6 +298,8 @@ provjerava server** (`requireUloga` po ruti) — meni samo sakriva.
 | `26_talas1_cg` | CHECK zaliha ≥ 0 i količine stavke isporuke (`NOT VALID`, pa provjera starih redova — ako ne prođe, samo `notice`, a pravilo važi za nove upise); `kljuc_zahtjeva` (R-10) |
 | `27_talas2_cg` | `mjerenje_temperature.mjerni_uredjaj_id` (R-23); `kontrola_vozila` + `granica_min/max`, `temperatura_ok` (R-05); jedinstven `zapis.ispravlja_id` (R-07, u `do`-bloku — grananje na staroj bazi daje `notice`); pogledi za izvoz `v_izvoz_kontrole_vozila`, `v_izvoz_provjere_nc`, `v_izvoz_termometri`, `v_izvoz_verifikacija_sistema`, `v_izvoz_kretanja_zalihe` (R-20) |
 | `28_talas3_otkaz_cg` | samo `isporuka_status_t` + `OTKAZANA` — nova vrijednost enuma u svom fajlu (ne smije se koristiti u istoj transakciji) |
+| `37_stanje_poslovanja_cg` | `firma.izvjestaj_primaoci` (kome ide „Stanje poslovanja“), `izvjestaj_poslat` (ko je, kad i kome poslao koji period; RLS) — #93 |
+| `36_kontrolne_tacke_cg` | KKT 1–3 za bazu koja već ima firmu, a nema tačke (na novoj ih pravi `prvi-korisnik`, na demo `13_demo_cg`) + pravila za artikle sa granicom bez pravila (#91) |
 | `35_bekap_preuzimanje_cg` | `bekap_log.podaci` može biti prazno + `velicina_bajtova`; stare kopije podataka obrisane (bekap se više ne čuva u bazi, #68) |
 | `34_van_mreze_cg` | rad bez interneta (#85): `van_mreze` na mjerenju, D1, zapisu i neusaglašenosti, `isporuka.potvrda_van_mreze`; `van_mreze_odbijeno` (sa RLS-om) |
 | `33_talas5_cg` | potvrda u dva koraka (`korisnik.totp_*`, `prijava_izazov`) i dnevnik grešaka (`greska_log`) — obje tabele sa RLS-om (#78, #80, #81) |
@@ -311,6 +315,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | Alat | Šta radi |
 |---|---|
 | `npm run prvi-korisnik -- --firma … --ime … --korisnik … [--konsultant …]` | prvi nalozi u NOVOJ bazi: `bzr` i (preporučeno) `izvodjac`; jedna transakcija, audit, privremene lozinke. Ispiše u koju bazu upisuje; bazu koja već ima `bzr`/`izvodjac` odbija (demo iz `.env`!). Samo `--konsultant …` — konsultant naknadno |
+| `npm run uvoz-start -- --fajl … [--upisi]` | fajl iz upitnika (`upitnik-start/`) u bazu NOVOG klijenta, posle `prvi-korisnik` (#92). Bez `--upisi` samo pokaže (ista transakcija, pa rollback) |
 | `npm run dnevni-pregled` | stanje svih klijenata iz `alati/klijenti.txt` (+ veličina baze i otpremnica); izlazni kod 1 ako je neko u zastoju ili mu je baza ≥ `BAZA_UPOZORENJE_MB` (400). `KLIJENTI_FAJL=` drugi spisak (test ga usmjerava na nepostojeći, da gleda samo `DATABASE_URL`) |
 | `alati/napravi-licencu.ts` | licencni ključ za ugovor (papirni trag, aplikacija ga ne provjerava) |
 | `npm run demo-lozinke` | nove lozinke pet demo naloga, SAMO na demo bazi; upiše ih u `.env` (`DEMO_LOZINKA_*`) za `test:e2e` |
@@ -330,7 +335,7 @@ Postojeći fajl se **nikad ne mijenja** — ispravka je nov fajl sa sljedećim b
 | `npm run test:ci` | `TEST_DATABASE_URL` (mora biti localhost) — API testovi pa ekrani (`--sve`) | GitHub Actions (`.github/workflows/testovi.yml`) na svaki push na `main` |
 | `npm run test:e2e` | demo baza iz `.env`, server koji već radi | samo kad treba provjeriti baš demo bazu |
 
-25 testova, 647 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
+26 testova, 671 provjera (na čistoj bazi; na demo bazi dvije manje — preskaču se, a obavezna 2FA se provjerava samo lokalno), kroz svih pet uloga: pristup (svaka uloga × svaka adresa), obavještenja
 i zadaci, poruke i skladišta, povlačenje, provjera znanja, pitanja firme, neusaglašenost sa
 terena, prilozi i izvoz, prijave, i Faza 1 (HOLD → pusti/odbij, provjera mjere, odstupanje iz
 obrasca, nepotvrđena granica — `faza1_haccp`), i Faza 2 (istovremeni brojevi, lice + nalog u
@@ -362,8 +367,11 @@ današnji status vozila, odbijen upis javljen odgovornom licu — `talas6`), i d
 danas vozi, vozač kad mu isporuka ode ili se izmijeni, temperatura uz stavku prijema, NC unaprijed kaže šta fali i ko provjerava,
 primljene poruke po vremenu, filteri izvještaja (pregled = CSV) i audita, nova verzija pitanja firme, „Riješeno je“ — jedino odgovorno lice zatvara jednim upisom, sa drugim čeka četiri oka, konsultant ne zatvara, iz mjerenja čeka ponovno mjerenje, dodijeljena mjera se završava, povlačenje mora biti završeno — `dorada`), i inspekcijski paket (prijem sa temperaturom i termometrom, mjerenje van granice i
 njegova neusaglašenost, zapis upisan dan kasnije i ispravka — obje verzije, kontinuitet broji naknadne, period provjeren na serveru,
-direktor ga izvlači, ZIP prolazi kontrolni zbir svakog fajla, bez audita — `inspekcija`), i alati (prvi-korisnik na novoj praznoj bazi pravi odgovorno lice i konsultanta, odbija bazu koja
-već ima vodstvo i bazu bez tabela; dnevni-pregled javlja veličinu baze i upozorava — `alati`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
+direktor ga izvlači, ZIP prolazi kontrolni zbir svakog fajla, bez audita — `inspekcija`), i alati (prvi-korisnik na novoj praznoj bazi pravi odgovorno lice, konsultanta i KKT 1–3, odbija bazu koja
+već ima vodstvo i bazu bez tabela; uvoz-start — proba bez upisa, upis, ponovni uvoz bez duplikata, odbijen kupac bez telefona i
+artikal bez granice, granice nepotvrđene, pravila KKT 1/3, šifra kod dobavljača, demo baza odbijena; dnevni-pregled javlja veličinu baze — `alati`). i stanje poslovanja (šest vrsta perioda sa granicama i nazivom, tekući period do danas, budućnost odbijena, nova neusaglašenost VISOK
+pali crveno, primaoci, slanje kroz LAŽNI SMTP server testa — prijava na nalog, oba primaoca, HTML i tekst, trag; SMTP odbije → 502 bez traga;
+Odgovorno lice, direktor i magacioner 403 — `stanje`). **Rade samo na demo podacima** (`testovi/pomoc.mjs` provjeri pet demo naloga sa
 fiksnim ID-jevima) i brišu sve što naprave. Nov tok u aplikaciji = nov test.
 
 Demo baza nije čista — vlasnica kroz Render unosi svoje (npr. drugo skladište „Magacin Bar").
@@ -376,14 +384,14 @@ vraća status vozila i briše svoje kontrole. Test koji mjeri pravi svoj isprava
 na termometre demo baze. Rok je obavezan pri prijemu — testovi ga šalju (`rokZaDana()`); demo lot za isporuku se bira
 po SLOBODNOJ robi (`slobodno()` — isporuke u pripremi na demo bazi drže dio zalihe).
 
-**Testovi ekrana** (`testovi/ekrani/`, talas 6, dorada i inspekcijski paket, 51 provjera): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
+**Testovi ekrana** (`testovi/ekrani/`, talas 6, dorada, inspekcijski paket i stanje poslovanja, 52 provjere): pravi Chrome (`playwright-core`, pregledač se NE preuzima —
 koristi instaliran Chrome; `PW_KANAL=msedge` za Edge; na GitHub-u je Chrome već na računaru) u veličini telefona, prijava
 kroz API pa samo kolačić u pregledač (lozinka se ne kuca u pregledač). `1_uloge` — svaka strana svake od pet uloga: otvara
 se, ne viri van ekrana (vodoravni skrol), nema greške u konzoli; meni na telefonu nudi samo strane uloge; sva četiri priloga
 za štampu. `2_teren` — vozač D1 pa predaja kroz ekran, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema,
 direktor kartica → lista. `3_bez_mreze` — vozač bez signala: sve strane sačuvane na telefonu, D1 i predaja „Sačuvano na
-telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. `4_dorada` — filteri izvještaja i
-audita, poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. `5_isporuka_nc` — magacioner čiji je matični magacin
+telefonu“, ponovno otvaranje bez signala, pa signal → oba upisa odu sama, redom, sa oznakom. `4_dorada` (konsultant) — filteri izvještaja i
+audita, Stanje poslovanja (mejl u okviru čitav na 375 px, „Pošalji“ bez SMTP kaže šta fali), poruke Sve/Primljene/Poslate, plan obuke sa HACCP plana. `5_isporuka_nc` — magacioner čiji je matični magacin
 prazan sprema isporuku; Ana zatvara neusaglašenost jednim upisom („Riješeno je“, kvačica „bez četiri oka“). `6_inspekcija` —
 paket se sklopi (12 odjeljaka), isključen odjeljak nestaje i brojevi idu redom, ZIP se preuzima, u štampi samo dokument
 (sa `EKRANI_SLIKE=` sačuva i `inspekcijski-paket.pdf` za pregled očima). Scenario pravi svoje podatke
@@ -818,6 +826,33 @@ pod svojim brojem sa oznakom „ukinuto", da se brojevi ne pomjere.
     (#88), BEZ audita (nosi IP adrese i uređaje zaposlenih — daje se na zahtjev), izvor koga nema ne obara paket (#30, piše
     se u `SADRZAJ.txt`). `server/zip.ts` je bez spoljne biblioteke (zlib `deflateRawSync` + `crc32`, imena u UTF-8, vrijeme po
     Podgorici). Vidi ga bzr, konsultant i uprava (direktor dočekuje inspektora kad odgovorno lice nije tu).
+91. **Kontrolne tačke KKT 1, KKT 2 i KKT 3 postoje na SVAKOJ bazi** (11.10.2026). Kod ih traži po šifri, a bez njih ćuti:
+    prijem bez KKT 1 i predaja bez KKT 3 preskaču mjerenje i ocjenu temperature (`if (!kkt3Id) return []`), granica artikla
+    ne postaje pravilo (#39), osnovni plan izostavlja mjerenja. Do sada su nastajale SAMO uz demo podatke — na bazi pravog
+    klijenta ih ne bi bilo. Sada: nova baza ih dobija u `prvi-korisnik` (uz firmu), postojeća bez njih u dopuni 36 (samo kad
+    firma postoji — da `migriraj` pa `seed:demo` ne padne na istoj šifri). Test `alati` provjerava praznu bazu, ne demo.
+92. **Uvoz upitnika samo dopunjuje, nikad ne prepisuje** (`alati/uvoz-start.ts`, 11.10.2026). Fajl iz `upitnik-start/`
+    (format `pilot-upitnik-start`) ide u bazu klijenta u JEDNOJ transakciji; bez `--upisi` se na kraju poništi, pa je proba
+    tačno ono što bi upis uradio. Odbija demo bazu (demo nalozi), bazu bez tabela i bazu bez `prvi-korisnik`. Postojeće
+    (naziv, PIB, registarska oznaka) se preskače — uvoz se smije ponoviti; firmi i postojećem licu dopunjava samo PRAZNO
+    (drugačiju vrijednost kaže, ne mijenja). Prazan podrazumijevani „Glavni magacin“ (bez ijednog prijema, isporuke, mjerenja,
+    zapisa) dobija ime prvog magacina iz upitnika. Ista pravila kao aplikacija: šifra lica iz `sljedeciBroj` (#34), kupac bez
+    telefona se ne upisuje (#4), PIB ciframa i jedinstven (#66), u lice samo broj i rok knjižice (#15), granica artikla →
+    pravilo (#39) i `granica_potvrdio = false` (#5 — potvrđuje čovjek), loša granica → predlog režima (drugi režim bez
+    granice — odbijen), šifra kod dobavljača → `artikal_dobavljaca` (isti `kljucArtikla` kao prijem), audit sa
+    `izvor: alati/uvoz-start`. NE otvara naloge (#28), ne upisuje komore, kalibracije ni ritam rada — to ispiše konsultantu.
+93. **Izvještaji su konsultantovi; direktor dobija „Stanje poslovanja“ mejlom** (odluka vlasnice 11.10.2026). `/izvjestaji` i
+    izvoz (`/izvoz/*`) — samo `izvodjac`; odgovornom licu i direktoru ostaje „Za inspekciju“ (#90). `/stanje-poslovanja`
+    (`stanjeService`, samo `izvodjac`): period dan, sedmica, mjesec, kvartal, polugodište, godina — bez dana posljednji
+    ZAVRŠENI, tekući se siječe na danas („do danas“), budućnost 400 `PERIOD_U_BUDUCNOSTI`; svaki broj poređen sa prethodnim
+    periodom iste vrste. Na vrhu semafor i najviše 7 stavki „šta treba uraditi“ (crveno: povlačenje u toku, otvorena NC VISOK,
+    istekla knjižica, neispravan termometar, plan < 80 %). Isti izvori kao ostatak: plan iz `pregledPlana` (#43), naknadno
+    (#10), dan po Podgorici (#11), knjižice na KRAJ perioda (#15). Mejl je HTML sa tabelama i stilovima u redu — grafikoni su
+    stubići od tabela, ne slike (vidi se u svakom programu pošte bez preuzimanja slika), bez skripti; na telefonu (≤ 480 px)
+    kartice idu jedna ispod druge. Šalje se preko SMTP naloga konsultanta (env `SMTP_HOST`, `SMTP_PORT` — 465 = TLS,
+    `SMTP_KORISNIK`, `SMTP_LOZINKA`, `SMTP_POSILJALAC`); bez njih 409 `SLANJE_NIJE_PODESENO` i „Preuzmi izvještaj“ (isti HTML
+    kao fajl). Primaoci (`firma.izvjestaj_primaoci`, najviše 10, audit) — predlog je mejl firme. Trag `izvjestaj_poslat` se
+    upisuje tek POSLIJE uspješnog slanja (502 `SLANJE_NIJE_USPJELO` → nema traga). Automatsko slanje po rasporedu još ne postoji.
 ---
 
 ## Nalazi — arhitektura, baza, uloge, HACCP tok (pregled koda 23.09.2026)
@@ -922,7 +957,7 @@ repozitorijuma. Ovdje samo stanje.
 | ~~**Talas 5 — sigurnost i pogon**~~ ✓ 29.09.2026 (inspekcija 29.09.) | `sharp` 0.35.5 (ranjivosti u libvips) i provjera veličine slike; izvoz bez Excel formula i po Podgorici; asinhroni scrypt sa parametrima u hešu; dopune baze pri pokretanju + zdravlje; dnevnik grešaka u bazi; potvrda u dva koraka za vodstvo (+ obavezna po instanci); zaštita od pada ekrana, rok za zahtjev, traka „nema interneta“; demo lozinke iz koda u `.env` + `npm run demo-lozinke`; `npm run zakazi-bekap`, `npm run iskljuci-2fa`, `npm run demo:lokalno`; dnevni pregled sa greškama, dopunama i 2FA. Repozitorijum je vlasnica prebacila u privatni. Dopuna `33_talas5_cg`, test `talas5` (40 provjera). | inspekcija #1–#10 | urađeno |
 | ~~**Talas 6 — teren i testovi**~~ ✓ 30.09.2026 | Rad bez interneta za vozača i magacionera (#85): red na telefonu, isti ključ, vrijeme sa telefona i oznaka „bez mreže“, predaja po danu predaje, odbijeni upisi odgovornom licu, aplikacija i posljednji podaci sačuvani na telefonu (service worker). Testovi ekrana (`npm run test:ekrani`, Chrome, 375 px, 5 uloga, bez mreže) — odmah našli dvije greške (bijela strana posle gradnje, Prilozi van ekrana). Paket po stranama (`React.lazy`) i gradnja bez serverovog `.env`: 970 → 257 KB. Dopuna `34_van_mreze_cg`, testovi `talas6` (31) i ekrani (32). | inspekcija #11–#18 (dio) | urađeno |
 | **Ostatak talasa 6** | Server kompajliran u JS umjesto `tsx`; `statement_timeout`; ESLint/Prettier; podjela `otpremnicaService` i `NoviPrijem`; ograničenje slanja otpremnica po korisniku; alat za novog klijenta. | inspekcija #11–#18 (ostalo) | oko 1 sedmica |
-| **Talas 7 — prodajne funkcije** | ~~„Inspekcijski paket“ jednim klikom (PDF/ZIP za period)~~ ✓ 04.10.2026 (#90, test `inspekcija`, ekran `6_inspekcija`); mjesečni izvještaj direktoru automatski; demo koji se vraća svake noći; uvoz iz Excela (zaposleni, artikli, kupci, dobavljači); pregled svih klijenata za konsultanta; EAN skeniranje; „preuzima kupac“. | inspekcija #20–#26 | 2–3 sedmice |
+| **Talas 7 — prodajne funkcije** | ~~„Inspekcijski paket“ jednim klikom (PDF/ZIP za period)~~ ✓ 04.10.2026 (#90, test `inspekcija`, ekran `6_inspekcija`); ~~izvještaj direktoru~~ ✓ 11.10.2026 — „Stanje poslovanja“ (#93, test `stanje`), za sada se šalje klikom; automatsko slanje po rasporedu; demo koji se vraća svake noći; uvoz iz Excela (zaposleni, artikli, kupci, dobavljači); pregled svih klijenata za konsultanta; EAN skeniranje; „preuzima kupac“. | inspekcija #20–#26 | 2–3 sedmice |
 | **Ostatak talasa 4** | Jedan odgovor po pitanju i u bazi (UQ), korisnik baze sa najmanjim pravima, provjera veličine slike za OCR, podjela JS paketa po stranama. | R-12, R-33 – R-36 | posle pilota |
 | **5 — Po potražnji klijenata** | Premještanje robe među skladištima, straničenje, više konsultantskih naloga. ~~Skeniranje otpremnica~~ ✓ 24.09.2026, urađeno prije faze 3 na zahtjev vlasnice (bez spoljnih servisa). | B3, A7, U3 | po stavci |
 
@@ -1012,7 +1047,10 @@ repozitorijuma. Ovdje samo stanje.
 | „neusaglašenost neće da se zatvori“ (02.10.2026) | posle dorade 01.10. dugme „Provjereno — zatvori“ je bilo SIVO dok se ne označi kvačica izuzetka — kršenje #74 koje je dorada sama uvela; greška je stajala na VRHU prozora, a ispod mjere je i dalje stajala forma „Nova korektivna mjera“ | dugme uvijek aktivno, klik kaže šta fali; greška uz dugmad (skrol do nje); dok mjera čeka provjeru — nema forme za novu mjeru; tekst na vrhu kaže tačno šta da se uradi |
 | „kad hoću da neusaglašenost zatvorim, nešto se nesretno završava“ (03.10.2026, NC iz povlačenja) | zatvaranje je bilo četiri radnje: mjera (opis, kome, rok) → „Urađeno“ → napomena + kvačica → „Provjereno — zatvori“; za povlačenje nije ni pisalo da prvo treba završiti povlačenje | „Riješeno je — upiši“ kao prvi izbor: jedan upis, server sam odluči — zatvori, čeka drugog ili čeka ponovnu kontrolu/kraj povlačenja — i kaže koje (#89) |
 | besplatna Supabase baza bi se napunila za nekoliko mjeseci, a da niko ne zna (04.10.2026) | bekap iz aplikacije (i sedmični automatski) čuvao je PUNU kopiju podataka u istoj bazi 90 dana — ~13 kopija; od gubitka baze ne štiti, a na 500 MB baza prelazi u „samo čitanje“ | bekap se preuzima direktno, u bazi samo trag (dopuna 35, #68); veličina baze u `dnevni-pregled` sa upozorenjem na 400 MB |
+| na bazi PRAVOG klijenta ne bi bilo ocjene temperature ni na prijemu ni na predaji — bez ijedne greške (11.10.2026) | kontrolne tačke KKT 1–3 je pravio samo demo (`13_demo_cg`); kod ih traži po šifri i bez njih ćuti. Testovi rade na demo bazi, pa nisu mogli vidjeti | `prvi-korisnik` ih pravi uz firmu, dopuna 36 postojećim bazama (#91); test `alati` radi na PRAZNOJ bazi. Pouka: šta god kod traži po šifri ili nazivu mora nastati van demo podataka |
 | na novoj instanci klijenta niko nije mogao otvoriti nalog direktoru ni upisati PIB firme | `prvi-korisnik` je pravio samo `bzr`, a `bzr` otvara samo magacionere i vozače (#13); Podešavanje je samo konsultantovo | `prvi-korisnik --konsultant …`; alat i odbija bazu koja već ima `bzr`/`izvodjac` (da se ne upiše u demo iz `.env`) |
+| `could not determine data type of parameter $1` — izvještaj pao cijeli (11.10.2026) | upit je dobio dva parametra, a koristio samo `$2` — Postgres ne zna tip parametra koji se nigdje ne pojavljuje | upitu dati samo parametre koje koristi; našao ga je prvi prolaz testa `stanje` |
+| mejl izvještaja na telefonu viri 28 px u stranu (11.10.2026) | tri kartice u redu, a „Neusaglašenosti“ (12 px) šira od trećine ekrana od 375 px | `<style>` sa `@media (max-width: 480px)` — kartice jedna ispod druge; tekst umjesto broja („u redu“) manjim slovom. Našao ga je test ekrana (širina dokumenta u okviru) |
 | Python izmjena kroz bash heredoc „prošla“, a fajl nepromijenjen (assert na „⚠“) | konzola čita heredoc u cp1252 — znakovi van nje (⚠ ✓) se pokvare, pa se tekst ne poklopi | izmjene sa takvim znakovima: `.py` fajl napisan alatom (UTF-8), ne heredoc |
 | „Rok trajanja je istekao (2026-10-02)“ — Ana nije znala šta sad (03.10.2026) | pravilo je ispravno (#38), ali poruka je imala datum kao `2026-10-02`, nije rekla da se pogrešno ukucan rok ispravlja, „Prihvati“ se nudio iako ne može, a greška je stajala na vrhu strane | datum „02.10.2026.“, uputstvo „Izmijeni“ → prihvati; za isteklu robu umjesto Prihvati/Hold/Pusti stoji „Odbij — istekao rok“ sa predloženim razlogom; skrol do greške |
 | jedan test sa sintaksnom greškom oborio je CIO prolaz (izlazni kod 9, bez sažetka) | `await import(...)` scenarija stajao je van `try` u pokretaču | uvoz u `try` — pokvaren fajl je pao test, ostali se izvrše (`testovi/pokreni.mjs`, `testovi/ekrani/pokreni.mjs`) |
@@ -1047,6 +1085,11 @@ dopuna padne, novo izdanje ne kreće i Render ostavlja staro. Da li je deploy pr
 - Server ne učitava izmjene sam (`tsx` bez watch): poslije izmjene u `server/` — restart.
 - **Env na Renderu (talas 5):** `OBAVEZNA_2FA=izvodjac` (ili `izvodjac,bzr`) za svakog klijenta čim konsultant na toj
   instanci uključi svoju 2FA; `MIGRACIJE_PRI_STARTU` ne treba (u produkciji je podrazumijevano uključeno).
+- **Mejl „Stanje poslovanja“ (#93):** `SMTP_HOST`, `SMTP_PORT` (465), `SMTP_KORISNIK`, `SMTP_LOZINKA`, `SMTP_POSILJALAC`
+  (npr. `Ime Prezime <adresa@gmail.com>`) na SVAKOM Render servisu klijenta. Gmail: `smtp.gmail.com`, 465, lozinka je
+  „lozinka za aplikacije“ (traži uključenu potvrdu u dva koraka na Google nalogu), ne obična. **Besplatni Render blokira
+  odlazne SMTP portove 25, 465 i 587** (od 26.09.2025, render.com/changelog) — slanje radi samo na plaćenom planu; na
+  besplatnom: „Preuzmi izvještaj“ i poslati kao prilog. Lozinka za aplikacije ide samo u Render env, nikad u git ni `.env` u repou.
 - **Node ≥ 22.13** (`engines` u `package.json`) — zbog `pdfjs-dist`.
 - **Push:** VAPID ključ server pravi sam i čuva u bazi (`web_push_kljuc`) — na Renderu ne treba ništa
   podešavati; `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` samo ako se želi ručno. Push radi
@@ -1150,6 +1193,10 @@ u 13:00; ako je računar ugašen — čim se upali). Raspored je njena odluka, a
 
 **Demo lozinke su bile javne** (repozitorijum javan 20.–29.09.2026). Na živoj demo bazi pokrenuti `npm run demo-lozinke`
 — nove lozinke idu u `.env` i ispišu se jednom. Dok se ne pokrene, svako ko je vidio kod može ući u demo.
+
+**„Stanje poslovanja“ nije viđeno u pravom programu pošte** (#93). Test šalje na lažni SMTP server i provjerava sadržaj, a
+izgled je gledan u pregledaču (375 px i računar). Prvo poslati sebi: Gmail na telefonu i na računaru, i Outlook ako ga
+direktor koristi (Outlook na računaru ne zna `@media` — tri kolone ostaju, to je u redu). Na besplatnom Renderu slanje ne radi.
 
 **Potvrda u dva koraka** — konsultant je uključuje na svakoj instanci klijenta (Moja strana), pa na Renderu postavi
 `OBAVEZNA_2FA=izvodjac` (i `bzr` kad odgovorno lice pristane). `dnevni-pregled` javlja ko je još bez nje.

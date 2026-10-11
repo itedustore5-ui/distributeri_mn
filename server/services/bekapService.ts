@@ -19,6 +19,7 @@ const TABELE = [
   "skladiste", "poruka",
   "prijem_dokument", "artikal_dobavljaca",
   "plan_monitoringa", "mjerni_uredjaj", "provjera_uredjaja", "verifikacija_sistema",
+  "izvjestaj_poslat",
 ] as const;
 // Kolone koje ne idu u bekap: heš lozinke (tajna) i sam fajl otpremnice (velik — on je u pg_dump bekapu).
 const BEZ_KOLONA: Partial<Record<(typeof TABELE)[number], string[]>> = {

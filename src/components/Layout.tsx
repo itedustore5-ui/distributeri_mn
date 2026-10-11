@@ -23,6 +23,7 @@ import {
   MessageSquare,
   ClipboardCheck,
   FolderCheck,
+  TrendingUp,
 } from "lucide-react";
 import { useAuth, NAZIV_ULOGE, type Uloga } from "../lib/auth";
 import { api } from "../lib/api";
@@ -48,7 +49,8 @@ const STAVKE: StavkaMenija[] = [
   { putanja: "/sifarnici", naziv: "Šifarnici", ikonica: <Contact size={18} />, uloge: ["bzr", "izvodjac"] },
   { putanja: "/sledljivost", naziv: "Sledljivost", ikonica: <History size={18} />, uloge: ["bzr", "izvodjac", "uprava"] },
   { putanja: "/prilozi", naziv: "Prilozi", ikonica: <Printer size={18} />, uloge: ["bzr", "izvodjac"] },
-  { putanja: "/izvjestaji", naziv: "Izvještaji", ikonica: <BarChart3 size={18} />, uloge: ["bzr", "izvodjac"] },
+  { putanja: "/izvjestaji", naziv: "Izvještaji", ikonica: <BarChart3 size={18} />, uloge: ["izvodjac"] },
+  { putanja: "/stanje", naziv: "Stanje poslovanja", ikonica: <TrendingUp size={18} />, uloge: ["izvodjac"] },
   { putanja: "/inspekcija", naziv: "Za inspekciju", ikonica: <FolderCheck size={18} />, uloge: ["bzr", "izvodjac", "uprava"] },
   { putanja: "/audit", naziv: "Audit trag", ikonica: <FileCheck2 size={18} />, uloge: ["bzr", "izvodjac"] },
   { putanja: "/admin", naziv: "Podešavanje", ikonica: <ShieldCheck size={18} />, uloge: ["izvodjac"] },

@@ -8,10 +8,10 @@ export const naziv = "Ekrani: svih pet uloga, svaka strana na telefonu (375 px)"
 const STRANE = {
   petar: ["/moja", "/isporuka", "/vozila", "/neusaglasenosti", "/poruke"],
   marko: ["/moja", "/prijem", "/zalihe", "/haccp", "/isporuka", "/neusaglasenosti", "/poruke"],
-  ana: ["/tabla", "/moja", "/prijem", "/zalihe", "/haccp", "/haccp-plan", "/isporuka", "/vozila", "/neusaglasenosti", "/poruke", "/ljudi", "/sifarnici", "/sledljivost", "/prilozi", "/izvjestaji", "/inspekcija", "/audit"],
+  ana: ["/tabla", "/moja", "/prijem", "/zalihe", "/haccp", "/haccp-plan", "/isporuka", "/vozila", "/neusaglasenosti", "/poruke", "/ljudi", "/sifarnici", "/sledljivost", "/prilozi", "/inspekcija", "/audit"],
   direktor: ["/tabla", "/moja", "/zalihe", "/haccp-plan", "/poruke", "/sledljivost", "/inspekcija"],
 };
-STRANE.konsultant = [...STRANE.ana, "/admin"];
+STRANE.konsultant = [...STRANE.ana, "/izvjestaji", "/stanje", "/admin"];
 const IME = { petar: "Vozač", marko: "Magacioner", ana: "Odgovorno lice", direktor: "Uprava", konsultant: "Konsultant" };
 
 export async function pokreni({ provjeri }) {

@@ -17,6 +17,7 @@ const zadnjiAudit = async (entitetId) =>
 
 export async function pokreni({ provjeri }) {
   const ana = await prijava(NALOZI.ana);
+  const konsultant = await prijava(NALOZI.konsultant);
   const marko = await prijava(NALOZI.marko);
   const petar = await prijava(NALOZI.petar);
   const oznaka = `E2E-T2-${Date.now().toString(36).toUpperCase()}`;
@@ -203,14 +204,14 @@ export async function pokreni({ provjeri }) {
     provjeri("R-07: magacioner ne ispravlja tuđi zapis (403)", tudji.status === 403 && tudji.tijelo.error.code === "NIJE_VAS_ZAPIS");
 
     // ── R-20: izvoz ─────────────────────────────────────────────────────────────────────────
-    const izvori = (await ana("/izvoz/izvori")).tijelo.map((i) => i.kod);
+    const izvori = (await konsultant("/izvoz/izvori")).tijelo.map((i) => i.kod);
     provjeri("R-20: novi izvori za izvoz", ["kontrole_vozila", "provjere_nc", "termometri", "verifikacija_sistema", "kretanja_zalihe"].every((k) => izvori.includes(k)), izvori.join(","));
-    const pregled = async (kod) => (await ana(`/izvoz/${kod}/pregled`)).tijelo?.redovi ?? [];
+    const pregled = async (kod) => (await konsultant(`/izvoz/${kod}/pregled`)).tijelo?.redovi ?? [];
     provjeri("R-20: D1 u izvozu, sa granicom i ocjenom temperature", (await pregled("kontrole_vozila")).some((r) => r.vozilo === `${oznaka}-A` && r.temperatura_u_granici === "NE"));
     provjeri("R-20: provjere neusaglašenosti u izvozu", (await pregled("provjere_nc")).some((r) => r.provjera === "POTVRDJENO" && r.neusaglasenost));
     provjeri("R-20: provjere termometra u izvozu", (await pregled("termometri")).some((r) => r.uredjaj === `${oznaka} termometar` && r.rezultat === "NEISPRAVAN"));
     provjeri("R-20: kretanja zaliha u izvozu", (await pregled("kretanja_zalihe")).some((r) => r.lot === `${oznaka}-LA` && r.tip === "ISPORUKA"));
-    provjeri("R-20: CSV verifikacije sistema se preuzima", (await preuzmi(ana, "/izvoz/verifikacija_sistema.csv")).status === 200);
+    provjeri("R-20: CSV verifikacije sistema se preuzima", (await preuzmi(konsultant, "/izvoz/verifikacija_sistema.csv")).status === 200);
   } finally {
     const k = await pool.connect();
     try {

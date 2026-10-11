@@ -29,5 +29,13 @@ poruku, a vi tekst sačuvate kao `.json` fajl i otvorite ga.
 brojevi sanitarnih knjižica (samo broj i rok, nikad nalaz) — čuvajte ga kao i ostale podatke klijenta. Popunjeni
 fajlovi (`upitnik-start/*.json`) su u `.gitignore`.
 
-**Sljedeći korak (još ne postoji):** alat koji fajl upiše direktno u novu bazu klijenta, posle
-`npm run prvi-korisnik`. Do tada se podaci prepisuju u aplikaciju (Ljudi, Šifarnici, HACCP plan).
+**Uvoz u aplikaciju:** posle `npm run prvi-korisnik`, sa adresom NOVE baze klijenta:
+
+```powershell
+$env:DATABASE_URL="<adresa NOVE baze>"; npm run uvoz-start -- --fajl pilot-start-<firma>-<datum>.json
+```
+
+Prvo samo pokaže šta bi upisao (ništa ne upiše); ako je u redu, ista komanda sa `--upisi`. Ono što već
+postoji preskače, pa se smije ponoviti. Naloge, komore, kalibracije i ritam rada ne upisuje — ispiše ih, da ih
+konsultant unese u aplikaciji (Ljudi, HACCP plan). Granice artikala ostaju **nepotvrđene** dok ih odgovorno lice ne
+potvrdi u Šifarnicima.

@@ -244,23 +244,23 @@ export async function pokreni({ provjeri }) {
     );
 
     // ── Izvještaji: filter po vremenu i po kategoriji (pregled = CSV) ───────────────────────
-    const danas = await ana(`/izvoz/prijemi/pregled?od=${danasCG()}&do=${danasCG()}`);
-    const buducnost = await ana(`/izvoz/prijemi/pregled?od=${sutra}`);
+    const danas = await konsultant(`/izvoz/prijemi/pregled?od=${danasCG()}&do=${danasCG()}`);
+    const buducnost = await konsultant(`/izvoz/prijemi/pregled?od=${sutra}`);
     provjeri(
       "Izvještaj: filter po vremenu (danas — ima današnji prijem; od sutra — ništa)",
       danas.status === 200 && danas.tijelo.datumKolona === "datum_prijema" && danas.tijelo.redovi.some((r) => r.broj_dokumenta === oznaka) && buducnost.tijelo.ukupno === 0,
       `${danas.status} ${danas.tijelo?.datumKolona} ${buducnost.tijelo?.ukupno}`,
     );
-    const lotovi = await ana(`/izvoz/lotovi/pregled`);
-    const status = await ana(`/izvoz/lotovi/pregled?f_status=PRIHVACEN`);
+    const lotovi = await konsultant(`/izvoz/lotovi/pregled`);
+    const status = await konsultant(`/izvoz/lotovi/pregled?f_status=PRIHVACEN`);
     provjeri(
       "…i po kategoriji (status lota) — spisak vrijednosti dolazi sa servera",
       Array.isArray(lotovi.tijelo.filteri?.status) && status.tijelo.redovi.length > 0 && status.tijelo.redovi.every((r) => r.status === "PRIHVACEN"),
       JSON.stringify(lotovi.tijelo.filteri?.status),
     );
-    const csv = await fetch(`${process.env.APP_URL}/api/izvoz/prijemi.csv?od=${sutra}`, { headers: { "x-zahtjev-app": "1", cookie: ana.kolacic } }).then((r) => r.text());
+    const csv = await fetch(`${process.env.APP_URL}/api/izvoz/prijemi.csv?od=${sutra}`, { headers: { "x-zahtjev-app": "1", cookie: konsultant.kolacic } }).then((r) => r.text());
     provjeri("…CSV poštuje isti filter (od sutra — samo zaglavlje)", csv.trim().split("\n").length === 1, `${csv.trim().split("\n").length} redova`);
-    provjeri("…nepoznata kolona u filteru se ne koristi (bez greške)", (await ana(`/izvoz/lotovi/pregled?f_lozinka_hash=x`)).status === 200);
+    provjeri("…nepoznata kolona u filteru se ne koristi (bez greške)", (await konsultant(`/izvoz/lotovi/pregled?f_lozinka_hash=x`)).status === 200);
 
     // ── Audit: filteri ───────────────────────────────────────────────────────────────────────
     const f = (await ana("/audit/filteri")).tijelo;

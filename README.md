@@ -44,6 +44,8 @@ Vidi [`.env.example`](.env.example). Najvažnije:
   preko IPv6 i Render ga ne dohvata — ako se koristi, aplikacija se neće moći povezati u
   produkciji.
 - `NODE_ENV` — `development` lokalno, `production` na Renderu.
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_KORISNIK`, `SMTP_LOZINKA`, `SMTP_POSILJALAC` — samo za slanje „Stanja poslovanja“
+  direktoru mejlom (vidi niže). Bez njih aplikacija radi, a izvještaj se preuzima i šalje kao prilog.
 - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` — **nisu potrebni**. Ključ za push
   obavještenja server pravi sam pri prvom pokretanju i čuva ga u bazi klijenta (`web_push_kljuc`);
   kontakt je javna adresa servisa na Renderu (`RENDER_EXTERNAL_URL`, Render ga sam postavlja).
@@ -109,7 +111,7 @@ Svaki klijent dobija **svoj** Supabase projekat i **svoj** Render web servis, sa
 2. **Render**: novi Web Service iz ovog repozitorijuma.
    - Build command: `npm install && npm run build`
    - Start command: `npm start`
-   - Environment: `DATABASE_URL` (iz koraka 1), `NODE_ENV=production`
+   - Environment: `DATABASE_URL` (iz koraka 1), `NODE_ENV=production`; za mejl direktoru i `SMTP_*` (vidi „Stanje poslovanja“)
    - Plaćeni plan (Starter) — besplatni spava poslije 15 min neaktivnosti (prvi zahtjev čeka ~1 min),
      ima 0,1 procesora (čitanje fotografija otpremnica je presporo), a 750 besplatnih sati mjesečno važi
      za CIJELI Render nalog: jedan budan servis ih troši sam — dva besplatna servisa (npr. demo i klijent)
@@ -124,7 +126,15 @@ Svaki klijent dobija **svoj** Supabase projekat i **svoj** Render web servis, sa
    jednom. Konsultantski nalog treba: samo on otvara nalog direktoru (`uprava`), upisuje adresu i PIB
    firme (Podešavanje) i dobija obavještenje kad odgovorno lice samo zatvori neusaglašenost („bez četiri
    oka“). Bez njega: izostaviti `--konsultant` (može se dodati i kasnije: samo `--konsultant vase.ime`).
-   Odgovorno lice u `/moja` mijenja lozinku i u `/ljudi` otvara naloge magacioneru i vozaču.
+   Odgovorno lice u `/moja` mijenja lozinku i u `/ljudi` otvara naloge magacioneru i vozaču. Alat pravi i kontrolne
+   tačke KKT 1–3 — bez njih se temperatura na prijemu i predaji ne ocjenjuje.
+   **Podaci firme iz upitnika:** distributer popuni `upitnik-start/Upitnik-za-pocetak.html` i pošalje fajl, a vi:
+   ```powershell
+   $env:DATABASE_URL="<adresa NOVE baze>"; npm run uvoz-start -- --fajl pilot-start-<firma>-<datum>.json
+   ```
+   pokaže šta bi upisao (ništa ne upiše); ako je u redu — ista komanda sa `--upisi`. Zaposleni, magacini, vozila,
+   dobavljači, kupci, artikli (granice NEpotvrđene — potvrditi u Šifarnicima) i termometri; nalozi, komore i kalibracije
+   ostaju za aplikaciju (alat ih ispiše).
 4. Dodati klijenta u `alati/klijenti.txt` (nije u gitu — ostaje samo na vašem računaru):
    ```
    Naziv klijenta = postgresql://...
@@ -145,6 +155,7 @@ Demo baza (za prodajne sastanke) se pravi na isti način, ali sa `npm run seed:d
 | Alat | Šta radi |
 |---|---|
 | `npm run prvi-korisnik -- --firma "..." --ime "..." --korisnik ... [--konsultant ...]` | Prvi nalozi u novoj bazi: odgovorno lice (`bzr`) i konsultant (`izvodjac`), jedna transakcija, audit, privremene lozinke. Ispiše u koju bazu upisuje i odbija bazu koja već ima odgovorno lice ili konsultanta. Samo `--konsultant ...` — konsultantski nalog u bazi koja već ima odgovorno lice. |
+| `npm run uvoz-start -- --fajl … [--upisi]` | Upitnik za početak (`upitnik-start/`) u bazu novog klijenta, posle `prvi-korisnik`. Bez `--upisi` samo pokaže šta bi uradio. Postojeće preskače (može se ponoviti), odbija demo bazu, kupca bez telefona i artikal bez granice; granice ostaju nepotvrđene; naloge ne otvara. |
 | `npm run dnevni-pregled` | Stanje SVIH klijenata iz `alati/klijenti.txt` u jednom ispisu (poslednji unos, otvorene neusaglašenosti, **veličina baze i koliko su otpremnice**, greške servera i ekrana u 24 h, neprimijenjene dopune baze, vodstvo bez potvrde u dva koraka). Izlazni kod `1` ako je neko u zastoju (>2 dana bez unosa) ili mu je baza ≥ 400 MB (`BAZA_UPOZORENJE_MB=` za klijente na plaćenom planu; `KLIJENTI_FAJL=` drugi spisak) — pogodno za Task Scheduler + mejl na grešku. |
 | `npm run demo-lozinke` | Nove lozinke za pet demo naloga — SAMO na demo bazi (provjeri fiksne ID-jeve); upiše ih u `.env` (`DEMO_LOZINKA_*`, za `test:e2e`) i ispiše jednom. |
 | `npm run iskljuci-2fa -- --korisnik ime` | Isključuje potvrdu u dva koraka nalogu koji je izgubio telefon i rezervne kodove; prekida njegove prijave, upisuje se u audit. |
@@ -188,13 +199,13 @@ server/
   greske.ts            konzistentan format greške { error: { code, message, details } }
   services/            SQL i poslovna pravila: haccp (evaluacija pravila), prijem, isporuka, zaliha,
                         neusaglašenosti, vozila, sledljivost, izvoz, audit, zadaci, poruke, tabla,
-                        ljudi, provjera znanja, push, inspekcijski paket
+                        ljudi, provjera znanja, push, inspekcijski paket, stanje poslovanja (izvještaj direktoru)
   zip.ts               ZIP arhiva bez spoljne biblioteke (Node zlib: deflate + crc32)
   routes/               REST rute po modulu, montirane pod /api — šema, uloga, poziv servisa, odgovor
 src/
   pages/               po jedna strana po ulozi/modulu (Tabla, Ljudi, Prijem, Zalihe, HACCP,
                         Neusaglašenosti, Vozila, Isporuka, Moja, Sledljivost, Prilozi,
-                        Izvještaji, Inspekcija, Audit, ProvjeraZnanja, Admin)
+                        Izvještaji, StanjePoslovanja, Inspekcija, Audit, ProvjeraZnanja, Admin)
   components/          Layout (sidebar+topbar), StatusBadge, Modal, StatCard
   lib/                 api.ts (fetch wrapper + CSRF zaglavlje), auth.tsx (AuthContext)
 public/obrasci-cg.json definicija dnevnih obrazaca (P3–P10) — nov obrazac se dodaje ovdje; čitaju je
@@ -216,7 +227,7 @@ alati/                 CLI skripte, pokreću se sa računara konsultantkinje
 | `operater` | Magacioner | prijem, zalihe, HACCP, isporuka — samo poslednji 1 dan, samo svoje unose i isporuke koje je sam spremio |
 | `vozac` | Vozač | vozila (D1 — vidi samo vozač), isporuka — samo poslednji 1 dan, samo dodijeljene; on potvrđuje predaju |
 | `uprava` | Direktor | pregled bez unosa; šalje poruke zaposlenima |
-| `izvodjac` | Konsultant | sve + banka pitanja za provjeru znanja + podešavanje firme (`/admin`) |
+| `izvodjac` | Konsultant | sve + banka pitanja za provjeru znanja + podešavanje firme (`/admin`) + Izvještaji (izvoz) i Stanje poslovanja — samo on |
 
 Dozvole se provjeravaju **na serveru** (`server/auth.ts` → `requireUloga`, `ogranicenjeDatuma`,
 `samoMoje`, `izvrsilacZa`) — frontend meni samo krije stavke, ne štiti ništa.
@@ -508,14 +519,34 @@ zapisi danas) — uprava ne ulazi na operativne strane. „Lotovi na HOLD-u" vod
 izabranim filterom, „Povlačenja u toku" na Sledljivost, gdje uprava vidi povlačenja i spisak
 kupaca, bez dugmadi za upis. Lista i broj na kartici se računaju istim uslovom (`/tabla/detalj`).
 
-### Izvještaji — prvo pregled
+### Izvještaji — prvo pregled (samo konsultant)
 
-Izvještaj se prvo otvori na ekranu (najnovijih 500 redova, čitljiva zaglavlja, statusi kao u
+Izvještaje i izvoz tabela (CSV, JSON) vidi samo konsultant — odgovornom licu i direktoru za inspektora ostaje
+„Za inspekciju“, a direktor stanje firme dobija mejlom („Stanje poslovanja“, niže). Izvještaj se prvo otvori na ekranu (najnovijih 500 redova, čitljiva zaglavlja, statusi kao u
 aplikaciji, bez internih ID-jeva, pretraga), pa se štampa ili preuzme CSV sa svim kolonama.
 **Filter po vremenu** (danas, 7 dana, ovaj ili prošli mjesec, godina, sve, ili od–do — po datumu
 radnje, npr. datumu prijema) i **po kategorijama** koje izvještaj ima (status, magacin, obrazac,
 rezultat…) radi na serveru: isti filter važi za pregled, štampu i CSV, i ispiše se u zaglavlju
 štampe. Period ostaje izabran kad se pređe na drugi izvještaj.
+
+### Stanje poslovanja — izvještaj direktoru mejlom (`/stanje`, samo konsultant)
+
+Jedna strana koju direktor pogleda za pet minuta: **semafor na vrhu** („Sve pod kontrolom“ / „Ima stvari za pažnju“ /
+„Potrebna je vaša odluka“) sa najviše 7 stavki šta treba uraditi, pa **ključni pokazatelji** sa poređenjem sa prethodnim
+periodom (isporuke i kupci, prijemi, otpis; kontrole po planu, zapisi na vrijeme, temperatura u granici; otvorene
+neusaglašenosti, povlačenja, kontrole vozila), **grafikoni** (isporuke; zapisi i kontrole — crvena crta je radni dan bez
+ijednog zapisa; neusaglašenosti nove/zatvorene) i **ljudi i oprema** (knjižice, obuka, termometri).
+
+Period: **dan, sedmica, mjesec, kvartal, polugodište, godina** — strelicama ranije/kasnije; bez izbora posljednji završeni
+(juče, prošla sedmica, prošli mjesec…), a tekući „do danas“. Ekran prikazuje tačno ono što stiže mejlom.
+
+- **Kome se šalje** — mejl direktora (više adresa zarezom, najviše 10) → „Sačuvaj“ → **„Pošalji direktoru“**. Svako slanje
+  ostaje u spisku „Poslati izvještaji“ (ko, kad, period, kome).
+- **„Preuzmi izvještaj“** — isti izvještaj kao `.html` fajl, da se pošalje kao prilog iz vaše pošte.
+- Slanje ide sa VAŠEG mejl naloga, podešenog na Render servisu klijenta: `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`,
+  `SMTP_KORISNIK=vasa.adresa@gmail.com`, `SMTP_LOZINKA=<lozinka za aplikacije>` (Google nalog → Bezbjednost → potvrda u dva
+  koraka → Lozinke za aplikacije — ne obična lozinka), `SMTP_POSILJALAC=Ime Prezime <vasa.adresa@gmail.com>`.
+  **Besplatni Render blokira slanje mejla (SMTP)** — radi samo na plaćenom planu; do tada „Preuzmi izvještaj“.
 
 ### Za inspekciju — inspekcijski paket (`/inspekcija`)
 
@@ -725,8 +756,8 @@ Prijem robe, odluke i otpis traže mrežu. Uslov: vozač jednom otvori stranu Is
 ```bash
 npm run typecheck
 npm run build
-npm test             # 647 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
-npm run test:ekrani  # 51 provjera ekrana: telefon 375 px, pet uloga, rad bez mreže, inspekcijski paket
+npm test             # 671 provjera na SOPSTVENOJ čistoj bazi; izlazni kod 1 ako išta padne
+npm run test:ekrani  # 52 provjere ekrana: telefon 375 px, pet uloga, rad bez mreže, inspekcijski paket, stanje poslovanja
 ```
 
 **`npm run test:ekrani`** izgradi aplikaciju kao za Render, pokrene server u produkcijskom režimu (sa
@@ -777,7 +808,7 @@ koji isporučuje demo lot bira onaj koji nije istekao (`nijeIstekao()`).
 | `ekrani/1_uloge` | svaka strana svake od pet uloga na telefonu: otvara se, bez vodoravnog skrola, bez greške; meni nudi samo strane uloge; četiri priloga za štampu |
 | `ekrani/2_teren` | vozač D1 pa predaja, magacioner mjerenje sa termometrom, obrazac P9 i prvi korak prijema, direktor kartica → lista — sve kroz ekran |
 | `ekrani/5_isporuka_nc` | magacioner čiji je matični magacin prazan: forma sama nudi magacin sa robom, „Sačuvaj“ kaže šta fali; Ana zatvara neusaglašenost jednim upisom („Riješeno je“ — kvačica i šta je provjereno) |
-| `alati` | `prvi-korisnik` odbija bazu koja već ima odgovorno lice ili konsultanta (i bazu bez tabela); na novoj praznoj bazi pravi odgovorno lice i konsultanta (privremene lozinke, audit, firma); drugi konsultant se odbija; `dnevni-pregled` javlja veličinu baze i upozorava preko granice |
+| `alati` | `prvi-korisnik` odbija bazu koja već ima odgovorno lice ili konsultanta (i bazu bez tabela); na novoj praznoj bazi pravi odgovorno lice, konsultanta i kontrolne tačke KKT 1–3 (privremene lozinke, audit, firma); drugi konsultant se odbija; `uvoz-start`: proba bez upisa, upis (preimenovan prazni magacin, dopunjena knjižica, granice nepotvrđene, pravila KKT 1/3, šifra kod dobavljača), ponovni uvoz bez duplikata, demo baza odbijena; `dnevni-pregled` javlja veličinu baze i upozorava preko granice |
 | `inspekcija` | paket za period: prijem sa temperaturom i termometrom, mjerenje van granice i njegova neusaglašenost, zapis upisan dan kasnije („naknadno +1“) i ispravka (obje verzije), kontinuitet broji naknadne; period se provjerava na serveru (obrnut, duži od godine, budućnost); direktor ga izvlači; ZIP je ispravan (kontrolni zbir svakog fajla), bez audita, sa istim periodom |
 | `ekrani/6_inspekcija` | paket se sklopi na telefonu (12 odjeljaka, ne viri van ekrana), isključen odjeljak nestaje i brojevi idu redom, ZIP se preuzima, u štampi ostaje samo dokument |
 | `ekrani/3_bez_mreze` | vozač bez signala: aplikacija sačuvana na telefonu, D1 i predaja čekaju (i posle ponovnog otvaranja), signal → odu same, redom, sa oznakom |
@@ -802,7 +833,8 @@ Ručno, na `npm run dev`, kroz svih pet uloga:
    završiti je, verifikovati drugim nalogom (ne istim koji je završio mjeru), zatvoriti.
 4. **Sledljivost**: pretraga po broju lota — provjeriti lanac dobavljač → prijem → lot →
    isporuka → kupac.
-5. **Izvoz**: preuzeti CSV po tabeli i sve odjednom (JSON) sa `/izvjestaji`.
+5. **Izvoz** (kao konsultant): preuzeti CSV po tabeli i sve odjednom (JSON) sa `/izvjestaji`; `/stanje` → „Mjesec“ →
+   upisati svoj mejl kao primaoca → „Pošalji direktoru“ i pogledati mejl na telefonu.
 6. **Prilozi**: štampati rješenje o imenovanju i Prilog 13/14 sa `/prilozi`.
 7. **Provjera znanja**: sa `/provjera-znanja`, ući šifrom sa spiska zaposlenih, odgovoriti na
    pitanja, provjeriti evidenciju na `/prilozi` → Prilog 14.
@@ -819,7 +851,7 @@ Ručno, na `npm run dev`, kroz svih pet uloga:
 
 Picking, rute, optimizacija ruta, rezervacije zaliha, povrati/reklamacije kao posebni moduli,
 multi-facility/multi-zone skladište, barcode/IoT senzori, spoljne integracije (ERP,
-računovodstvo), SMS/email obavještenja. Vidi plan/CLAUDE.md za obrazloženje — cilj je sistem
+računovodstvo), SMS/email obavještenja (jedini mejl je „Stanje poslovanja“ direktoru, sa naloga konsultanta). Vidi plan/CLAUDE.md za obrazloženje — cilj je sistem
 koji magacioner stvarno koristi, ne enterprise WMS.
 
 ## Otvoreno

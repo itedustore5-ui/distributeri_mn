@@ -10,7 +10,7 @@ const TACKE_PO_ARTIKLU = ["KKT1", "KKT3"];
  * artiklom — nova verzija pravila kad se granica promijeni, gašenje kad artikal više nije pod
  * režimom. Stara verzija ostaje (vazi_do), da se vidi po čemu je ocijenjeno ranije mjerenje.
  * Zove se u transakciji izmjene artikla. */
-export async function uskladiPravilaArtikla(klijent: PoolClient, artikalId: string, korisnikId: string) {
+export async function uskladiPravilaArtikla(klijent: PoolClient, artikalId: string, korisnikId: string | null) {
   const a = (
     await klijent.query<{ naziv: string; temp_kontrolisano: boolean; temp_min: string | null; temp_max: string | null }>(
       `select naziv, temp_kontrolisano, temp_min, temp_max from artikal where id = $1`,
